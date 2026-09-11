@@ -44,4 +44,15 @@ test.describe("login", () => {
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/forbidden$/);
   });
+
+  test("cashier cannot reach the menu/recipe admin section (regression: menu:read must not leak COGS to cashiers)", async ({ page }) => {
+    await page.goto("/login");
+    await page.getByLabel("Email").fill("cashier@dev.local");
+    await page.getByLabel("Password").fill("ChangeMe123!");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/pos$/);
+
+    await page.goto("/menu");
+    await expect(page).toHaveURL(/\/forbidden$/);
+  });
 });

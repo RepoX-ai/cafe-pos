@@ -10,10 +10,13 @@ describe("permissions", () => {
   it("restricts cashier to the order-facing workflow", () => {
     expect(hasPermission("cashier", "orders:create")).toBe(true);
     expect(hasPermission("cashier", "orders:read_own")).toBe(true);
-    expect(hasPermission("cashier", "menu:read")).toBe(true);
 
     for (const denied of [
       "reports:read",
+      // menu:read gates the /menu ADMIN section (recipe COGS/margins) —
+      // a cashier must never hold it, even though the POS itself reads
+      // the menu catalog (via its own orders:create page permission).
+      "menu:read",
       "menu:write",
       "inventory:read",
       "inventory:adjust",
@@ -47,6 +50,8 @@ describe("permissions", () => {
     expect(hasPermission("inventory_staff", "inventory:receive")).toBe(true);
     expect(hasPermission("inventory_staff", "purchases:write")).toBe(true);
     expect(hasPermission("inventory_staff", "orders:create")).toBe(false);
+    // Same rationale as cashier: PRD's matrix says "Menu management" = No.
+    expect(hasPermission("inventory_staff", "menu:read")).toBe(false);
     expect(
       hasPermission("inventory_staff", "orders:create", {
         inventoryStaffCanCreateOrders: true,
@@ -59,6 +64,7 @@ describe("permissions", () => {
     expect(hasPermission("viewer", "inventory:read")).toBe(true);
     expect(hasPermission("viewer", "orders:create")).toBe(false);
     expect(hasPermission("viewer", "menu:write")).toBe(false);
+    expect(hasPermission("viewer", "menu:read")).toBe(false);
   });
 
   it("requirePermission throws PermissionDeniedError when nothing matches", () => {

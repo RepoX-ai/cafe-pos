@@ -1,0 +1,114 @@
+# Deployment
+
+Three targets, same codebase, no environment-specific forks. See
+[backup-restore.md](backup-restore.md) for the database side of this.
+
+## Local
+
+Covered in the main [README](../README.md#local-development). Docker
+Compose for the whole stack, or Node + any local/managed Postgres.
+
+## Staging: Vercel + managed Postgres
+
+1. Create a managed Postgres database (Supabase, Neon, RDS, etc.) —
+   separate from whatever production ends up using.
+2. Import the project into Vercel from this repo.
+3. Set environment variables in the Vercel project (from `.env.example`):
+   `DATABASE_URL`, `AUTH_SECRET`, `APP_URL` (your Vercel URL),
+   `BUSINESS_TIMEZONE=Asia/Jakarta`, `PRINT_PROVIDER=mock` (or `browser`
+   until hardware is confirmed).
+4. Run migrations once against the staging database before the first
+   deploy serves traffic:
+   ```bash
+   DATABASE_URL=<staging-url> npm run db:migrate
+   DATABASE_URL=<staging-url> npm run db:seed   # optional, dev fixtures only
+   ```
+5. Deploy. Nothing in this codebase depends on Vercel-specific APIs
+   (Blob, Cron, Edge Functions) for core workflows, so this step is just
+   "point Vercel at the repo" — no staging-only code paths to maintain.
+
+## Production option A: VPS app + managed Postgres
+
+Same as staging, but the Next.js app runs on a café-owned VPS instead of
+Vercel (see option B below for the app-serving details) while Postgres
+stays managed. Good middle ground: the café isn't operating a database,
+but isn't dependent on Vercel either.
+
+## Production option B: fully VPS-hosted (app + Postgres)
+
+### 1. Provision
+
+A small VPS (2 vCPU / 4GB RAM is comfortable for one café) running
+Ubuntu/Debian, with Docker + Docker Compose installed, is the fastest path
+since it reuses the same `docker-compose.yml` as local dev.
+
+```bash
+git clone <this-repo> /opt/cafe-pos
+cd /opt/cafe-pos
+cp .env.example .env
+# edit .env: real AUTH_SECRET (openssl rand -base64 32), PRINT_PROVIDER, etc.
+docker compose up -d --build
+docker compose exec app npm run db:migrate
+```
+
+### 2. Reverse proxy + HTTPS
+
+Run Nginx on the host (not in Compose) so certbot can manage certificates
+normally:
+
+```nginx
+server {
+    listen 80;
+    server_name pos.yourcafe.example;
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+```bash
+sudo certbot --nginx -d pos.yourcafe.example
+```
+
+`X-Forwarded-For` matters here: the login rate limiter
+(`src/lib/auth/rate-limit.ts`) and audit log both read it to identify the
+real client IP behind the proxy.
+
+### 3. Process supervision
+
+Docker Compose's own `restart: unless-stopped` (already set in
+`docker-compose.yml`) handles container restarts across crashes and VPS
+reboots — no separate systemd unit needed for the app itself. If you
+enable the reboot-survival systemd unit for Docker
+(`systemctl enable docker`), that's the whole story.
+
+### 4. Monitoring / error reporting
+
+Set `SENTRY_DSN` in `.env` to enable error reporting (optional — the app
+runs fine without it). At minimum, watch:
+
+- `docker compose logs -f app` for application errors
+- the `/api/health` endpoint (used by the container healthcheck already;
+  point an external uptime monitor at it too)
+- log rotation: Docker's default `json-file` log driver grows unbounded —
+  set `max-size`/`max-file` on the `app`/`db` services in
+  `docker-compose.yml` (or configure the Docker daemon's default
+  `log-driver` options) before this runs unattended for months.
+
+### 5. Backups
+
+See [backup-restore.md](backup-restore.md) — set up the cron job before
+the café takes real orders on this, not after.
+
+## Printer hardware
+
+None of the above changes once a real printer is confirmed — set
+`PRINT_PROVIDER=bridge` plus `PRINT_BRIDGE_URL`/`PRINT_BRIDGE_SECRET`,
+and implement `src/printing/providers/bridge-printer.ts` against
+whatever protocol the hardware speaks (PRD §20 has the open questions to
+resolve with the café first). Everything else in the order/print pipeline
+is provider-agnostic already.

@@ -77,12 +77,20 @@ export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
   cashier: new Set<Permission>([
     "orders:create",
     "orders:read_own",
-    "menu:read",
+    // Deliberately NOT menu:read: the POS reads the menu catalog via
+    // orders:create (its own page permission), not menu:read — menu:read
+    // is what gates the /menu ADMIN section, which surfaces recipe COGS
+    // and margins. Granting it here would let a cashier reach that data,
+    // which the PRD explicitly forbids (§4: "should not see ... ingredient
+    // costs ... profit information").
+    //
     // orders:reprint is granted only if the owner explicitly enables
     // "reprint_own" for cashiers — see overrides below.
   ]),
   inventory_staff: new Set<Permission>([
-    "menu:read",
+    // Same reasoning as cashier above: inventory_staff can manage
+    // ingredients directly, but "Menu management" is explicitly "No" in
+    // the PRD's role matrix, so no menu:read either.
     "ingredients:write",
     "inventory:read",
     "inventory:receive",
@@ -92,7 +100,7 @@ export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
     // orders:create is optional/assignment-based — see overrides below.
   ]),
   viewer: new Set<Permission>([
-    "menu:read",
+    // Same reasoning: "Menu management" is "No" for Viewer too.
     "orders:read_all",
     "inventory:read",
     "reports:read",

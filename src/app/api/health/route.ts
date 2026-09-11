@@ -7,9 +7,10 @@ export async function GET() {
     await db.execute(sql`select 1`);
     return NextResponse.json({ status: "ok", database: "connected" });
   } catch (error) {
-    return NextResponse.json(
-      { status: "error", database: "disconnected", message: (error as Error).message },
-      { status: 503 },
-    );
+    // Log the real error server-side only — the response body is
+    // reachable by anyone (it's a healthcheck endpoint, often public to
+    // infra monitoring) and driver errors can include host/user details.
+    console.error("Health check DB connection failed:", error);
+    return NextResponse.json({ status: "error", database: "disconnected" }, { status: 503 });
   }
 }

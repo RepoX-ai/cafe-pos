@@ -112,6 +112,37 @@ export async function setStaffActive(db: Database, actor: ActorContext, userId: 
   return row;
 }
 
+/**
+ * Owner-initiated reset for a staff member who's forgotten their
+ * password — there is no self-service "forgot password" flow in the
+ * MVP. Invalidates existing sessions too, so a lost/compromised
+ * credential can't keep working after the reset.
+ */
+export async function resetStaffPassword(
+  db: Database,
+  actor: ActorContext,
+  userId: string,
+): Promise<{ tempPassword: string }> {
+  const [user] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.businessId, actor.businessId))).limit(1);
+  if (!user) throw new Error("User not found");
+
+  const tempPassword = generateTempPassword();
+  const passwordHash = await hashPassword(tempPassword);
+
+  await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
+  await invalidateAllUserSessions(db, userId);
+
+  await recordAuditLog(db, {
+    businessId: actor.businessId,
+    actorUserId: actor.userId,
+    action: "user.password_reset",
+    entityType: "user",
+    entityId: userId,
+  });
+
+  return { tempPassword };
+}
+
 export async function changeStaffRole(db: Database, actor: ActorContext, userId: string, role: RoleName) {
   const [user] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.businessId, actor.businessId))).limit(1);
   if (!user) throw new Error("User not found");

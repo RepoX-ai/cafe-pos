@@ -3,10 +3,12 @@
 Café point-of-sale, recipe inventory, COGS, and profit management system.
 Built against [docs/cafe-erp-prd.md](docs/cafe-erp-prd.md).
 
-**Status:** Phase 0 (Foundation) complete. Auth, permissions, full database
-schema, Docker, and test tooling are in place. POS, menu/recipe UI,
-purchasing, printing, and the dashboard are not built yet — see
-[Implementation phases](#implementation-phases).
+**Status:** All 7 PRD phases (0–6) implemented — schema, auth/permissions,
+menu/recipes, inventory, POS order workflow, printing, dashboard/reports,
+and staff/audit/hardening. See [Implementation phases](#implementation-phases)
+for what each phase covers and [Known limitations](#known-limitations--deliberately-out-of-scope)
+for what still needs a live environment to verify or wasn't built (CSV
+import, real printer hardware).
 
 ## Stack
 
@@ -136,8 +138,42 @@ Tracking the PRD's phased plan (§18):
       waste, expenses) each with CSV export, all excluding cancelled/
       refunded orders from sales/COGS the same way the PRD's dashboard
       formulas do.
-- [ ] **Phase 6 — Hardening & pilot**: full e2e suite, concurrency
-      testing, backup/restore drill, staging + production deployment.
+- [x] **Phase 6 — Hardening & pilot** (the parts a solo build without a
+      live café/printer/staging environment can actually do): staff
+      management UI (create/deactivate/change role/reset password — a
+      real MVP-acceptance-criteria gap the earlier phases had left open),
+      an audit log viewer, login rate limiting, a manual permission audit
+      that found and fixed a real boundary bug (see "Known limitations"
+      below), backup/restore and deployment docs. Concurrency testing,
+      printer testing, staff acceptance testing, and the actual staging/
+      production deploy are operational steps for the café's team to run
+      against real infrastructure — see the checklists in
+      [docs/deployment.md](docs/deployment.md) and PRD §19.
+
+## Known limitations / deliberately out of scope
+
+- **No live database in this build environment.** Every migration, the
+  seed script, and the integration/e2e test suites are believed correct
+  by code review and `drizzle-kit`'s own validation, but have not been
+  run against a real Postgres from this session. Run
+  `docker compose up -d db && npm run db:migrate && npm run db:seed`
+  and the test suites (`npm run test:integration`, `npm run test:e2e`)
+  before trusting this in a pilot.
+- **CSV import** (ingredients/menu/recipes) isn't built — only CSV
+  *export* (PRD §6.14/§14). For the pilot's initial data load, use the
+  seed script as a template and adapt it, or ask for import to be built
+  before real data entry needs it.
+- **Permission-boundary bug found and fixed during Phase 6's audit**:
+  cashier/inventory_staff/viewer briefly held `menu:read`, which — because
+  that permission also gates the `/menu` admin section (recipe COGS and
+  margins) — would have let a cashier reach cost data by navigating to
+  `/menu` directly. Fixed in `src/lib/permissions/permissions.ts`; a
+  regression test covers it in both `tests/unit/permissions.test.ts` and
+  `tests/e2e/login.spec.ts`. Worth a careful look if you add new
+  permissions that double as page guards for more than one audience.
+- A hardware `PrinterProvider` isn't implemented — printer brand/model/
+  connection type are still open per PRD §20. The interface and mock/
+  browser fallbacks are ready; see [docs/deployment.md](docs/deployment.md#printer-hardware).
 
 ## Deployment
 
@@ -150,6 +186,11 @@ Tracking the PRD's phased plan (§18):
   Docker (`docker compose up --build -d` behind an Nginx reverse proxy
   with TLS) or `npm run build && npm start` under a process manager
   (pm2/systemd).
+
+Full step-by-step for each target, including Nginx/TLS config and log
+rotation, is in [docs/deployment.md](docs/deployment.md). Backup/restore
+procedure (and the drill to run before go-live) is in
+[docs/backup-restore.md](docs/backup-restore.md).
 
 Open hardware/business decisions (printer model, tax-inclusive pricing,
 service charge, negative-stock policy, etc.) are listed in PRD §20 and are

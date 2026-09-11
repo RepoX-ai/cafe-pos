@@ -9,7 +9,7 @@ import { Field, inputClassName, selectClassName } from "@/components/ui/form-fie
 import { ROLE_NAMES } from "@/lib/validation/staff";
 import { ROLE_LABELS } from "@/lib/permissions/role-labels";
 import type { RoleName } from "@/lib/permissions/permissions";
-import { changeStaffRoleAction, createStaffAction, setStaffActiveAction } from "./actions";
+import { changeStaffRoleAction, createStaffAction, resetStaffPasswordAction, setStaffActiveAction } from "./actions";
 
 interface StaffRow {
   id: string;
@@ -62,7 +62,12 @@ export function StaffClient({ staff, currentUserId }: { staff: StaffRow[]; curre
           </thead>
           <tbody>
             {staff.map((s) => (
-              <StaffRowItem key={s.id} staff={s} isSelf={s.id === currentUserId} />
+              <StaffRowItem
+                key={s.id}
+                staff={s}
+                isSelf={s.id === currentUserId}
+                onShowTempPassword={(password) => setTempPasswordBanner({ email: s.email, password })}
+              />
             ))}
           </tbody>
         </table>
@@ -80,12 +85,29 @@ export function StaffClient({ staff, currentUserId }: { staff: StaffRow[]; curre
   );
 }
 
-function StaffRowItem({ staff, isSelf }: { staff: StaffRow; isSelf: boolean }) {
+function StaffRowItem({
+  staff,
+  isSelf,
+  onShowTempPassword,
+}: {
+  staff: StaffRow;
+  isSelf: boolean;
+  onShowTempPassword: (password: string) => void;
+}) {
   const [role, setRole] = useState<RoleName>(staff.roles[0] ?? "cashier");
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isSuperAdmin = staff.roles.includes("super_admin");
+
+  async function resetPassword() {
+    setIsPending(true);
+    setError(null);
+    const result = await resetStaffPasswordAction(staff.id);
+    setIsPending(false);
+    if (result.ok) onShowTempPassword(result.tempPassword);
+    else setError(result.error);
+  }
 
   async function handleRoleChange(newRole: RoleName) {
     setRole(newRole);
@@ -134,14 +156,23 @@ function StaffRowItem({ staff, isSelf }: { staff: StaffRow; isSelf: boolean }) {
       </td>
       <td className="px-4 py-3 text-right">
         {!isSuperAdmin ? (
-          <button
-            onClick={toggleActive}
-            disabled={isPending || isSelf}
-            title={isSelf ? "You can't deactivate your own account" : undefined}
-            className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
-          >
-            {staff.active ? "Deactivate" : "Reactivate"}
-          </button>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={resetPassword}
+              disabled={isPending}
+              className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
+            >
+              Reset password
+            </button>
+            <button
+              onClick={toggleActive}
+              disabled={isPending || isSelf}
+              title={isSelf ? "You can't deactivate your own account" : undefined}
+              className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
+            >
+              {staff.active ? "Deactivate" : "Reactivate"}
+            </button>
+          </div>
         ) : null}
         {error ? <p className="mt-1 text-xs text-[var(--color-danger)]">{error}</p> : null}
       </td>

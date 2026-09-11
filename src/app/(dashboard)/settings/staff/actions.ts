@@ -6,7 +6,7 @@ import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import type { RoleName } from "@/lib/permissions/permissions";
 import { createStaffInputSchema } from "@/lib/validation/staff";
-import { changeStaffRole, createStaff, setStaffActive } from "@/server/services/staff-service";
+import { changeStaffRole, createStaff, resetStaffPassword, setStaffActive } from "@/server/services/staff-service";
 
 export type CreateStaffResult =
   | { ok: true; tempPassword: string }
@@ -50,6 +50,18 @@ export async function setStaffActiveAction(userId: string, active: boolean): Pro
   }
   revalidatePath("/settings/staff");
   return { ok: true };
+}
+
+export async function resetStaffPasswordAction(userId: string): Promise<CreateStaffResult> {
+  const user = await requireCurrentUser();
+  requirePermission(user.roles, "staff:write");
+
+  try {
+    const { tempPassword } = await resetStaffPassword(db, { businessId: user.businessId, userId: user.id }, userId);
+    return { ok: true, tempPassword };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
 }
 
 export async function changeStaffRoleAction(userId: string, role: RoleName): Promise<{ ok: true } | { ok: false; error: string }> {
