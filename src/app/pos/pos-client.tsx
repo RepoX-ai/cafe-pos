@@ -52,7 +52,7 @@ export function PosClient({
   const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ orderNumber: string; total: number } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ orderNumber: string; total: number; printStatus: string } | null>(null);
   const [isOnline, setIsOnline] = useState(true);
 
   // Draft persistence (PRD §13: keep the unsaved cart in local storage).
@@ -198,7 +198,7 @@ export function PosClient({
     setIsSubmitting(false);
 
     if (result.ok) {
-      setConfirmation({ orderNumber: result.orderNumber, total: result.total });
+      setConfirmation({ orderNumber: result.orderNumber, total: result.total, printStatus: result.printStatus });
       setCart([]);
       setTableLabel("");
       setDiscountTotal(0);
@@ -222,7 +222,17 @@ export function PosClient({
         <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Order submitted</h1>
         <p className="font-mono text-lg text-[var(--color-text-secondary)]">{confirmation.orderNumber}</p>
         <p className="text-3xl font-semibold tabular-nums text-[var(--color-text-primary)]">{formatIDR(confirmation.total)}</p>
-        <p className="text-sm text-[var(--color-text-secondary)]">Print status: queued</p>
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          Print status:{" "}
+          <span className={confirmation.printStatus === "FAILED" ? "font-medium text-[var(--color-danger)]" : "font-medium text-[var(--color-success)]"}>
+            {confirmation.printStatus === "FAILED" ? "Failed — needs attention" : confirmation.printStatus.toLowerCase()}
+          </span>
+        </p>
+        {confirmation.printStatus === "FAILED" ? (
+          <p className="max-w-xs text-xs text-[var(--color-text-muted)]">
+            The order was saved. An admin can retry printing from the order&apos;s detail page.
+          </p>
+        ) : null}
         <Button size="lg" onClick={resetOrder} className="mt-4">
           New order
         </Button>

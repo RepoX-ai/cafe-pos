@@ -6,6 +6,7 @@ import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { businessSettingsInputSchema } from "@/lib/validation/settings";
 import { updateBusinessSettings } from "@/server/services/business-service";
+import { getPrinterProvider } from "@/printing";
 
 export type SettingsActionState =
   | { ok: true }
@@ -43,4 +44,12 @@ export async function updateSettingsAction(
   await updateBusinessSettings(db, { businessId: user.businessId, userId: user.id }, parsed.data);
   revalidatePath("/settings");
   return { ok: true };
+}
+
+export async function testPrinterConnectionAction(): Promise<{ connected: boolean; message?: string }> {
+  const user = await requireCurrentUser();
+  requirePermission(user.roles, "printer:manage");
+
+  const provider = getPrinterProvider();
+  return provider.testConnection();
 }

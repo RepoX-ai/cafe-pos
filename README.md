@@ -122,8 +122,12 @@ Tracking the PRD's phased plan (§18):
       breakdown, and cancellation/full-refund with inventory reversal.
       Business settings (tax, service charge, negative-stock policy) are
       now configurable at /settings rather than hardcoded.
-- [ ] **Phase 4 — Printing**: print job model, mock + browser providers,
-      retry/reprint UI, hardware provider once a printer is confirmed.
+- [x] **Phase 4 — Printing**: `PrinterProvider` interface
+      (`src/printing`) with mock, browser-fallback, and a documented
+      hardware-bridge placeholder (waiting on PRD §20's open printer
+      decisions); orders attempt printing right after submission,
+      decoupled from the order transaction, with retry/reprint and a
+      printer-connection test wired into /settings and /orders/[id].
 - [ ] **Phase 5 — Dashboard & reports**: sales/COGS/profit dashboard,
       expenses, CSV exports.
 - [ ] **Phase 6 — Hardening & pilot**: full e2e suite, concurrency

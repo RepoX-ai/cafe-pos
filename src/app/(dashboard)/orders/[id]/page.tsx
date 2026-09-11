@@ -8,6 +8,7 @@ import { db } from "@/lib/db/client";
 import { getOrderById } from "@/server/services/order-service";
 import { Badge } from "@/components/ui/badge";
 import { OrderActionButton } from "./order-action-button";
+import { PrintJobsPanel } from "./print-jobs-panel";
 
 export const metadata: Metadata = {
   title: "Order — CaféOps",
@@ -26,6 +27,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const user = await requirePageAccess("orders:read_all");
   const canCancel = hasAnyRolePermission(user.roles, "orders:cancel");
   const canRefund = hasAnyRolePermission(user.roles, "orders:refund");
+  const canManagePrinter = hasAnyRolePermission(user.roles, "printer:manage");
+  const canReprint = hasAnyRolePermission(user.roles, "orders:reprint");
 
   const detail = await getOrderById(db, user.businessId, id);
   if (!detail) notFound();
@@ -131,18 +134,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
       <section className="mt-6">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Print jobs</h2>
-        <div className="flex flex-col gap-2">
-          {printJobs.length === 0 ? (
-            <p className="text-sm text-[var(--color-text-secondary)]">No print jobs yet.</p>
-          ) : (
-            printJobs.map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5 text-sm">
-                <span className="text-[var(--color-text-primary)]">{p.destination}</span>
-                <Badge tone={p.status === "PRINTED" ? "success" : p.status === "FAILED" ? "danger" : "accent"}>{p.status}</Badge>
-              </div>
-            ))
-          )}
-        </div>
+        <PrintJobsPanel orderId={order.id} printJobs={printJobs} canManagePrinter={canManagePrinter} canReprint={canReprint} />
       </section>
 
       {order.status !== "CANCELLED" && order.status !== "REFUNDED" ? (

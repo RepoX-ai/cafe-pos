@@ -4,6 +4,7 @@ import { db } from "@/lib/db/client";
 import { getBusinessById } from "@/server/services/business-service";
 import { parseTaxConfig } from "@/lib/settings/tax";
 import { SettingsForm } from "./settings-form";
+import { PrinterSection } from "./printer-section";
 
 export const metadata: Metadata = {
   title: "Settings — CaféOps",
@@ -23,7 +24,8 @@ export default async function SettingsPage() {
         Business details, tax, service charge, and inventory behavior.
       </p>
 
-      <div className="mt-8">
+      <div className="mt-8 flex flex-col gap-6">
+        <PrinterSection providerName={process.env.PRINT_PROVIDER || "mock"} />
         <SettingsForm
           business={{
             name: business.name,
