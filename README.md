@@ -105,9 +105,10 @@ Tracking the PRD's phased plan (§18):
       Drizzle schema (all 30 tables), Docker, auth + sessions,
       permissions matrix, money/units/dates libs, seed data, Vitest +
       Playwright scaffolding.
-- [ ] **Phase 1 — Menu & ingredients**: admin CRUD UI for categories,
-      menu items, variants, modifiers, ingredients, recipes + cost
-      preview.
+- [x] **Phase 1 — Menu & ingredients**: admin shell (sidebar/nav),
+      ingredient CRUD, menu categories/items/variants/modifiers CRUD,
+      recipe editor with a live cost/margin preview (versioned recipes —
+      editing never mutates a past version).
 - [ ] **Phase 2 — Inventory**: purchases, weighted-average cost, waste,
       stock adjustments/counts, low-stock warnings.
 - [ ] **Phase 3 — POS & orders**: iPad ordering UI, cart, the

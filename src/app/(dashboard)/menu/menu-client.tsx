@@ -1,0 +1,525 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useActionState } from "react";
+import Link from "next/link";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Drawer } from "@/components/ui/drawer";
+import { Field, inputClassName } from "@/components/ui/form-field";
+import {
+  createCategoryAction,
+  createModifierGroupAction,
+  createModifierOptionAction,
+  setCategoryActiveAction,
+  setModifierGroupActiveAction,
+  setModifierOptionActiveAction,
+  type FormActionState,
+} from "./actions";
+import { createMenuItemAction } from "./actions";
+
+export interface CategoryRow {
+  id: string;
+  name: string;
+  displayOrder: number;
+  active: boolean;
+}
+
+export interface VariantRow {
+  id: string;
+  name: string;
+  price: number;
+  active: boolean;
+  displayOrder: number;
+}
+
+export interface MenuItemRow {
+  id: string;
+  name: string;
+  description: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  basePrice: number;
+  active: boolean;
+  tracksInventory: boolean;
+  displayOrder: number;
+  variants: VariantRow[];
+}
+
+export interface ModifierOptionRow {
+  id: string;
+  name: string;
+  priceAdjustment: number;
+  active: boolean;
+  displayOrder: number;
+}
+
+export interface ModifierGroupRow {
+  id: string;
+  name: string;
+  required: boolean;
+  minSelections: number;
+  maxSelections: number;
+  active: boolean;
+  options: ModifierOptionRow[];
+}
+
+function formatIDR(n: number) {
+  return `Rp${n.toLocaleString("id-ID")}`;
+}
+
+type Tab = "items" | "categories" | "modifiers";
+
+export function MenuClient({
+  categories,
+  items,
+  modifierGroups,
+  canWrite,
+}: {
+  categories: CategoryRow[];
+  items: MenuItemRow[];
+  modifierGroups: ModifierGroupRow[];
+  canWrite: boolean;
+}) {
+  const [tab, setTab] = useState<Tab>("items");
+
+  return (
+    <div>
+      <div className="mb-6 flex gap-1 border-b border-[var(--color-border)]">
+        {(
+          [
+            ["items", "Items"],
+            ["categories", "Categories"],
+            ["modifiers", "Modifiers"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setTab(value)}
+            className={`border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+              tab === value
+                ? "border-[var(--color-accent-primary)] text-[var(--color-text-primary)]"
+                : "border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "items" ? <ItemsTab items={items} categories={categories} canWrite={canWrite} /> : null}
+      {tab === "categories" ? <CategoriesTab categories={categories} canWrite={canWrite} /> : null}
+      {tab === "modifiers" ? <ModifiersTab groups={modifierGroups} canWrite={canWrite} /> : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Items
+// ---------------------------------------------------------------------------
+
+function ItemsTab({
+  items,
+  categories,
+  canWrite,
+}: {
+  items: MenuItemRow[];
+  categories: CategoryRow[];
+  canWrite: boolean;
+}) {
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <div>
+      {canWrite ? (
+        <div className="mb-4 flex justify-end">
+          <Button onClick={() => setCreating(true)}>
+            <Plus size={16} />
+            New item
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <table className="w-full min-w-[720px] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Category</th>
+              <th className="px-4 py-3">Variants</th>
+              <th className="px-4 py-3 text-right">Base price</th>
+              <th className="px-4 py-3">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                  No menu items yet.
+                </td>
+              </tr>
+            ) : (
+              items.map((item) => (
+                <tr key={item.id} className="border-b border-[var(--color-border)] last:border-0">
+                  <td className="px-4 py-3">
+                    <Link href={`/menu/${item.id}`} className="font-medium text-[var(--color-text-primary)] hover:text-[var(--color-accent-primary)]">
+                      {item.name}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">{item.categoryName ?? "—"}</td>
+                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">
+                    {item.variants.length === 0 ? (
+                      <Badge tone="warning">No variants</Badge>
+                    ) : (
+                      item.variants.map((v) => v.name).join(", ")
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums">{formatIDR(item.basePrice)}</td>
+                  <td className="px-4 py-3">
+                    <Badge tone={item.active ? "success" : "neutral"}>{item.active ? "Active" : "Archived"}</Badge>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Drawer open={creating} onClose={() => setCreating(false)} title="New menu item">
+        <NewItemForm categories={categories} onDone={() => setCreating(false)} />
+      </Drawer>
+    </div>
+  );
+}
+
+function NewItemForm({ categories, onDone }: { categories: CategoryRow[]; onDone: () => void }) {
+  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createMenuItemAction, undefined);
+  const errorState = state && !state.ok ? state : undefined;
+
+  return (
+    <form action={formAction} className="flex flex-col gap-4">
+      <Field label="Name" htmlFor="name" error={errorState?.fieldErrors?.name}>
+        <input id="name" name="name" required className={inputClassName} />
+      </Field>
+      <Field label="Category" htmlFor="categoryId">
+        <select id="categoryId" name="categoryId" className={inputClassName}>
+          <option value="">No category</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Base price (Rp)" htmlFor="basePrice" error={errorState?.fieldErrors?.basePrice}>
+        <input id="basePrice" name="basePrice" type="number" min={0} step={1} required className={inputClassName} />
+      </Field>
+      <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+        <input type="checkbox" name="tracksInventory" defaultChecked />
+        Track ingredient stock for this item
+      </label>
+      <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+        <input type="checkbox" name="active" defaultChecked />
+        Available for sale
+      </label>
+
+      {errorState?.error ? (
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+          {errorState.error}
+        </p>
+      ) : null}
+
+      <div className="mt-2 flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Creating…" : "Create item"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Categories
+// ---------------------------------------------------------------------------
+
+function CategoriesTab({ categories, canWrite }: { categories: CategoryRow[]; canWrite: boolean }) {
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <div>
+      {canWrite ? (
+        <div className="mb-4 flex justify-end">
+          <Button onClick={() => setCreating(true)}>
+            <Plus size={16} />
+            New category
+          </Button>
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Display order</th>
+              <th className="px-4 py-3">Status</th>
+              {canWrite ? <th className="px-4 py-3" /> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {categories.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                  No categories yet.
+                </td>
+              </tr>
+            ) : (
+              categories.map((c) => (
+                <tr key={c.id} className="border-b border-[var(--color-border)] last:border-0">
+                  <td className="px-4 py-3 font-medium text-[var(--color-text-primary)]">{c.name}</td>
+                  <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">{c.displayOrder}</td>
+                  <td className="px-4 py-3">
+                    <Badge tone={c.active ? "success" : "neutral"}>{c.active ? "Active" : "Archived"}</Badge>
+                  </td>
+                  {canWrite ? (
+                    <td className="px-4 py-3 text-right">
+                      <form action={setCategoryActiveAction}>
+                        <input type="hidden" name="id" value={c.id} />
+                        <input type="hidden" name="active" value={(!c.active).toString()} />
+                        <button type="submit" className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
+                          {c.active ? "Archive" : "Restore"}
+                        </button>
+                      </form>
+                    </td>
+                  ) : null}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Drawer open={creating} onClose={() => setCreating(false)} title="New category">
+        <CategoryForm onDone={() => setCreating(false)} />
+      </Drawer>
+    </div>
+  );
+}
+
+function CategoryForm({ onDone }: { onDone: () => void }) {
+  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createCategoryAction, undefined);
+  const errorState = state && !state.ok ? state : undefined;
+
+  useEffect(() => {
+    if (state?.ok) onDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  return (
+    <form action={formAction} className="flex flex-col gap-4">
+      <Field label="Name" htmlFor="name" error={errorState?.fieldErrors?.name}>
+        <input id="name" name="name" required className={inputClassName} />
+      </Field>
+      <Field label="Display order" htmlFor="displayOrder">
+        <input id="displayOrder" name="displayOrder" type="number" defaultValue={0} className={inputClassName} />
+      </Field>
+      {errorState?.error ? (
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+          {errorState.error}
+        </p>
+      ) : null}
+      <div className="mt-2 flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Saving…" : "Create category"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modifiers
+// ---------------------------------------------------------------------------
+
+function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWrite: boolean }) {
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [addingOptionTo, setAddingOptionTo] = useState<string | null>(null);
+
+  return (
+    <div className="flex flex-col gap-4">
+      {canWrite ? (
+        <div className="flex justify-end">
+          <Button onClick={() => setCreatingGroup(true)}>
+            <Plus size={16} />
+            New modifier group
+          </Button>
+        </div>
+      ) : null}
+
+      {groups.length === 0 ? (
+        <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-8 text-center text-sm text-[var(--color-text-secondary)]">
+          No modifier groups yet — e.g. &quot;Sweetness&quot; or &quot;Milk choice&quot;.
+        </div>
+      ) : (
+        groups.map((group) => (
+          <div key={group.id} className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+            <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-[var(--color-text-primary)]">{group.name}</span>
+                {group.required ? <Badge tone="accent">Required</Badge> : null}
+                <Badge tone={group.active ? "success" : "neutral"}>{group.active ? "Active" : "Archived"}</Badge>
+                <span className="text-xs text-[var(--color-text-muted)]">
+                  select {group.minSelections}–{group.maxSelections}
+                </span>
+              </div>
+              {canWrite ? (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setAddingOptionTo(group.id)}
+                    className="text-xs font-medium text-[var(--color-accent-primary)] hover:underline"
+                  >
+                    Add option
+                  </button>
+                  <form action={setModifierGroupActiveAction}>
+                    <input type="hidden" name="id" value={group.id} />
+                    <input type="hidden" name="active" value={(!group.active).toString()} />
+                    <button type="submit" className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
+                      {group.active ? "Archive" : "Restore"}
+                    </button>
+                  </form>
+                </div>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2 px-4 py-3">
+              {group.options.length === 0 ? (
+                <span className="text-sm text-[var(--color-text-muted)]">No options yet.</span>
+              ) : (
+                group.options.map((opt) => (
+                  <span
+                    key={opt.id}
+                    className={`inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] px-3 py-1 text-xs ${
+                      opt.active ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)] line-through"
+                    }`}
+                  >
+                    {opt.name}
+                    {opt.priceAdjustment !== 0 ? (
+                      <span className="tabular-nums text-[var(--color-text-secondary)]">
+                        {opt.priceAdjustment > 0 ? "+" : ""}
+                        {formatIDR(opt.priceAdjustment)}
+                      </span>
+                    ) : null}
+                    {canWrite ? (
+                      <form action={setModifierOptionActiveAction}>
+                        <input type="hidden" name="groupId" value={group.id} />
+                        <input type="hidden" name="optionId" value={opt.id} />
+                        <input type="hidden" name="active" value={(!opt.active).toString()} />
+                        <button type="submit" className="text-[var(--color-text-muted)] hover:text-[var(--color-danger)]">
+                          ×
+                        </button>
+                      </form>
+                    ) : null}
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+        ))
+      )}
+
+      <Drawer open={creatingGroup} onClose={() => setCreatingGroup(false)} title="New modifier group">
+        <ModifierGroupForm onDone={() => setCreatingGroup(false)} />
+      </Drawer>
+
+      <Drawer open={addingOptionTo !== null} onClose={() => setAddingOptionTo(null)} title="New modifier option">
+        {addingOptionTo ? (
+          <ModifierOptionForm groupId={addingOptionTo} onDone={() => setAddingOptionTo(null)} />
+        ) : null}
+      </Drawer>
+    </div>
+  );
+}
+
+function ModifierGroupForm({ onDone }: { onDone: () => void }) {
+  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createModifierGroupAction, undefined);
+  const errorState = state && !state.ok ? state : undefined;
+
+  useEffect(() => {
+    if (state?.ok) onDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  return (
+    <form action={formAction} className="flex flex-col gap-4">
+      <Field label="Name" htmlFor="name" error={errorState?.fieldErrors?.name}>
+        <input id="name" name="name" required placeholder="e.g. Sweetness" className={inputClassName} />
+      </Field>
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Min selections" htmlFor="minSelections">
+          <input id="minSelections" name="minSelections" type="number" min={0} defaultValue={0} className={inputClassName} />
+        </Field>
+        <Field label="Max selections" htmlFor="maxSelections">
+          <input id="maxSelections" name="maxSelections" type="number" min={1} defaultValue={1} className={inputClassName} />
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+        <input type="checkbox" name="required" />
+        Required (customer must choose)
+      </label>
+      {errorState?.error ? (
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+          {errorState.error}
+        </p>
+      ) : null}
+      <div className="mt-2 flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Saving…" : "Create group"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function ModifierOptionForm({ groupId, onDone }: { groupId: string; onDone: () => void }) {
+  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createModifierOptionAction, undefined);
+  const errorState = state && !state.ok ? state : undefined;
+
+  useEffect(() => {
+    if (state?.ok) onDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  return (
+    <form action={formAction} className="flex flex-col gap-4">
+      <input type="hidden" name="groupId" value={groupId} />
+      <Field label="Name" htmlFor="name" error={errorState?.fieldErrors?.name}>
+        <input id="name" name="name" required placeholder="e.g. Extra sweet" className={inputClassName} />
+      </Field>
+      <Field label="Price adjustment (Rp)" htmlFor="priceAdjustment" hint="Negative for a discount, 0 for no charge">
+        <input id="priceAdjustment" name="priceAdjustment" type="number" defaultValue={0} className={inputClassName} />
+      </Field>
+      {errorState?.error ? (
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+          {errorState.error}
+        </p>
+      ) : null}
+      <div className="mt-2 flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Saving…" : "Add option"}
+        </Button>
+      </div>
+    </form>
+  );
+}
