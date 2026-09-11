@@ -4,7 +4,8 @@ import { db } from "@/lib/db/client";
 import { getBusinessById } from "@/server/services/business-service";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { formatRoles } from "@/lib/permissions/role-labels";
-import { AdminShell, NAV_ITEMS } from "@/components/admin-shell";
+import { AdminShell } from "@/components/admin-shell";
+import { NAV_ITEMS } from "@/lib/navigation";
 
 /**
  * Shared shell for every admin/operations screen. Cashiers never see this

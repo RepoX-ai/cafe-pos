@@ -11,7 +11,9 @@ test.describe("login", () => {
     await page.getByLabel("Password").fill("wrong-password");
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page.getByRole("alert")).toContainText("Incorrect email or password");
+    // Next.js's own route-announcer div also carries role="alert", so
+    // scope to our error message's text instead of the bare role.
+    await expect(page.getByText("Incorrect email or password.")).toBeVisible();
     await expect(page).toHaveURL(/\/login$/);
   });
 

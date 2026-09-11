@@ -17,15 +17,8 @@ import {
   ClipboardList,
   ShoppingBag,
 } from "lucide-react";
-import type { Permission } from "@/lib/permissions/permissions";
 import { logoutAction } from "@/app/(auth)/login/actions";
-
-export interface NavItem {
-  href: string;
-  label: string;
-  icon: keyof typeof ICONS;
-  permission: Permission;
-}
+import type { NavItem } from "@/lib/navigation";
 
 const ICONS = {
   dashboard: LayoutDashboard,
@@ -39,19 +32,6 @@ const ICONS = {
   reports: BarChart3,
   settings: Settings,
 };
-
-export const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "dashboard", permission: "reports:read" },
-  { href: "/orders", label: "Orders", icon: "orders", permission: "orders:read_all" },
-  { href: "/menu", label: "Menu", icon: "menu", permission: "menu:read" },
-  { href: "/ingredients", label: "Ingredients", icon: "ingredients", permission: "inventory:read" },
-  { href: "/inventory", label: "Inventory", icon: "inventory", permission: "inventory:read" },
-  { href: "/purchases", label: "Purchases", icon: "purchases", permission: "purchases:write" },
-  { href: "/waste", label: "Waste", icon: "waste", permission: "inventory:waste" },
-  { href: "/expenses", label: "Expenses", icon: "expenses", permission: "expenses:write" },
-  { href: "/reports", label: "Reports", icon: "reports", permission: "reports:read" },
-  { href: "/settings", label: "Settings", icon: "settings", permission: "settings:write" },
-];
 
 interface AdminShellProps {
   children: React.ReactNode;

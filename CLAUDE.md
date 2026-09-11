@@ -43,6 +43,22 @@ See [README.md](README.md) for setup, scripts, and phase-by-phase status.
     must run identically via `docker compose` or plain `next start` on a
     VPS.
 
+## A gotcha that already bit once
+
+Don't export plain data (arrays, objects, constants — anything that
+isn't a component) from a `"use client"` file for a Server Component to
+import. Next.js turns every export of a client module into a client
+reference when consumed from the server side of the RSC boundary, so a
+Server Component importing it gets a proxy, not the real value —
+`someArray.filter(...)` throws at runtime. It compiles fine and
+`next build` won't catch it either if the route is dynamic/auth-gated
+(build doesn't render those). Only an actual request — or an e2e test —
+surfaces it. This happened with `NAV_ITEMS` (moved to
+`src/lib/navigation.ts`, a plain module, imported by both the client
+`AdminShell` component and the server `(dashboard)/layout.tsx`). If you
+add more shared nav/config data, put it in a plain `.ts` file, never in
+a `"use client"` component file.
+
 ## Design tokens
 
 Colors, spacing, and radii are CSS custom properties in

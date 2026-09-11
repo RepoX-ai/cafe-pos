@@ -152,13 +152,6 @@ Tracking the PRD's phased plan (§18):
 
 ## Known limitations / deliberately out of scope
 
-- **No live database in this build environment.** Every migration, the
-  seed script, and the integration/e2e test suites are believed correct
-  by code review and `drizzle-kit`'s own validation, but have not been
-  run against a real Postgres from this session. Run
-  `docker compose up -d db && npm run db:migrate && npm run db:seed`
-  and the test suites (`npm run test:integration`, `npm run test:e2e`)
-  before trusting this in a pilot.
 - **CSV import** (ingredients/menu/recipes) isn't built — only CSV
   *export* (PRD §6.14/§14). For the pilot's initial data load, use the
   seed script as a template and adapt it, or ask for import to be built
@@ -174,6 +167,25 @@ Tracking the PRD's phased plan (§18):
 - A hardware `PrinterProvider` isn't implemented — printer brand/model/
   connection type are still open per PRD §20. The interface and mock/
   browser fallbacks are ready; see [docs/deployment.md](docs/deployment.md#printer-hardware).
+
+## Verified against a real database
+
+Migrations, seed data, and the full test suite have been run against a
+real PostgreSQL instance (not just reviewed): all 30 tables migrate
+cleanly, `npm run db:seed` completes, all 41 unit tests + 7 integration
+tests (real stock consumption, idempotent submission, insufficient-stock
+blocking, cancellation reversal, weighted-average cost) + 7 Playwright
+e2e tests (real browser, real login, a real order submitted through the
+POS UI) pass. That run also caught and fixed one real bug:
+`NAV_ITEMS` was exported from a `"use client"` file and imported into a
+Server Component (`(dashboard)/layout.tsx`) — across that boundary it
+became a client-reference proxy, not a plain array, so `.filter()` threw
+for every authenticated non-cashier request. `next build` never caught
+it because build doesn't render auth-gated dynamic routes; only an
+actual authenticated request does. Fixed by moving nav data to
+`src/lib/navigation.ts` (no `"use client"`), which is now also the
+pattern to follow for any other plain data a Server Component needs from
+a client module.
 
 ## Deployment
 
