@@ -109,8 +109,10 @@ Tracking the PRD's phased plan (§18):
       ingredient CRUD, menu categories/items/variants/modifiers CRUD,
       recipe editor with a live cost/margin preview (versioned recipes —
       editing never mutates a past version).
-- [ ] **Phase 2 — Inventory**: purchases, weighted-average cost, waste,
-      stock adjustments/counts, low-stock warnings.
+- [x] **Phase 2 — Inventory**: append-only movement ledger with row-level
+      locking, purchases (weighted-average cost recompute per receipt),
+      waste recording, manual stock adjustments, a select-count-review-
+      submit stock count flow, and a low-stock view.
 - [ ] **Phase 3 — POS & orders**: iPad ordering UI, cart, the
       submit-order transaction (idempotent, stock-deducting), snapshots,
       cancellation/refund + reversal.

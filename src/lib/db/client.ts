@@ -22,4 +22,13 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 export const db = drizzle(pool, { schema });
-export type Database = typeof db;
+
+/**
+ * Accepts either the top-level db handle or a transaction (the callback
+ * argument to `db.transaction(...)`), so service functions can be called
+ * either standalone or composed inside a larger transaction without a
+ * separate type for each.
+ */
+export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type Database = typeof db | DbTransaction;
+

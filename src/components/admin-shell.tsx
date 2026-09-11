@@ -41,6 +41,9 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: "dashboard", permission: "reports:read" },
   { href: "/menu", label: "Menu", icon: "menu", permission: "menu:read" },
   { href: "/ingredients", label: "Ingredients", icon: "ingredients", permission: "inventory:read" },
+  { href: "/inventory", label: "Inventory", icon: "inventory", permission: "inventory:read" },
+  { href: "/purchases", label: "Purchases", icon: "purchases", permission: "purchases:write" },
+  { href: "/waste", label: "Waste", icon: "waste", permission: "inventory:waste" },
 ];
 
 interface AdminShellProps {
