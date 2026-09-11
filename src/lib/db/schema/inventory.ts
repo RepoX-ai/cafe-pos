@@ -1,0 +1,91 @@
+import { randomUUID } from "node:crypto";
+import {
+  integer,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
+import { businesses, locations } from "./core";
+import { movementTypeEnum, stockCountStatusEnum, wasteReasonEnum } from "./enums";
+import { ingredients } from "./ingredients";
+import { users } from "./auth";
+
+/**
+ * Append-only stock ledger. Rows are never updated or deleted — every
+ * quantity change, in either direction, is its own row. `quantityBaseUnits`
+ * is signed: positive for inbound movements, negative for outbound ones,
+ * so that `SUM(quantity_base_units)` per ingredient reconstructs current
+ * stock and doubles as the reconciliation check against the cached value
+ * on `ingredients.current_quantity_base_units`.
+ */
+export const inventoryMovements = pgTable("inventory_movements", {
+  id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "restrict" }),
+  locationId: uuid("location_id").references(() => locations.id, { onDelete: "set null" }),
+  ingredientId: uuid("ingredient_id")
+    .notNull()
+    .references(() => ingredients.id, { onDelete: "restrict" }),
+  movementType: movementTypeEnum("movement_type").notNull(),
+  quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
+  // Cost rate applied to this movement (exact decimal, Rupiah per base unit).
+  unitCost: numeric("unit_cost", { precision: 16, scale: 6 }),
+  // Whole Rupiah total value of this movement, where applicable.
+  totalCost: integer("total_cost"),
+  // e.g. 'order', 'purchase', 'waste_record', 'stock_count', 'manual'
+  sourceType: text("source_type").notNull(),
+  sourceId: uuid("source_id"),
+  // Points at the movement this one reverses/compensates, if any.
+  relatedMovementId: uuid("related_movement_id"),
+  reason: text("reason"),
+  notes: text("notes"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const stockCounts = pgTable("stock_counts", {
+  id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "restrict" }),
+  locationId: uuid("location_id").references(() => locations.id, { onDelete: "set null" }),
+  status: stockCountStatusEnum("status").notNull().default("OPEN"),
+  countedBy: uuid("counted_by").references(() => users.id, { onDelete: "set null" }),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const stockCountLines = pgTable("stock_count_lines", {
+  id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
+  stockCountId: uuid("stock_count_id")
+    .notNull()
+    .references(() => stockCounts.id, { onDelete: "cascade" }),
+  ingredientId: uuid("ingredient_id")
+    .notNull()
+    .references(() => ingredients.id, { onDelete: "restrict" }),
+  systemQuantity: numeric("system_quantity", { precision: 16, scale: 4 }).notNull(),
+  countedQuantity: numeric("counted_quantity", { precision: 16, scale: 4 }).notNull(),
+  differenceQuantity: numeric("difference_quantity", { precision: 16, scale: 4 }).notNull(),
+});
+
+export const wasteRecords = pgTable("waste_records", {
+  id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "restrict" }),
+  locationId: uuid("location_id").references(() => locations.id, { onDelete: "set null" }),
+  ingredientId: uuid("ingredient_id")
+    .notNull()
+    .references(() => ingredients.id, { onDelete: "restrict" }),
+  quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
+  reason: wasteReasonEnum("reason").notNull(),
+  // Whole Rupiah, computed from the ingredient's average cost at time of entry.
+  estimatedCost: integer("estimated_cost").notNull(),
+  notes: text("notes"),
+  photoUrl: text("photo_url"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
