@@ -14,6 +14,8 @@ import {
   Settings,
   Store,
   LogOut,
+  ClipboardList,
+  ShoppingBag,
 } from "lucide-react";
 import type { Permission } from "@/lib/permissions/permissions";
 import { logoutAction } from "@/app/(auth)/login/actions";
@@ -27,6 +29,7 @@ export interface NavItem {
 
 const ICONS = {
   dashboard: LayoutDashboard,
+  orders: ClipboardList,
   menu: UtensilsCrossed,
   ingredients: Wheat,
   inventory: Boxes,
@@ -39,11 +42,13 @@ const ICONS = {
 
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: "dashboard", permission: "reports:read" },
+  { href: "/orders", label: "Orders", icon: "orders", permission: "orders:read_all" },
   { href: "/menu", label: "Menu", icon: "menu", permission: "menu:read" },
   { href: "/ingredients", label: "Ingredients", icon: "ingredients", permission: "inventory:read" },
   { href: "/inventory", label: "Inventory", icon: "inventory", permission: "inventory:read" },
   { href: "/purchases", label: "Purchases", icon: "purchases", permission: "purchases:write" },
   { href: "/waste", label: "Waste", icon: "waste", permission: "inventory:waste" },
+  { href: "/settings", label: "Settings", icon: "settings", permission: "settings:write" },
 ];
 
 interface AdminShellProps {
@@ -52,6 +57,7 @@ interface AdminShellProps {
   roleLabel: string;
   businessName: string;
   visibleNavItems: NavItem[];
+  canUsePos: boolean;
 }
 
 export function AdminShell({
@@ -60,6 +66,7 @@ export function AdminShell({
   roleLabel,
   businessName,
   visibleNavItems,
+  canUsePos,
 }: AdminShellProps) {
   const pathname = usePathname();
 
@@ -74,6 +81,15 @@ export function AdminShell({
         </div>
 
         <nav className="flex flex-1 flex-col gap-0.5 p-3">
+          {canUsePos ? (
+            <Link
+              href="/pos"
+              className="mb-2 flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-page-bg)]"
+            >
+              <ShoppingBag size={16} />
+              Open POS
+            </Link>
+          ) : null}
           {visibleNavItems.map((item) => {
             const Icon = ICONS[item.icon];
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);

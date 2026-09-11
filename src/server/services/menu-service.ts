@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   menuCategories,
@@ -445,6 +445,150 @@ export async function setModifierOptionActive(
     metadata: { groupId },
   });
   return row;
+}
+
+// ---------------------------------------------------------------------------
+// POS catalog (active-only, shaped for the order-entry screen)
+// ---------------------------------------------------------------------------
+
+export interface PosModifierOption {
+  id: string;
+  name: string;
+  priceAdjustment: number;
+}
+
+export interface PosModifierGroup {
+  id: string;
+  name: string;
+  required: boolean;
+  minSelections: number;
+  maxSelections: number;
+  options: PosModifierOption[];
+}
+
+export interface PosVariant {
+  id: string;
+  name: string;
+  price: number;
+}
+
+export interface PosMenuItem {
+  id: string;
+  name: string;
+  description: string | null;
+  imageUrl: string | null;
+  categoryId: string | null;
+  variants: PosVariant[];
+  modifierGroups: PosModifierGroup[];
+}
+
+export interface PosCategory {
+  id: string;
+  name: string;
+}
+
+export async function getPosMenu(
+  db: Database,
+  businessId: string,
+): Promise<{ categories: PosCategory[]; items: PosMenuItem[] }> {
+  const categories = await db
+    .select({ id: menuCategories.id, name: menuCategories.name })
+    .from(menuCategories)
+    .where(and(eq(menuCategories.businessId, businessId), eq(menuCategories.active, true)))
+    .orderBy(asc(menuCategories.displayOrder), asc(menuCategories.name));
+
+  const items = await db
+    .select({
+      id: menuItems.id,
+      name: menuItems.name,
+      description: menuItems.description,
+      imageUrl: menuItems.imageUrl,
+      categoryId: menuItems.categoryId,
+    })
+    .from(menuItems)
+    .where(and(eq(menuItems.businessId, businessId), eq(menuItems.active, true)))
+    .orderBy(asc(menuItems.displayOrder), asc(menuItems.name));
+
+  const variants = await db
+    .select({
+      id: menuItemVariants.id,
+      name: menuItemVariants.name,
+      price: menuItemVariants.price,
+      menuItemId: menuItemVariants.menuItemId,
+    })
+    .from(menuItemVariants)
+    .innerJoin(menuItems, eq(menuItemVariants.menuItemId, menuItems.id))
+    .where(and(eq(menuItems.businessId, businessId), eq(menuItemVariants.active, true)));
+
+  const assignments = await db
+    .select({
+      menuItemId: menuItemModifierGroups.menuItemId,
+      groupId: modifierGroups.id,
+      groupName: modifierGroups.name,
+      required: modifierGroups.required,
+      minSelections: modifierGroups.minSelections,
+      maxSelections: modifierGroups.maxSelections,
+    })
+    .from(menuItemModifierGroups)
+    .innerJoin(modifierGroups, eq(menuItemModifierGroups.modifierGroupId, modifierGroups.id))
+    .innerJoin(menuItems, eq(menuItemModifierGroups.menuItemId, menuItems.id))
+    .where(and(eq(menuItems.businessId, businessId), eq(modifierGroups.active, true)));
+
+  const groupIds = [...new Set(assignments.map((a) => a.groupId))];
+  const options =
+    groupIds.length > 0
+      ? await db
+          .select({
+            id: modifierOptions.id,
+            name: modifierOptions.name,
+            priceAdjustment: modifierOptions.priceAdjustment,
+            modifierGroupId: modifierOptions.modifierGroupId,
+          })
+          .from(modifierOptions)
+          .where(and(inArray(modifierOptions.modifierGroupId, groupIds), eq(modifierOptions.active, true)))
+      : [];
+
+  const variantsByItem = new Map<string, PosVariant[]>();
+  for (const v of variants) {
+    const list = variantsByItem.get(v.menuItemId) ?? [];
+    list.push({ id: v.id, name: v.name, price: v.price });
+    variantsByItem.set(v.menuItemId, list);
+  }
+
+  const optionsByGroup = new Map<string, PosModifierOption[]>();
+  for (const o of options) {
+    const list = optionsByGroup.get(o.modifierGroupId) ?? [];
+    list.push({ id: o.id, name: o.name, priceAdjustment: o.priceAdjustment });
+    optionsByGroup.set(o.modifierGroupId, list);
+  }
+
+  const groupsByItem = new Map<string, PosModifierGroup[]>();
+  for (const a of assignments) {
+    const list = groupsByItem.get(a.menuItemId) ?? [];
+    list.push({
+      id: a.groupId,
+      name: a.groupName,
+      required: a.required,
+      minSelections: a.minSelections,
+      maxSelections: a.maxSelections,
+      options: optionsByGroup.get(a.groupId) ?? [],
+    });
+    groupsByItem.set(a.menuItemId, list);
+  }
+
+  const posItems: PosMenuItem[] = items
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      imageUrl: item.imageUrl,
+      categoryId: item.categoryId,
+      variants: variantsByItem.get(item.id) ?? [],
+      modifierGroups: groupsByItem.get(item.id) ?? [],
+    }))
+    .filter((item) => item.variants.length > 0); // an item with no active variant can't be ordered
+
+  return { categories, items: posItems };
 }
 
 export async function setItemModifierGroups(

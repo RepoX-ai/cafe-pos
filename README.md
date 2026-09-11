@@ -113,9 +113,15 @@ Tracking the PRD's phased plan (§18):
       locking, purchases (weighted-average cost recompute per receipt),
       waste recording, manual stock adjustments, a select-count-review-
       submit stock count flow, and a low-stock view.
-- [ ] **Phase 3 — POS & orders**: iPad ordering UI, cart, the
-      submit-order transaction (idempotent, stock-deducting), snapshots,
-      cancellation/refund + reversal.
+- [x] **Phase 3 — POS & orders**: iPad ordering UI (categories, cart,
+      variant/modifier picker, draft persisted to localStorage, online/
+      offline indicator), the order-submission transaction (idempotency
+      key, server-side re-validation, per-line ingredient consumption
+      merged across recipe + modifiers, stock lock-and-check, snapshots,
+      a queued print job), /orders list + detail with COGS/gross-profit
+      breakdown, and cancellation/full-refund with inventory reversal.
+      Business settings (tax, service charge, negative-stock policy) are
+      now configurable at /settings rather than hardcoded.
 - [ ] **Phase 4 — Printing**: print job model, mock + browser providers,
       retry/reprint UI, hardware provider once a printer is confirmed.
 - [ ] **Phase 5 — Dashboard & reports**: sales/COGS/profit dashboard,

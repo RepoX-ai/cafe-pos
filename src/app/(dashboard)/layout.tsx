@@ -29,6 +29,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       roleLabel={formatRoles(user.roles)}
       businessName={business?.name ?? "CaféOps"}
       visibleNavItems={visibleNavItems}
+      canUsePos={hasAnyRolePermission(user.roles, "orders:create")}
     >
       {children}
     </AdminShell>
