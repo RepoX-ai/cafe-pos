@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../src/lib/db/schema";
 import { hashPassword } from "../src/lib/auth/password";
+import { DEV_SEED_ACCOUNTS, DEV_SEED_PASSWORD } from "../src/lib/dev-seed-accounts";
 
 /**
  * Development seed data (PRD §16). Everything here is clearly fictional —
@@ -11,7 +12,6 @@ import { hashPassword } from "../src/lib/auth/password";
  */
 
 const DEV_BUSINESS_NAME = "Fictional Coffee Co. (Dev Seed)";
-const DEV_PASSWORD = "ChangeMe123!";
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
@@ -74,16 +74,9 @@ async function main() {
   const roleIdByName = new Map(allRoles.map((r) => [r.name, r.id]));
 
   // --- Staff users, one per role, for exercising the permission matrix ------
-  const passwordHash = await hashPassword(DEV_PASSWORD);
-  const staff: Array<{ name: string; email: string; role: (typeof roleNames)[number] }> = [
-    { name: "Dev Owner", email: "owner@dev.local", role: "owner" },
-    { name: "Dev Manager", email: "manager@dev.local", role: "manager" },
-    { name: "Dev Cashier", email: "cashier@dev.local", role: "cashier" },
-    { name: "Dev Inventory Staff", email: "inventory@dev.local", role: "inventory_staff" },
-    { name: "Dev Viewer", email: "viewer@dev.local", role: "viewer" },
-  ];
+  const passwordHash = await hashPassword(DEV_SEED_PASSWORD);
 
-  for (const person of staff) {
+  for (const person of DEV_SEED_ACCOUNTS) {
     const [user] = await db
       .insert(schema.users)
       .values({
@@ -220,8 +213,8 @@ async function main() {
 
   console.log("Seed complete.");
   console.log(`Business: ${business.name} (${business.id})`);
-  console.log("Login with any of the following (password: %s):", DEV_PASSWORD);
-  for (const person of staff) {
+  console.log("Login with any of the following (password: %s):", DEV_SEED_PASSWORD);
+  for (const person of DEV_SEED_ACCOUNTS) {
     console.log(`  - ${person.email}  [${person.role}]`);
   }
 

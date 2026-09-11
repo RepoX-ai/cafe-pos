@@ -1,12 +1,15 @@
 "use server";
 
+import { eq } from "drizzle-orm";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
+import { users } from "@/lib/db/schema";
 import { login, logout } from "@/server/services/auth-service";
-import { SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import { createSession, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { clearAttempts, isRateLimited, recordAttempt } from "@/lib/auth/rate-limit";
+import { DEV_SEED_ACCOUNTS } from "@/lib/dev-seed-accounts";
 
 export type LoginFormState = { error?: string } | undefined;
 
@@ -81,4 +84,59 @@ export async function logoutAction(): Promise<void> {
 
   cookieStore.delete(SESSION_COOKIE_NAME);
   redirect("/login");
+}
+
+export type DevQuickLoginState = { error: string } | undefined;
+
+/**
+ * Dev-only, one-click sign-in as a seeded account (no password) — for
+ * quickly switching between roles (e.g. Owner <-> Cashier) while
+ * building/testing locally. Guarded twice: this action itself refuses to
+ * run outside development regardless of what calls it, and it only ever
+ * signs in as one of the fixed DEV_SEED_ACCOUNTS emails, never an
+ * arbitrary address — so it can't become a general auth bypass even in
+ * dev. See src/components/dev-role-switcher.tsx for the UI.
+ */
+export async function devQuickLoginAction(email: string): Promise<DevQuickLoginState> {
+  if (process.env.NODE_ENV === "production") {
+    return { error: "Not available in production." };
+  }
+
+  const account = DEV_SEED_ACCOUNTS.find((a) => a.email === email);
+  if (!account) {
+    return { error: "Unknown dev account." };
+  }
+
+  const [user] = await db.select().from(users).where(eq(users.email, account.email)).limit(1);
+  if (!user) {
+    return { error: `${account.email} doesn't exist yet — run "npm run db:seed" first.` };
+  }
+  if (!user.active) {
+    return { error: `${account.email} has been deactivated.` };
+  }
+
+  // Drop any current session first so switching accounts doesn't leave
+  // the previous one dangling.
+  const cookieStore = await cookies();
+  const existingToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  const currentUser = await getCurrentUser();
+  if (existingToken && currentUser) {
+    await logout(db, existingToken, { businessId: currentUser.businessId, userId: currentUser.id });
+  }
+
+  const headerList = await headers();
+  const { token, expiresAt } = await createSession(db, user.id, {
+    ipAddress: headerList.get("x-forwarded-for"),
+    userAgent: headerList.get("user-agent"),
+  });
+
+  cookieStore.set(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: false, // the production guard above already ruled that out here
+    sameSite: "lax",
+    path: "/",
+    expires: expiresAt,
+  });
+
+  redirect("/"); // role-aware landing route decides /dashboard vs /pos
 }
