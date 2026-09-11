@@ -128,8 +128,14 @@ Tracking the PRD's phased plan (§18):
       decisions); orders attempt printing right after submission,
       decoupled from the order transaction, with retry/reprint and a
       printer-connection test wired into /settings and /orders/[id].
-- [ ] **Phase 5 — Dashboard & reports**: sales/COGS/profit dashboard,
-      expenses, CSV exports.
+- [x] **Phase 5 — Dashboard & reports**: date-ranged dashboard (summary
+      cards + low/out-of-stock, top-selling, highest-COGS, recent orders,
+      failed prints widgets), manual expense entry, an 11-report /reports
+      page (sales by day/item/category/payment-method, cancelled/
+      refunded, current & low stock, inventory movements, purchases,
+      waste, expenses) each with CSV export, all excluding cancelled/
+      refunded orders from sales/COGS the same way the PRD's dashboard
+      formulas do.
 - [ ] **Phase 6 — Hardening & pilot**: full e2e suite, concurrency
       testing, backup/restore drill, staging + production deployment.
 
