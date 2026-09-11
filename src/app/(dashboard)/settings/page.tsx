@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { Users, History } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
+import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
 import { getBusinessById } from "@/server/services/business-service";
 import { parseTaxConfig } from "@/lib/settings/tax";
@@ -25,6 +28,30 @@ export default async function SettingsPage() {
       </p>
 
       <div className="mt-8 flex flex-col gap-6">
+        {hasAnyRolePermission(user.roles, "staff:write") ? (
+          <Link
+            href="/settings/staff"
+            className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 hover:border-[var(--color-accent-primary)]"
+          >
+            <Users size={18} className="text-[var(--color-accent-primary)]" />
+            <div>
+              <p className="text-sm font-medium text-[var(--color-text-primary)]">Staff</p>
+              <p className="text-xs text-[var(--color-text-secondary)]">Create accounts, assign roles, deactivate staff.</p>
+            </div>
+          </Link>
+        ) : null}
+        {hasAnyRolePermission(user.roles, "audit:read") ? (
+          <Link
+            href="/settings/audit"
+            className="flex items-center gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 hover:border-[var(--color-accent-primary)]"
+          >
+            <History size={18} className="text-[var(--color-accent-primary)]" />
+            <div>
+              <p className="text-sm font-medium text-[var(--color-text-primary)]">Audit log</p>
+              <p className="text-xs text-[var(--color-text-secondary)]">Review recorded staff and system actions.</p>
+            </div>
+          </Link>
+        ) : null}
         <PrinterSection providerName={process.env.PRINT_PROVIDER || "mock"} />
         <SettingsForm
           business={{

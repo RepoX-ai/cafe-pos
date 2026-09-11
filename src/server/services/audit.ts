@@ -1,5 +1,6 @@
+import { desc, eq } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
-import { auditLogs } from "@/lib/db/schema";
+import { auditLogs, users } from "@/lib/db/schema";
 
 export interface AuditLogInput {
   businessId: string;
@@ -32,4 +33,23 @@ export async function recordAuditLog(db: Database, input: AuditLogInput): Promis
     ipAddress: input.ipAddress ?? null,
     userAgent: input.userAgent ?? null,
   });
+}
+
+export async function listAuditLogs(db: Database, businessId: string, limit = 200) {
+  return db
+    .select({
+      id: auditLogs.id,
+      action: auditLogs.action,
+      entityType: auditLogs.entityType,
+      entityId: auditLogs.entityId,
+      metadata: auditLogs.metadata,
+      createdAt: auditLogs.createdAt,
+      actorName: users.name,
+      actorEmail: users.email,
+    })
+    .from(auditLogs)
+    .leftJoin(users, eq(auditLogs.actorUserId, users.id))
+    .where(eq(auditLogs.businessId, businessId))
+    .orderBy(desc(auditLogs.createdAt))
+    .limit(limit);
 }

@@ -6,6 +6,7 @@ import { db } from "@/lib/db/client";
 import { login, logout } from "@/server/services/auth-service";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { clearAttempts, isRateLimited, recordAttempt } from "@/lib/auth/rate-limit";
 
 export type LoginFormState = { error?: string } | undefined;
 
@@ -21,12 +22,23 @@ export async function loginAction(
   }
 
   const headerList = await headers();
+  const ipAddress = headerList.get("x-forwarded-for");
+  // Rate-limit by IP+email so one attacker can't lock out someone else's
+  // account, and one compromised account can't be brute-forced from a
+  // single IP either (PRD §12).
+  const rateLimitKey = `${ipAddress ?? "unknown"}:${identifier.toLowerCase()}`;
+
+  if (isRateLimited(rateLimitKey)) {
+    return { error: "Too many attempts. Wait a few minutes and try again." };
+  }
+
   const result = await login(db, identifier, password, {
-    ipAddress: headerList.get("x-forwarded-for"),
+    ipAddress,
     userAgent: headerList.get("user-agent"),
   });
 
   if (!result.ok) {
+    recordAttempt(rateLimitKey);
     return {
       error:
         result.error === "account_deactivated"
@@ -34,6 +46,8 @@ export async function loginAction(
           : "Incorrect email or password.",
     };
   }
+
+  clearAttempts(rateLimitKey);
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, result.token, {
