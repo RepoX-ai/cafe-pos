@@ -15,7 +15,7 @@ export default async function AuditLogPage() {
   const logs = await listAuditLogs(db, user.businessId);
 
   return (
-    <div className="mx-auto max-w-[1100px] px-8 py-10">
+    <div className="mx-auto max-w-[1440px]">
       <Link href="/settings" className="inline-flex items-center gap-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
         <ArrowLeft size={14} />
         Back to settings
@@ -46,18 +46,18 @@ export default async function AuditLogPage() {
             ) : (
               logs.map((log) => (
                 <tr key={log.id} className="border-b border-[var(--color-border)] last:border-0 align-top">
-                  <td className="px-4 py-3 font-mono text-xs text-[var(--color-text-muted)]">{formatBusinessDateTime(log.createdAt)}</td>
+                  <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatBusinessDateTime(log.createdAt)}</td>
                   <td className="px-4 py-3 text-[var(--color-text-secondary)]">{log.actorName ?? "System"}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-full bg-[var(--color-selected-surface)] px-2 py-0.5 text-xs font-medium text-[var(--color-accent-primary)]">
                       {log.action}
                     </span>
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-[var(--color-text-muted)]">
+                  <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">
                     {log.entityType}
                     {log.entityId ? `:${log.entityId.slice(0, 8)}` : ""}
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-[var(--color-text-muted)]">
+                  <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">
                     {log.metadata ? JSON.stringify(log.metadata) : "—"}
                   </td>
                 </tr>

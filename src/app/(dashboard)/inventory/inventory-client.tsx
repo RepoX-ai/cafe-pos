@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Field, inputClassName, selectClassName, textareaClassName } from "@/components/ui/form-field";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
 import { createManualAdjustmentAction, submitStockCountAction, type InventoryActionState } from "./actions";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
@@ -171,7 +172,7 @@ function LedgerTab({ movements }: { movements: MovementRow[] }) {
               const qty = Number(m.quantityBaseUnits);
               return (
                 <tr key={m.id} className="border-b border-[var(--color-border)] last:border-0">
-                  <td className="px-4 py-3 font-mono text-xs text-[var(--color-text-muted)]">{formatDate(m.createdAt)}</td>
+                  <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDate(m.createdAt)}</td>
                   <td className="px-4 py-3 text-[var(--color-text-primary)]">{m.ingredientName}</td>
                   <td className="px-4 py-3">
                     <Badge tone={qty >= 0 ? "success" : "danger"}>{MOVEMENT_LABEL[m.movementType] ?? m.movementType}</Badge>
@@ -206,20 +207,20 @@ function AdjustTab({ ingredients }: { ingredients: IngredientRow[] }) {
     <div className="max-w-md">
       <form action={formAction} className="flex flex-col gap-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
         <Field label="Ingredient" htmlFor="ingredientId" error={errorState?.fieldErrors?.ingredientId}>
-          <select id="ingredientId" name="ingredientId" required className={selectClassName}>
+          <Select id="ingredientId" name="ingredientId" required>
             <option value="">Select ingredient…</option>
             {ingredients.map((i) => (
               <option key={i.id} value={i.id}>
                 {i.name} ({formatQty(i.currentQuantityBaseUnits, i.baseUnit)})
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Direction" htmlFor="direction">
-          <select id="direction" name="direction" className={selectClassName}>
+          <Select id="direction" name="direction">
             <option value="in">Increase stock (in)</option>
             <option value="out">Decrease stock (out)</option>
-          </select>
+          </Select>
         </Field>
         <Field label="Quantity" htmlFor="quantityBaseUnits" hint="In the ingredient's base unit" error={errorState?.fieldErrors?.quantityBaseUnits}>
           <input id="quantityBaseUnits" name="quantityBaseUnits" type="number" min={0} step="any" required className={inputClassName} />
@@ -232,12 +233,12 @@ function AdjustTab({ ingredients }: { ingredients: IngredientRow[] }) {
         </Field>
 
         {errorState?.error ? (
-          <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+          <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
             {errorState.error}
           </p>
         ) : null}
         {justSaved ? (
-          <p role="status" className="rounded-[var(--radius-sm)] bg-[#E7F8EF] px-3 py-2 text-sm text-[var(--color-success)]">
+          <p role="status" className="rounded-[var(--radius-sm)] bg-[var(--color-success-bg)] px-3 py-2 text-sm text-[var(--color-success)]">
             Adjustment recorded.
           </p>
         ) : null}
@@ -331,7 +332,7 @@ function StockCountTab({ ingredients }: { ingredients: IngredientRow[] }) {
         </div>
 
         {result && !result.ok ? (
-          <p role="alert" className="mt-3 rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+          <p role="alert" className="mt-3 rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
             {result.text}
           </p>
         ) : null}
@@ -354,14 +355,14 @@ function StockCountTab({ ingredients }: { ingredients: IngredientRow[] }) {
         Select ingredients to count, enter the physical quantity for each, then review before submitting.
       </p>
       {result?.ok ? (
-        <p role="status" className="mb-3 rounded-[var(--radius-sm)] bg-[#E7F8EF] px-3 py-2 text-sm text-[var(--color-success)]">
+        <p role="status" className="mb-3 rounded-[var(--radius-sm)] bg-[var(--color-success-bg)] px-3 py-2 text-sm text-[var(--color-success)]">
           {result.text}
         </p>
       ) : null}
       <div className="flex flex-col divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         {ingredients.map((i) => (
           <div key={i.id} className="flex items-center gap-3 px-4 py-2.5">
-            <input type="checkbox" checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
+            <Checkbox checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
             <span className="flex-1 text-sm text-[var(--color-text-primary)]">{i.name}</span>
             <span className="text-xs tabular-nums text-[var(--color-text-muted)]">
               system: {formatQty(i.currentQuantityBaseUnits, i.baseUnit)}

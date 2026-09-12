@@ -20,7 +20,7 @@ export default async function MenuPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-[1200px] px-8 py-10">
+    <div className="mx-auto max-w-[1440px]">
       <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Menu</h1>
       <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
         Categories, items, variants, and modifiers.

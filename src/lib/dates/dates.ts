@@ -31,6 +31,17 @@ export function todayInBusinessTimezone(): string {
   return formatBusinessDate(new Date());
 }
 
+/**
+ * Shift a Y-M-D calendar date by `days` (negative to go back). Pure calendar
+ * math on the date-only string — safe without a timezone conversion because
+ * Asia/Jakarta has no DST (fixed UTC+7), so a day is always 24h wall-clock.
+ */
+export function shiftBusinessDate(calendarDate: string, days: number): string {
+  const d = new Date(`${calendarDate}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 export function toBusinessZonedTime(date: Date): Date {
   return toZonedTime(date, BUSINESS_TIMEZONE);
 }

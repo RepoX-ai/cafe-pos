@@ -47,6 +47,30 @@ export async function createSupplier(db: Database, actor: ActorContext, input: S
   return row;
 }
 
+export async function updateSupplier(db: Database, actor: ActorContext, id: string, input: SupplierInput) {
+  const [row] = await db
+    .update(suppliers)
+    .set({
+      name: input.name,
+      contactName: input.contactName || null,
+      phone: input.phone || null,
+      email: input.email || null,
+      address: input.address || null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(suppliers.id, id), eq(suppliers.businessId, actor.businessId)))
+    .returning();
+  await recordAuditLog(db, {
+    businessId: actor.businessId,
+    actorUserId: actor.userId,
+    action: "supplier.updated",
+    entityType: "supplier",
+    entityId: id,
+    after: row,
+  });
+  return row;
+}
+
 export async function setSupplierActive(db: Database, actor: ActorContext, id: string, active: boolean) {
   const [row] = await db
     .update(suppliers)

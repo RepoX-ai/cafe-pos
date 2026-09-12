@@ -1,12 +1,16 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
+  ingredients,
   menuCategories,
   menuItemModifierGroups,
   menuItems,
   menuItemVariants,
   modifierGroups,
   modifierOptions,
+  modifierRecipeLines,
+  recipeLines,
+  recipes,
 } from "@/lib/db/schema";
 import type {
   CategoryInput,
@@ -15,8 +19,11 @@ import type {
   ModifierOptionInput,
   VariantInput,
 } from "@/lib/validation/menu";
+import type { RecipeLineInput } from "@/lib/validation/recipe";
+import { effectiveQuantity } from "@/lib/recipes/cost";
 import { recordAuditLog } from "./audit";
 import type { ActorContext } from "./ingredient-service";
+import { saveRecipe } from "./recipe-service";
 
 // ---------------------------------------------------------------------------
 // Categories
@@ -154,34 +161,67 @@ export async function getMenuItemById(db: Database, businessId: string, id: stri
 }
 
 export async function createMenuItem(db: Database, actor: ActorContext, input: MenuItemInput) {
-  const [row] = await db
-    .insert(menuItems)
-    .values({
-      businessId: actor.businessId,
-      categoryId: input.categoryId || null,
-      name: input.name,
-      description: input.description || null,
-      basePrice: input.basePrice,
-      taxBehavior: input.taxBehavior,
-      tracksInventory: input.tracksInventory,
-      active: input.active,
-      displayOrder: input.displayOrder,
-      createdBy: actor.userId,
-      updatedBy: actor.userId,
-    })
-    .returning();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(menuItems)
+      .values({
+        businessId: actor.businessId,
+        categoryId: input.categoryId || null,
+        name: input.name,
+        description: input.description || null,
+        imageUrl: input.imageUrl || null,
+        basePrice: input.basePrice,
+        taxBehavior: input.taxBehavior,
+        tracksInventory: input.tracksInventory,
+        active: input.active,
+        displayOrder: input.displayOrder,
+        createdBy: actor.userId,
+        updatedBy: actor.userId,
+      })
+      .returning();
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "menu_item.created",
-    entityType: "menu_item",
-    entityId: row.id,
-    after: row,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "menu_item.created",
+      entityType: "menu_item",
+      entityId: row.id,
+      after: row,
+    });
+
+    // Recipes (and therefore stock deduction/COGS) are keyed to a variant,
+    // not a menu item — an item with no variant at all can never have one.
+    // Every item gets a default "Regular" variant seeded from basePrice so
+    // it always has somewhere to hang a recipe, even if the owner never
+    // adds a second size. This mirrors what scripts/seed.ts already does
+    // by hand for its sample menu.
+    const [defaultVariant] = await tx
+      .insert(menuItemVariants)
+      .values({ menuItemId: row.id, name: "Regular", price: input.basePrice })
+      .returning();
+
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "menu_item_variant.created",
+      entityType: "menu_item_variant",
+      entityId: defaultVariant.id,
+      after: defaultVariant,
+      metadata: { menuItemId: row.id, autoCreated: true },
+    });
+
+    return row;
   });
-  return row;
 }
 
+/**
+ * `basePrice` is only ever an input again on this path via a hidden field
+ * carrying the item's current value through unchanged — the item edit form
+ * no longer exposes it for editing (see item-detail-client.tsx). Price is a
+ * per-variant thing now that every item always has at least one variant
+ * (see createMenuItem); basePrice's only real job is seeding that first
+ * variant's price at creation time.
+ */
 export async function updateMenuItem(
   db: Database,
   actor: ActorContext,
@@ -194,6 +234,7 @@ export async function updateMenuItem(
       categoryId: input.categoryId || null,
       name: input.name,
       description: input.description || null,
+      imageUrl: input.imageUrl || null,
       basePrice: input.basePrice,
       taxBehavior: input.taxBehavior,
       tracksInventory: input.tracksInventory,
@@ -270,6 +311,29 @@ export async function createVariant(
     metadata: { menuItemId },
   });
   return row;
+}
+
+/**
+ * Creates a variant and, if any ingredient lines were given, its first
+ * recipe version in one step — so adding a size doesn't force a separate
+ * trip to the recipe page before it can affect stock/COGS. Both writes
+ * happen in one transaction; recipeLines may be empty (a variant with no
+ * recipe yet, exactly like createVariant on its own).
+ */
+export async function createVariantWithRecipe(
+  db: Database,
+  actor: ActorContext,
+  menuItemId: string,
+  variantInput: VariantInput,
+  recipeLines: RecipeLineInput[],
+) {
+  return db.transaction(async (tx) => {
+    const variant = await createVariant(tx, actor, menuItemId, variantInput);
+    if (recipeLines.length > 0) {
+      await saveRecipe(tx, actor, { menuItemVariantId: variant.id, lines: recipeLines });
+    }
+    return variant;
+  });
 }
 
 export async function updateVariant(
@@ -455,6 +519,7 @@ export interface PosModifierOption {
   id: string;
   name: string;
   priceAdjustment: number;
+  inStock: boolean;
 }
 
 export interface PosModifierGroup {
@@ -470,6 +535,7 @@ export interface PosVariant {
   id: string;
   name: string;
   price: number;
+  inStock: boolean;
 }
 
 export interface PosMenuItem {
@@ -478,8 +544,14 @@ export interface PosMenuItem {
   description: string | null;
   imageUrl: string | null;
   categoryId: string | null;
+  // Used to price/sell the item directly when it has no variants.
+  basePrice: number;
   variants: PosVariant[];
   modifierGroups: PosModifierGroup[];
+  // True only when the item has variants and every one of them is short an
+  // ingredient — an item with no variants is always sellable off basePrice
+  // (recipes are keyed by menu_item_variant_id, so it never has a recipe).
+  outOfStock: boolean;
 }
 
 export interface PosCategory {
@@ -490,6 +562,7 @@ export interface PosCategory {
 export async function getPosMenu(
   db: Database,
   businessId: string,
+  opts: { allowNegativeStock: boolean },
 ): Promise<{ categories: PosCategory[]; items: PosMenuItem[] }> {
   const categories = await db
     .select({ id: menuCategories.id, name: menuCategories.name })
@@ -504,6 +577,8 @@ export async function getPosMenu(
       description: menuItems.description,
       imageUrl: menuItems.imageUrl,
       categoryId: menuItems.categoryId,
+      basePrice: menuItems.basePrice,
+      tracksInventory: menuItems.tracksInventory,
     })
     .from(menuItems)
     .where(and(eq(menuItems.businessId, businessId), eq(menuItems.active, true)))
@@ -551,14 +626,14 @@ export async function getPosMenu(
   const variantsByItem = new Map<string, PosVariant[]>();
   for (const v of variants) {
     const list = variantsByItem.get(v.menuItemId) ?? [];
-    list.push({ id: v.id, name: v.name, price: v.price });
+    list.push({ id: v.id, name: v.name, price: v.price, inStock: true });
     variantsByItem.set(v.menuItemId, list);
   }
 
   const optionsByGroup = new Map<string, PosModifierOption[]>();
   for (const o of options) {
     const list = optionsByGroup.get(o.modifierGroupId) ?? [];
-    list.push({ id: o.id, name: o.name, priceAdjustment: o.priceAdjustment });
+    list.push({ id: o.id, name: o.name, priceAdjustment: o.priceAdjustment, inStock: true });
     optionsByGroup.set(o.modifierGroupId, list);
   }
 
@@ -576,17 +651,109 @@ export async function getPosMenu(
     groupsByItem.set(a.menuItemId, list);
   }
 
-  const posItems: PosMenuItem[] = items
-    .map((item) => ({
+  // --- Stock availability (PRD §6.5/§7.8) ---------------------------------
+  // Mirrors the submit-time gate in order-service.ts: skipped entirely when
+  // the business allows negative stock (nothing to warn the cashier about
+  // ahead of time), and — per variant/option, since that's what's actually
+  // gated at submit time — skipped for items with tracksInventory off,
+  // since no consumption (and therefore no stock check) happens for those
+  // either way.
+  const variantAvailability = new Map<string, boolean>();
+  const optionAvailability = new Map<string, boolean>();
+
+  if (!opts.allowNegativeStock) {
+    const variantIds = variants.map((v) => v.id);
+    if (variantIds.length > 0) {
+      const activeRecipes = await db
+        .select({ id: recipes.id, variantId: recipes.menuItemVariantId, version: recipes.version })
+        .from(recipes)
+        .where(and(inArray(recipes.menuItemVariantId, variantIds), eq(recipes.active, true)))
+        .orderBy(desc(recipes.version));
+
+      // Keep only the latest active recipe per variant (a variant can only
+      // have one, but this is defensive in case of a data anomaly).
+      const recipeIdToVariantId = new Map<string, string>();
+      const seenVariant = new Set<string>();
+      for (const r of activeRecipes) {
+        if (seenVariant.has(r.variantId)) continue;
+        seenVariant.add(r.variantId);
+        recipeIdToVariantId.set(r.id, r.variantId);
+      }
+
+      const recipeIds = [...recipeIdToVariantId.keys()];
+      const lines =
+        recipeIds.length > 0
+          ? await db
+              .select({
+                recipeId: recipeLines.recipeId,
+                quantityBaseUnits: recipeLines.quantityBaseUnits,
+                wastePercentage: recipeLines.wastePercentage,
+                currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
+              })
+              .from(recipeLines)
+              .innerJoin(ingredients, eq(recipeLines.ingredientId, ingredients.id))
+              .where(inArray(recipeLines.recipeId, recipeIds))
+          : [];
+
+      for (const line of lines) {
+        const variantId = recipeIdToVariantId.get(line.recipeId);
+        if (!variantId) continue;
+        const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
+        if (needed > Number(line.currentQuantityBaseUnits)) {
+          variantAvailability.set(variantId, false);
+        }
+      }
+    }
+
+    const optionIds = options.map((o) => o.id);
+    if (optionIds.length > 0) {
+      const modLines = await db
+        .select({
+          modifierOptionId: modifierRecipeLines.modifierOptionId,
+          quantityBaseUnits: modifierRecipeLines.quantityBaseUnits,
+          wastePercentage: modifierRecipeLines.wastePercentage,
+          currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
+        })
+        .from(modifierRecipeLines)
+        .innerJoin(ingredients, eq(modifierRecipeLines.ingredientId, ingredients.id))
+        .where(inArray(modifierRecipeLines.modifierOptionId, optionIds));
+
+      for (const line of modLines) {
+        const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
+        if (needed > Number(line.currentQuantityBaseUnits)) {
+          optionAvailability.set(line.modifierOptionId, false);
+        }
+      }
+    }
+  }
+
+  // Items with no active variant are still orderable — sold directly off
+  // their basePrice (see order-service.submitOrder).
+  const posItems: PosMenuItem[] = items.map((item) => {
+    const itemVariants = (variantsByItem.get(item.id) ?? []).map((v) => ({
+      ...v,
+      inStock: item.tracksInventory ? (variantAvailability.get(v.id) ?? true) : true,
+    }));
+    const itemModifierGroups = (groupsByItem.get(item.id) ?? []).map((g) => ({
+      ...g,
+      options: g.options.map((o) => ({
+        ...o,
+        inStock: item.tracksInventory ? (optionAvailability.get(o.id) ?? true) : true,
+      })),
+    }));
+
+    return {
       id: item.id,
       name: item.name,
       description: item.description,
       imageUrl: item.imageUrl,
       categoryId: item.categoryId,
-      variants: variantsByItem.get(item.id) ?? [],
-      modifierGroups: groupsByItem.get(item.id) ?? [],
-    }))
-    .filter((item) => item.variants.length > 0); // an item with no active variant can't be ordered
+      basePrice: item.basePrice,
+      variants: itemVariants,
+      modifierGroups: itemModifierGroups,
+      outOfStock: itemVariants.length > 0 && itemVariants.every((v) => !v.inStock),
+    };
+  });
 
   return { categories, items: posItems };
 }

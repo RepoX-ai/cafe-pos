@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
-import { Plus, Pencil } from "lucide-react";
-import { Drawer } from "@/components/ui/drawer";
+import { Plus, Pencil, Archive, ArchiveRestore } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Field, inputClassName, selectClassName, textareaClassName } from "@/components/ui/form-field";
+import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
 import {
   createIngredientAction,
   setIngredientActiveAction,
@@ -66,16 +66,22 @@ export function IngredientsClient({
 
   return (
     <div>
-      {canWrite ? (
-        <div className="mb-4 flex justify-end">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Ingredients</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+            Base-unit stock, cost, and reorder thresholds for every ingredient.
+          </p>
+        </div>
+        {canWrite ? (
           <Button onClick={() => setDrawerState({ mode: "create" })}>
             <Plus size={16} />
             New ingredient
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
-      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="mt-8 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="w-full min-w-[820px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -100,7 +106,7 @@ export function IngredientsClient({
                   <td className="px-4 py-3">
                     <div className="font-medium text-[var(--color-text-primary)]">{ing.name}</div>
                     {ing.sku ? (
-                      <div className="font-mono text-xs text-[var(--color-text-muted)]">{ing.sku}</div>
+                      <div className="text-xs text-[var(--color-text-muted)]">{ing.sku}</div>
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-secondary)]">{ing.category || "—"}</td>
@@ -133,9 +139,10 @@ export function IngredientsClient({
                           <input type="hidden" name="active" value={(!ing.active).toString()} />
                           <button
                             type="submit"
-                            className="rounded-[var(--radius-sm)] px-2 py-1 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-page-bg)]"
+                            className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
+                            aria-label={ing.active ? `Archive ${ing.name}` : `Restore ${ing.name}`}
                           >
-                            {ing.active ? "Archive" : "Restore"}
+                            {ing.active ? <Archive size={15} /> : <ArchiveRestore size={15} />}
                           </button>
                         </form>
                       </div>
@@ -148,7 +155,7 @@ export function IngredientsClient({
         </table>
       </div>
 
-      <Drawer
+      <Modal
         open={drawerState !== null}
         onClose={() => setDrawerState(null)}
         title={drawerState?.mode === "edit" ? "Edit ingredient" : "New ingredient"}
@@ -161,7 +168,7 @@ export function IngredientsClient({
             onDone={() => setDrawerState(null)}
           />
         ) : null}
-      </Drawer>
+      </Modal>
     </div>
   );
 }
@@ -206,23 +213,36 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
       </div>
 
       <Field label="Base unit" htmlFor="baseUnit" error={errorState?.fieldErrors?.baseUnit}>
-        <select
-          id="baseUnit"
-          name="baseUnit"
-          defaultValue={existing?.baseUnit ?? "gram"}
-          disabled={!!existing}
-          className={selectClassName}
-        >
+        <Select id="baseUnit" name="baseUnit" defaultValue={existing?.baseUnit ?? "gram"} disabled={!!existing}>
           <option value="gram">Gram (weight)</option>
           <option value="millilitre">Millilitre (volume)</option>
           <option value="piece">Piece (countable)</option>
-        </select>
+        </Select>
         {existing ? (
           <p className="text-xs text-[var(--color-text-muted)]">
             Base unit can&apos;t change once movements exist against it.
           </p>
         ) : null}
       </Field>
+
+      {!existing ? (
+        <Field
+          label="Starting cost / unit"
+          htmlFor="startingCostPerBaseUnit"
+          hint="Optional. Lets you cost recipes before the first purchase — the next purchase recalculates the average as usual."
+          error={errorState?.fieldErrors?.startingCostPerBaseUnit}
+        >
+          <input
+            id="startingCostPerBaseUnit"
+            name="startingCostPerBaseUnit"
+            type="number"
+            min={0}
+            step="any"
+            placeholder="0"
+            className={inputClassName}
+          />
+        </Field>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-4">
         <Field
@@ -263,7 +283,7 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
       </Field>
 
       {errorState?.error ? (
-        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
           {errorState!.error}
         </p>
       ) : null}

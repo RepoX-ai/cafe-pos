@@ -14,6 +14,7 @@ import type { SubmitOrderInput } from "@/lib/validation/order";
 import { recordAuditLog } from "./audit";
 import {
   calculateLineIngredientDemand,
+  getMenuItemForOrder,
   getModifierOptionsById,
   getVariantWithItem,
 } from "./order-consumption";
@@ -24,9 +25,9 @@ export class OrderValidationError extends Error {}
 
 interface PreparedLine {
   menuItemId: string;
-  menuItemVariantId: string;
+  menuItemVariantId: string | null;
   itemNameSnapshot: string;
-  variantNameSnapshot: string;
+  variantNameSnapshot: string | null;
   quantity: number;
   unitPriceSnapshot: number; // variant price + modifier adjustments
   lineTotal: number;
@@ -110,12 +111,38 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
     >();
 
     for (const line of input.lines) {
-      const variant = await getVariantWithItem(tx, actor.businessId, line.menuItemVariantId);
-      if (!variant || variant.menuItemId !== line.menuItemId) {
-        throw new OrderValidationError("A menu item in this order no longer exists.");
-      }
-      if (!variant.menuItemActive || !variant.variantActive) {
-        throw new OrderValidationError(`"${variant.menuItemName}" is not currently available.`);
+      // Two pricing paths: a selected variant (the normal case), or — when
+      // the item has no variants at all — the item's own base price. An
+      // item sold the second way has no recipe row to deduct stock or
+      // compute COGS from (recipes are keyed by menu_item_variant_id), so
+      // it never affects inventory/COGS regardless of tracksInventory.
+      let itemName: string;
+      let variantName: string | null = null;
+      let basePrice: number;
+      let hasRecipe = false;
+
+      if (line.menuItemVariantId) {
+        const variant = await getVariantWithItem(tx, actor.businessId, line.menuItemVariantId);
+        if (!variant || variant.menuItemId !== line.menuItemId) {
+          throw new OrderValidationError("A menu item in this order no longer exists.");
+        }
+        if (!variant.menuItemActive || !variant.variantActive) {
+          throw new OrderValidationError(`"${variant.menuItemName}" is not currently available.`);
+        }
+        itemName = variant.menuItemName;
+        variantName = variant.variantName;
+        basePrice = variant.variantPrice;
+        hasRecipe = variant.tracksInventory;
+      } else {
+        const item = await getMenuItemForOrder(tx, actor.businessId, line.menuItemId);
+        if (!item) {
+          throw new OrderValidationError("A menu item in this order no longer exists.");
+        }
+        if (!item.menuItemActive) {
+          throw new OrderValidationError(`"${item.menuItemName}" is not currently available.`);
+        }
+        itemName = item.menuItemName;
+        basePrice = item.basePrice;
       }
 
       const modifierOptions = await getModifierOptionsById(tx, actor.businessId, line.modifierOptionIds);
@@ -128,13 +155,13 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
       }
 
       const modifierAdjustmentTotal = sumRupiah(modifierOptions.map((m) => m.priceAdjustment));
-      const unitPrice = variant.variantPrice + modifierAdjustmentTotal;
+      const unitPrice = basePrice + modifierAdjustmentTotal;
       const lineTotal = unitPrice * line.quantity;
 
       const consumption: PreparedLine["consumption"] = [];
       let lineCogsPerUnit = 0;
 
-      if (variant.tracksInventory) {
+      if (hasRecipe && line.menuItemVariantId) {
         const demand = await calculateLineIngredientDemand(tx, line.menuItemVariantId, line.modifierOptionIds);
         for (const d of demand.values()) {
           const totalQty = d.quantityPerUnit * line.quantity;
@@ -160,9 +187,9 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
 
       prepared.push({
         menuItemId: line.menuItemId,
-        menuItemVariantId: line.menuItemVariantId,
-        itemNameSnapshot: variant.menuItemName,
-        variantNameSnapshot: variant.variantName,
+        menuItemVariantId: line.menuItemVariantId ?? null,
+        itemNameSnapshot: itemName,
+        variantNameSnapshot: variantName,
         quantity: line.quantity,
         unitPriceSnapshot: unitPrice,
         lineTotal,
@@ -334,7 +361,7 @@ function buildPrintPayload(
     tableLabel: order.tableLabel ?? undefined,
     lines: lines.map((l) => ({
       name: l.itemNameSnapshot,
-      variantName: l.variantNameSnapshot,
+      variantName: l.variantNameSnapshot ?? undefined,
       quantity: l.quantity,
       modifiers: l.modifiers.map((m) => m.name),
       note: l.notes,

@@ -36,7 +36,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   const { order, lines, printJobs } = detail;
 
   return (
-    <div className="mx-auto max-w-[900px] px-8 py-10">
+    <div className="mx-auto max-w-[900px]">
       <Link href="/orders" className="inline-flex items-center gap-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
         <ArrowLeft size={14} />
         Back to orders
@@ -44,7 +44,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
       <div className="mt-2 flex items-center justify-between">
         <div>
-          <h1 className="font-mono text-2xl font-semibold text-[var(--color-text-primary)]">{order.orderNumber}</h1>
+          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{order.orderNumber}</h1>
           <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
             {formatDate(order.createdAt)} · {order.orderType} {order.tableLabel ? `· ${order.tableLabel}` : ""}
           </p>
@@ -77,7 +77,10 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <tr key={line.id} className="border-b border-[var(--color-border)] last:border-0 align-top">
                 <td className="px-4 py-3">
                   <p className="font-medium text-[var(--color-text-primary)]">
-                    {line.itemNameSnapshot} <span className="text-[var(--color-text-secondary)]">· {line.variantNameSnapshot}</span>
+                    {line.itemNameSnapshot}
+                    {line.variantNameSnapshot ? (
+                      <span className="text-[var(--color-text-secondary)]"> · {line.variantNameSnapshot}</span>
+                    ) : null}
                   </p>
                   {line.modifiers.length > 0 ? (
                     <p className="text-xs text-[var(--color-text-muted)]">{line.modifiers.map((m) => m.modifierNameSnapshot).join(", ")}</p>
@@ -100,7 +103,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         <Metric label="Discount" value={formatIDR(order.discountTotal)} />
         <Metric label="Tax" value={formatIDR(order.taxTotal)} />
         <Metric label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
-        <Metric label="Total" value={formatIDR(order.total)} emphasize />
+        <Metric label="Total" value={formatIDR(order.total)} />
         <Metric label="COGS" value={formatIDR(order.cogsTotal)} />
         <Metric label="Gross profit" value={formatIDR(order.grossProfit)} />
         <Metric label="Gross margin" value={order.grossMarginPercentage !== null ? `${Number(order.grossMarginPercentage).toFixed(1)}%` : "—"} />
@@ -147,11 +150,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   );
 }
 
-function Metric({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
       <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">{label}</p>
-      <p className={`mt-1 tabular-nums text-[var(--color-text-primary)] ${emphasize ? "text-xl font-semibold" : "text-sm font-medium"}`}>{value}</p>
+      <p className="mt-1 text-sm font-medium tabular-nums text-[var(--color-text-primary)]">{value}</p>
     </div>
   );
 }

@@ -60,6 +60,29 @@ describe.skipIf(!db)("order submission (integration)", () => {
     expect(second.order.id).toBe(first.order.id);
   });
 
+  it("sells an item with no variants directly off its base price, with no COGS", async () => {
+    const { business, user, menuItem } = await seedTestFixture(db!);
+
+    const result = await submitOrder(
+      db!,
+      { businessId: business.id, userId: user.id },
+      {
+        idempotencyKey: "no-variant-key",
+        orderType: "dine_in",
+        discountTotal: 0,
+        lines: [{ menuItemId: menuItem.id, quantity: 3, modifierOptionIds: [] }],
+      },
+    );
+
+    expect(result.order.status).toBe("SUBMITTED");
+    expect(result.order.subtotal).toBe(menuItem.basePrice * 3);
+    expect(result.order.cogsTotal).toBe(0); // no recipe without a variant
+
+    const detail = await getOrderById(db!, business.id, result.order.id);
+    expect(detail?.lines[0].menuItemVariantId).toBeNull();
+    expect(detail?.lines[0].variantNameSnapshot).toBeNull();
+  });
+
   it("blocks submission when stock is insufficient", async () => {
     const { business, user, variant, menuItem } = await seedTestFixture(db!, { openingStock: "5" }); // needs 20g/unit
 

@@ -20,6 +20,7 @@ export const PERMISSIONS = [
   "orders:create",
   "orders:read_own",
   "orders:read_all",
+  "orders:read_all_basic",
   "orders:cancel",
   "orders:refund",
   "orders:reprint",
@@ -77,6 +78,14 @@ export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
   cashier: new Set<Permission>([
     "orders:create",
     "orders:read_own",
+    // Lets a cashier browse the full order list (e.g. to look up an order
+    // for a customer complaint) from within the POS itself — NOT the same
+    // as orders:read_all. The POS-side order history view built for this
+    // permission never renders COGS/gross-profit/margin, so it doesn't
+    // cross the PRD §4 line ("should not see ... ingredient costs ...
+    // profit information"). Don't reuse this permission to gate anything
+    // that surfaces financials.
+    "orders:read_all_basic",
     // Deliberately NOT menu:read: the POS reads the menu catalog via
     // orders:create (its own page permission), not menu:read — menu:read
     // is what gates the /menu ADMIN section, which surfaces recipe COGS

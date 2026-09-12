@@ -15,12 +15,12 @@ export default async function PurchasesPage() {
 
   const [ingredients, suppliers, purchases] = await Promise.all([
     listIngredients(db, user.businessId),
-    listSuppliers(db, user.businessId),
+    listSuppliers(db, user.businessId, { includeArchived: true }),
     listPurchases(db, user.businessId),
   ]);
 
   return (
-    <div className="mx-auto max-w-[1200px] px-8 py-10">
+    <div className="mx-auto max-w-[1440px]">
       <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Purchases</h1>
       <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
         Suppliers and purchase receipts. Finalizing a receipt increases stock and updates average cost.

@@ -25,6 +25,10 @@ RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
+# Menu item photos uploaded through the admin UI are written here at
+# runtime (src/server/services/menu-image-upload.ts) — owned by the
+# `nextjs` user the container actually runs as, not root.
+RUN mkdir -p public/uploads/menu && chown -R nextjs:nodejs public/uploads
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts

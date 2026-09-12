@@ -2,7 +2,9 @@ import { z } from "zod";
 
 export const orderLineInputSchema = z.object({
   menuItemId: z.string().uuid(),
-  menuItemVariantId: z.string().uuid(),
+  // Absent when the item has no variants and is sold directly off its
+  // base price (see menu-service.getPosMenu / order-service.submitOrder).
+  menuItemVariantId: z.string().uuid().nullish(),
   quantity: z.number().int().positive(),
   modifierOptionIds: z.array(z.string().uuid()).default([]),
   notes: z.string().trim().max(500).optional(),

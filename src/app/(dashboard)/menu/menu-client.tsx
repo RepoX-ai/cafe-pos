@@ -1,23 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Pencil, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Drawer } from "@/components/ui/drawer";
-import { Field, inputClassName } from "@/components/ui/form-field";
+import { Modal } from "@/components/ui/modal";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, inputClassName, Select } from "@/components/ui/form-field";
 import {
   createCategoryAction,
   createModifierGroupAction,
   createModifierOptionAction,
   setCategoryActiveAction,
+  setMenuItemActiveAction,
   setModifierGroupActiveAction,
   setModifierOptionActiveAction,
   type FormActionState,
 } from "./actions";
 import { createMenuItemAction } from "./actions";
+import { ImageField } from "./image-field";
 
 export interface CategoryRow {
   id: string;
@@ -128,18 +132,77 @@ function ItemsTab({
   categories: CategoryRow[];
   canWrite: boolean;
 }) {
+  const router = useRouter();
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "archived">("all");
+
+  const filteredItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return items.filter((item) => {
+      if (q && !item.name.toLowerCase().includes(q)) return false;
+      if (categoryFilter !== "all") {
+        if (categoryFilter === "none") {
+          if (item.categoryId) return false;
+        } else if (item.categoryId !== categoryFilter) {
+          return false;
+        }
+      }
+      if (statusFilter === "active" && !item.active) return false;
+      if (statusFilter === "archived" && item.active) return false;
+      return true;
+    });
+  }, [items, query, categoryFilter, statusFilter]);
 
   return (
     <div>
-      {canWrite ? (
-        <div className="mb-4 flex justify-end">
-          <Button onClick={() => setCreating(true)}>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="relative min-w-[220px] flex-1">
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search items…"
+            className={`${inputClassName} w-full pl-9`}
+          />
+        </div>
+        <div className="w-44">
+          <label htmlFor="item-category-filter" className="sr-only">
+            Filter by category
+          </label>
+          <Select id="item-category-filter" value={categoryFilter} onChange={setCategoryFilter}>
+            <option value="all">All categories</option>
+            <option value="none">No category</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-36">
+          <label htmlFor="item-status-filter" className="sr-only">
+            Filter by status
+          </label>
+          <Select
+            id="item-status-filter"
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as "all" | "active" | "archived")}
+          >
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+          </Select>
+        </div>
+        {canWrite ? (
+          <Button onClick={() => setCreating(true)} className="ml-auto">
             <Plus size={16} />
             New item
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -150,45 +213,90 @@ function ItemsTab({
               <th className="px-4 py-3">Variants</th>
               <th className="px-4 py-3 text-right">Base price</th>
               <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 ? (
+            {filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
-                  No menu items yet.
+                <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                  {items.length === 0 ? "No menu items yet." : "No items match your search or filters."}
                 </td>
               </tr>
             ) : (
-              items.map((item) => (
-                <tr key={item.id} className="border-b border-[var(--color-border)] last:border-0">
-                  <td className="px-4 py-3">
-                    <Link href={`/menu/${item.id}`} className="font-medium text-[var(--color-text-primary)] hover:text-[var(--color-accent-primary)]">
-                      {item.name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">{item.categoryName ?? "—"}</td>
-                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">
-                    {item.variants.length === 0 ? (
-                      <Badge tone="warning">No variants</Badge>
-                    ) : (
-                      item.variants.map((v) => v.name).join(", ")
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatIDR(item.basePrice)}</td>
-                  <td className="px-4 py-3">
-                    <Badge tone={item.active ? "success" : "neutral"}>{item.active ? "Active" : "Archived"}</Badge>
-                  </td>
-                </tr>
-              ))
+              filteredItems.map((item) => {
+                // Price now lives on the variant(s), not basePrice (which only
+                // ever seeded the first one at creation) — same range display
+                // the POS grid uses, so this list doesn't go stale the moment
+                // someone edits a variant's price.
+                const prices = item.variants.length > 0 ? item.variants.map((v) => v.price) : [item.basePrice];
+                const minPrice = Math.min(...prices);
+                const maxPrice = Math.max(...prices);
+                return (
+                  <tr
+                    key={item.id}
+                    onClick={() => router.push(`/menu/${item.id}`)}
+                    className="cursor-pointer border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-page-bg)]"
+                  >
+                    <td className="px-4 py-3">
+                      <Link
+                        href={`/menu/${item.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-medium text-[var(--color-text-primary)] hover:text-[var(--color-accent-primary)]"
+                      >
+                        {item.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-[var(--color-text-secondary)]">{item.categoryName ?? "—"}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-secondary)]">
+                      {item.variants.length === 0 ? (
+                        <Badge tone="warning">No variants</Badge>
+                      ) : (
+                        item.variants.map((v) => v.name).join(", ")
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-right tabular-nums">
+                      {minPrice === maxPrice ? formatIDR(minPrice) : `${formatIDR(minPrice)}–${formatIDR(maxPrice)}`}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge tone={item.active ? "success" : "neutral"}>{item.active ? "Active" : "Archived"}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <Link
+                          href={`/menu/${item.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
+                        >
+                          <Pencil size={13} />
+                          {canWrite ? "Edit" : "View"}
+                        </Link>
+                        {canWrite ? (
+                          <form action={setMenuItemActiveAction}>
+                            <input type="hidden" name="id" value={item.id} />
+                            <input type="hidden" name="active" value={(!item.active).toString()} />
+                            <button
+                              type="submit"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                            >
+                              {item.active ? "Archive" : "Restore"}
+                            </button>
+                          </form>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
 
-      <Drawer open={creating} onClose={() => setCreating(false)} title="New menu item">
+      <Modal open={creating} onClose={() => setCreating(false)} title="New menu item">
         <NewItemForm categories={categories} onDone={() => setCreating(false)} />
-      </Drawer>
+      </Modal>
     </div>
   );
 }
@@ -203,29 +311,30 @@ function NewItemForm({ categories, onDone }: { categories: CategoryRow[]; onDone
         <input id="name" name="name" required className={inputClassName} />
       </Field>
       <Field label="Category" htmlFor="categoryId">
-        <select id="categoryId" name="categoryId" className={inputClassName}>
+        <Select id="categoryId" name="categoryId">
           <option value="">No category</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Base price (Rp)" htmlFor="basePrice" error={errorState?.fieldErrors?.basePrice}>
         <input id="basePrice" name="basePrice" type="number" min={0} step={1} required className={inputClassName} />
       </Field>
+      <ImageField error={errorState?.fieldErrors?.imageUrl} />
       <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-        <input type="checkbox" name="tracksInventory" defaultChecked />
+        <Checkbox name="tracksInventory" defaultChecked />
         Track ingredient stock for this item
       </label>
       <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-        <input type="checkbox" name="active" defaultChecked />
+        <Checkbox name="active" defaultChecked />
         Available for sale
       </label>
 
       {errorState?.error ? (
-        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
           {errorState.error}
         </p>
       ) : null}
@@ -290,7 +399,7 @@ function CategoriesTab({ categories, canWrite }: { categories: CategoryRow[]; ca
                       <form action={setCategoryActiveAction}>
                         <input type="hidden" name="id" value={c.id} />
                         <input type="hidden" name="active" value={(!c.active).toString()} />
-                        <button type="submit" className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
+                        <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
                           {c.active ? "Archive" : "Restore"}
                         </button>
                       </form>
@@ -303,9 +412,9 @@ function CategoriesTab({ categories, canWrite }: { categories: CategoryRow[]; ca
         </table>
       </div>
 
-      <Drawer open={creating} onClose={() => setCreating(false)} title="New category">
+      <Modal open={creating} onClose={() => setCreating(false)} title="New category">
         <CategoryForm onDone={() => setCreating(false)} />
-      </Drawer>
+      </Modal>
     </div>
   );
 }
@@ -328,7 +437,7 @@ function CategoryForm({ onDone }: { onDone: () => void }) {
         <input id="displayOrder" name="displayOrder" type="number" defaultValue={0} className={inputClassName} />
       </Field>
       {errorState?.error ? (
-        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
           {errorState.error}
         </p>
       ) : null}
@@ -383,14 +492,14 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => setAddingOptionTo(group.id)}
-                    className="text-xs font-medium text-[var(--color-accent-primary)] hover:underline"
+                    className="text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
                   >
                     Add option
                   </button>
                   <form action={setModifierGroupActiveAction}>
                     <input type="hidden" name="id" value={group.id} />
                     <input type="hidden" name="active" value={(!group.active).toString()} />
-                    <button type="submit" className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
+                    <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
                       {group.active ? "Archive" : "Restore"}
                     </button>
                   </form>
@@ -433,15 +542,15 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
         ))
       )}
 
-      <Drawer open={creatingGroup} onClose={() => setCreatingGroup(false)} title="New modifier group">
+      <Modal open={creatingGroup} onClose={() => setCreatingGroup(false)} title="New modifier group">
         <ModifierGroupForm onDone={() => setCreatingGroup(false)} />
-      </Drawer>
+      </Modal>
 
-      <Drawer open={addingOptionTo !== null} onClose={() => setAddingOptionTo(null)} title="New modifier option">
+      <Modal open={addingOptionTo !== null} onClose={() => setAddingOptionTo(null)} title="New modifier option">
         {addingOptionTo ? (
           <ModifierOptionForm groupId={addingOptionTo} onDone={() => setAddingOptionTo(null)} />
         ) : null}
-      </Drawer>
+      </Modal>
     </div>
   );
 }
@@ -469,11 +578,11 @@ function ModifierGroupForm({ onDone }: { onDone: () => void }) {
         </Field>
       </div>
       <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-        <input type="checkbox" name="required" />
+        <Checkbox name="required" />
         Required (customer must choose)
       </label>
       {errorState?.error ? (
-        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
           {errorState.error}
         </p>
       ) : null}
@@ -508,7 +617,7 @@ function ModifierOptionForm({ groupId, onDone }: { groupId: string; onDone: () =
         <input id="priceAdjustment" name="priceAdjustment" type="number" defaultValue={0} className={inputClassName} />
       </Field>
       {errorState?.error ? (
-        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
           {errorState.error}
         </p>
       ) : null}

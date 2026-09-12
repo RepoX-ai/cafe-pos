@@ -5,21 +5,15 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { expenseInputSchema } from "@/lib/validation/expense";
-import { createExpense } from "@/server/services/expense-service";
+import { createExpense, updateExpense } from "@/server/services/expense-service";
 
 export type ExpenseActionState =
   | { ok: true }
   | { ok: false; error: string; fieldErrors?: Record<string, string> }
   | undefined;
 
-export async function createExpenseAction(
-  _prev: ExpenseActionState,
-  formData: FormData,
-): Promise<ExpenseActionState> {
-  const user = await requireCurrentUser();
-  requirePermission(user.roles, "expenses:write");
-
-  const parsed = expenseInputSchema.safeParse({
+function parseExpenseForm(formData: FormData) {
+  return expenseInputSchema.safeParse({
     category: formData.get("category"),
     amount: formData.get("amount"),
     expenseDate: formData.get("expenseDate"),
@@ -28,16 +22,50 @@ export async function createExpenseAction(
     notes: formData.get("notes"),
     recurring: formData.get("recurring") === "on",
   });
+}
+
+function flattenZodErrors(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
+  const fieldErrors: Record<string, string> = {};
+  for (const issue of error.issues) {
+    const key = String(issue.path[0] ?? "form");
+    if (!fieldErrors[key]) fieldErrors[key] = issue.message;
+  }
+  return fieldErrors;
+}
+
+export async function createExpenseAction(
+  _prev: ExpenseActionState,
+  formData: FormData,
+): Promise<ExpenseActionState> {
+  const user = await requireCurrentUser();
+  requirePermission(user.roles, "expenses:write");
+
+  const parsed = parseExpenseForm(formData);
   if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      if (!fieldErrors[key]) fieldErrors[key] = issue.message;
-    }
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors };
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
   }
 
   await createExpense(db, { businessId: user.businessId, userId: user.id }, parsed.data);
+  revalidatePath("/expenses");
+  return { ok: true };
+}
+
+export async function updateExpenseAction(
+  _prev: ExpenseActionState,
+  formData: FormData,
+): Promise<ExpenseActionState> {
+  const user = await requireCurrentUser();
+  requirePermission(user.roles, "expenses:write");
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { ok: false, error: "Missing expense id." };
+
+  const parsed = parseExpenseForm(formData);
+  if (!parsed.success) {
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
+  }
+
+  await updateExpense(db, { businessId: user.businessId, userId: user.id }, id, parsed.data);
   revalidatePath("/expenses");
   return { ok: true };
 }

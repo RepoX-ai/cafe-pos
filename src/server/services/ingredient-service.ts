@@ -34,10 +34,14 @@ export interface ActorContext {
 }
 
 /**
- * New ingredients always start at zero stock and zero average cost — stock
- * only ever enters the ledger through an explicit movement (opening
- * balance, purchase, or adjustment), never as a side effect of editing the
- * ingredient record (PRD §1.3).
+ * New ingredients always start at zero stock — stock only ever enters the
+ * ledger through an explicit movement (opening balance, purchase, or
+ * adjustment), never as a side effect of editing the ingredient record (PRD
+ * §1.3). Average cost is the exception: it's a plain rate column (not a
+ * movement), so an optional starting value can seed it here purely so
+ * recipes/menu items can be costed before the first purchase exists. The
+ * next real purchase still recalculates it via the normal weighted-average
+ * formula, blending over this seed like any other receipt.
  */
 export async function createIngredient(db: Database, actor: ActorContext, input: IngredientInput) {
   const [row] = await db
@@ -52,6 +56,9 @@ export async function createIngredient(db: Database, actor: ActorContext, input:
         input.reorderLevelBaseUnits !== undefined ? String(input.reorderLevelBaseUnits) : null,
       targetStockBaseUnits:
         input.targetStockBaseUnits !== undefined ? String(input.targetStockBaseUnits) : null,
+      ...(input.startingCostPerBaseUnit !== undefined
+        ? { averageCostPerBaseUnit: String(input.startingCostPerBaseUnit) }
+        : {}),
       notes: input.notes || null,
     })
     .returning();

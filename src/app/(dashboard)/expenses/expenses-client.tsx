@@ -1,10 +1,15 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useActionState } from "react";
+import { Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field, inputClassName, selectClassName, textareaClassName } from "@/components/ui/form-field";
+import { Modal } from "@/components/ui/modal";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { EXPENSE_CATEGORIES } from "@/lib/validation/expense";
-import { createExpenseAction, type ExpenseActionState } from "./actions";
+import { createExpenseAction, updateExpenseAction, type ExpenseActionState } from "./actions";
 
 interface ExpenseRow {
   id: string;
@@ -13,6 +18,7 @@ interface ExpenseRow {
   expenseDate: string;
   payee: string | null;
   referenceNumber: string | null;
+  notes: string | null;
   recurring: boolean;
 }
 
@@ -25,65 +31,40 @@ function formatIDR(n: number) {
 }
 
 export function ExpensesClient({ records }: { records: ExpenseRow[] }) {
-  const [state, formAction, isPending] = useActionState<ExpenseActionState, FormData>(createExpenseAction, undefined);
-  const errorState = state && !state.ok ? state : undefined;
+  const [drawerState, setDrawerState] = useState<{ mode: "create" } | { mode: "edit"; row: ExpenseRow } | null>(
+    null,
+  );
 
   const total = records.reduce((sum, r) => sum + r.amount, 0);
 
   return (
     <div className="flex flex-col gap-8">
-      <form action={formAction} className="grid grid-cols-2 gap-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-        <Field label="Category" htmlFor="category" error={errorState?.fieldErrors?.category}>
-          <select id="category" name="category" required className={selectClassName}>
-            {EXPENSE_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {CATEGORY_LABEL[c]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Amount (Rp)" htmlFor="amount" error={errorState?.fieldErrors?.amount}>
-          <input id="amount" name="amount" type="number" min={0} required className={inputClassName} />
-        </Field>
-        <Field label="Date" htmlFor="expenseDate" error={errorState?.fieldErrors?.expenseDate}>
-          <input id="expenseDate" name="expenseDate" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required className={inputClassName} />
-        </Field>
-        <Field label="Payee / supplier" htmlFor="payee">
-          <input id="payee" name="payee" className={inputClassName} />
-        </Field>
-        <Field label="Reference #" htmlFor="referenceNumber">
-          <input id="referenceNumber" name="referenceNumber" className={inputClassName} />
-        </Field>
-        <div className="flex items-end pb-2.5">
-          <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-            <input type="checkbox" name="recurring" />
-            Recurring
-          </label>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Expenses</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+            Manual operating expenses. These affect estimated net profit but never order COGS.
+          </p>
         </div>
-        <div className="col-span-2">
-          <Field label="Notes" htmlFor="notes">
-            <textarea id="notes" name="notes" className={textareaClassName} />
-          </Field>
-        </div>
+        <Button onClick={() => setDrawerState({ mode: "create" })}>
+          <Plus size={16} />
+          Record expense
+        </Button>
+      </div>
 
-        <div className="col-span-2 flex flex-col gap-3">
-          {errorState?.error ? (
-            <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
-              {errorState.error}
-            </p>
-          ) : null}
-          {state?.ok ? (
-            <p role="status" className="rounded-[var(--radius-sm)] bg-[#E7F8EF] px-3 py-2 text-sm text-[var(--color-success)]">
-              Expense recorded.
-            </p>
-          ) : null}
-          <div className="flex justify-end">
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Saving…" : "Record expense"}
-            </Button>
-          </div>
-        </div>
-      </form>
+      <Modal
+        open={drawerState !== null}
+        onClose={() => setDrawerState(null)}
+        title={drawerState?.mode === "edit" ? "Edit expense" : "Record expense"}
+      >
+        {drawerState ? (
+          <ExpenseForm
+            key={drawerState.mode === "edit" ? drawerState.row.id : "create"}
+            existing={drawerState.mode === "edit" ? drawerState.row : null}
+            onDone={() => setDrawerState(null)}
+          />
+        ) : null}
+      </Modal>
 
       <div>
         <div className="mb-3 flex items-center justify-between">
@@ -98,12 +79,13 @@ export function ExpensesClient({ records }: { records: ExpenseRow[] }) {
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Payee</th>
                 <th className="px-4 py-3 text-right">Amount</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                  <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                     No expenses recorded yet.
                   </td>
                 </tr>
@@ -114,6 +96,15 @@ export function ExpensesClient({ records }: { records: ExpenseRow[] }) {
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{CATEGORY_LABEL[r.category] ?? r.category}</td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.payee ?? "—"}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatIDR(r.amount)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => setDrawerState({ mode: "edit", row: r })}
+                        className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
+                        aria-label={`Edit expense on ${r.expenseDate}`}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -122,5 +113,78 @@ export function ExpensesClient({ records }: { records: ExpenseRow[] }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone: () => void }) {
+  const action = existing ? updateExpenseAction : createExpenseAction;
+  const [state, formAction, isPending] = useActionState<ExpenseActionState, FormData>(action, undefined);
+  const errorState = state && !state.ok ? state : undefined;
+
+  useEffect(() => {
+    if (state?.ok) onDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  return (
+    <form action={formAction} className="grid grid-cols-2 gap-4">
+      {existing ? <input type="hidden" name="id" value={existing.id} /> : null}
+
+      <Field label="Category" htmlFor="category" error={errorState?.fieldErrors?.category}>
+        <Select id="category" name="category" defaultValue={existing?.category} required>
+          {EXPENSE_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {CATEGORY_LABEL[c]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Amount (Rp)" htmlFor="amount" error={errorState?.fieldErrors?.amount}>
+        <input
+          id="amount"
+          name="amount"
+          type="number"
+          min={0}
+          required
+          defaultValue={existing?.amount}
+          className={inputClassName}
+        />
+      </Field>
+      <Field label="Date" htmlFor="expenseDate" error={errorState?.fieldErrors?.expenseDate}>
+        <DatePicker id="expenseDate" name="expenseDate" defaultValue={existing?.expenseDate ?? new Date().toISOString().slice(0, 10)} />
+      </Field>
+      <Field label="Payee / supplier" htmlFor="payee">
+        <input id="payee" name="payee" defaultValue={existing?.payee ?? ""} className={inputClassName} />
+      </Field>
+      <Field label="Reference #" htmlFor="referenceNumber">
+        <input id="referenceNumber" name="referenceNumber" defaultValue={existing?.referenceNumber ?? ""} className={inputClassName} />
+      </Field>
+      <div className="flex items-end pb-2.5">
+        <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+          <Checkbox name="recurring" defaultChecked={existing?.recurring ?? false} />
+          Recurring
+        </label>
+      </div>
+      <div className="col-span-2">
+        <Field label="Notes" htmlFor="notes">
+          <textarea id="notes" name="notes" defaultValue={existing?.notes ?? ""} className={textareaClassName} />
+        </Field>
+      </div>
+
+      {errorState?.error ? (
+        <p role="alert" className="col-span-2 rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
+          {errorState.error}
+        </p>
+      ) : null}
+
+      <div className="col-span-2 mt-2 flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Saving…" : existing ? "Save changes" : "Record expense"}
+        </Button>
+      </div>
+    </form>
   );
 }

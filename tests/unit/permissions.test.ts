@@ -10,9 +10,14 @@ describe("permissions", () => {
   it("restricts cashier to the order-facing workflow", () => {
     expect(hasPermission("cashier", "orders:create")).toBe(true);
     expect(hasPermission("cashier", "orders:read_own")).toBe(true);
+    // Cashiers can browse the full order list/detail for complaint lookup,
+    // but this permission must never gate anything that renders COGS/
+    // gross-profit/margin — that stays behind orders:read_all.
+    expect(hasPermission("cashier", "orders:read_all_basic")).toBe(true);
 
     for (const denied of [
       "reports:read",
+      "orders:read_all",
       // menu:read gates the /menu ADMIN section (recipe COGS/margins) —
       // a cashier must never hold it, even though the POS itself reads
       // the menu catalog (via its own orders:create page permission).

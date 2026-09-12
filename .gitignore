@@ -24,6 +24,9 @@
 .DS_Store
 *.pem
 
+# menu item photos uploaded at runtime through the admin UI (src/server/services/menu-image-upload.ts)
+/public/uploads/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

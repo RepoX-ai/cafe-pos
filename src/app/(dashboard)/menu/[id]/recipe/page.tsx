@@ -35,7 +35,7 @@ export default async function RecipePage({
 
   if (!selectedVariant) {
     return (
-      <div className="mx-auto max-w-[800px] px-8 py-10">
+      <div className="mx-auto max-w-[800px]">
         <BackLink itemId={id} />
         <p className="mt-6 text-sm text-[var(--color-text-secondary)]">
           This item has no variants yet. Add a variant first, then come back to build its recipe.
@@ -50,7 +50,7 @@ export default async function RecipePage({
   ]);
 
   return (
-    <div className="mx-auto max-w-[800px] px-8 py-10">
+    <div className="mx-auto max-w-[800px]">
       <BackLink itemId={id} />
       <h1 className="mt-2 text-2xl font-semibold text-[var(--color-text-primary)]">
         {detail.item.name} — Recipe

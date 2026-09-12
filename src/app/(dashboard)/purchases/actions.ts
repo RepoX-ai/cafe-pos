@@ -5,7 +5,7 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { purchaseInputSchema } from "@/lib/validation/purchase";
-import { createSupplier, setSupplierActive, type SupplierInput } from "@/server/services/supplier-service";
+import { createSupplier, updateSupplier, setSupplierActive, type SupplierInput } from "@/server/services/supplier-service";
 import { createAndFinalizePurchase } from "@/server/services/purchase-service";
 
 export type PurchaseActionState = { ok: true } | { ok: false; error: string };
@@ -32,6 +32,16 @@ export async function createSupplierAction(input: SupplierInput): Promise<Purcha
   if (!input.name?.trim()) return { ok: false, error: "Supplier name is required." };
 
   await createSupplier(db, { businessId: user.businessId, userId: user.id }, input);
+  revalidatePath("/purchases");
+  return { ok: true };
+}
+
+export async function updateSupplierAction(id: string, input: SupplierInput): Promise<PurchaseActionState> {
+  const user = await requireCurrentUser();
+  requirePermission(user.roles, "purchases:write");
+  if (!input.name?.trim()) return { ok: false, error: "Supplier name is required." };
+
+  await updateSupplier(db, { businessId: user.businessId, userId: user.id }, id, input);
   revalidatePath("/purchases");
   return { ok: true };
 }

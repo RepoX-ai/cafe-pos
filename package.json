@@ -15,7 +15,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:backfill-default-variants": "tsx scripts/backfill-default-variants.ts",
+    "db:seed:matsudon-menu": "tsx scripts/seed-matsudon-menu.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -25,6 +27,7 @@
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.44.0",
     "next": "16.3.4",
+    "next-themes": "^0.4.6",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

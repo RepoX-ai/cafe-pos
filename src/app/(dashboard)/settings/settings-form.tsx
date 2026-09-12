@@ -2,7 +2,8 @@
 
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
-import { Field, inputClassName, textareaClassName } from "@/components/ui/form-field";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
 import { updateSettingsAction, type SettingsActionState } from "./actions";
 
 export function SettingsForm({
@@ -54,7 +55,7 @@ export function SettingsForm({
           Whether tax applies, and whether menu prices already include it, is a decision only the café owner can make (PRD §20).
         </p>
         <label className="mb-3 flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-          <input type="checkbox" name="taxEnabled" defaultChecked={tax !== null} />
+          <Checkbox name="taxEnabled" defaultChecked={tax !== null} />
           Apply tax to orders
         </label>
         <div className="grid grid-cols-2 gap-4">
@@ -71,10 +72,10 @@ export function SettingsForm({
             />
           </Field>
           <Field label="Price basis" htmlFor="taxInclusive">
-            <select id="taxInclusive" name="taxInclusive" defaultValue={tax?.inclusive ? "on" : ""} className={inputClassName}>
+            <Select id="taxInclusive" name="taxInclusive" defaultValue={tax?.inclusive ? "on" : ""}>
               <option value="">Exclusive (tax added on top)</option>
               <option value="on">Inclusive (menu price already includes tax)</option>
-            </select>
+            </Select>
           </Field>
         </div>
       </section>
@@ -82,7 +83,7 @@ export function SettingsForm({
       <section className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
         <h2 className="mb-1 text-sm font-semibold text-[var(--color-text-primary)]">Service charge</h2>
         <label className="mb-3 mt-3 flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-          <input type="checkbox" name="serviceChargeEnabled" defaultChecked={serviceChargePercent !== null} />
+          <Checkbox name="serviceChargeEnabled" defaultChecked={serviceChargePercent !== null} />
           Apply a service charge
         </label>
         <Field label="Service charge percent" htmlFor="serviceChargePercent">
@@ -102,18 +103,18 @@ export function SettingsForm({
       <section className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
         <h2 className="mb-1 text-sm font-semibold text-[var(--color-text-primary)]">Inventory behavior</h2>
         <label className="mt-3 flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-          <input type="checkbox" name="allowNegativeStock" defaultChecked={business.allowNegativeStock} />
+          <Checkbox name="allowNegativeStock" defaultChecked={business.allowNegativeStock} />
           Allow orders to push stock negative (shows a warning instead of blocking submission)
         </label>
       </section>
 
       {errorState?.error ? (
-        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
           {errorState.error}
         </p>
       ) : null}
       {state?.ok ? (
-        <p role="status" className="rounded-[var(--radius-sm)] bg-[#E7F8EF] px-3 py-2 text-sm text-[var(--color-success)]">
+        <p role="status" className="rounded-[var(--radius-sm)] bg-[var(--color-success-bg)] px-3 py-2 text-sm text-[var(--color-success)]">
           Settings saved.
         </p>
       ) : null}

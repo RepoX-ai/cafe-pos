@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { X } from "lucide-react";
 
-interface DrawerProps {
+interface ModalProps {
   open: boolean;
   title: string;
   description?: string;
@@ -11,8 +11,8 @@ interface DrawerProps {
   children: React.ReactNode;
 }
 
-/** Right-side slide-over used for create/edit forms (PRD §5 component direction: "drawers for editing"). */
-export function Drawer({ open, title, description, onClose, children }: DrawerProps) {
+/** Centered dialog used for create/edit forms across the admin dashboard. */
+export function Modal({ open, title, description, onClose, children }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -25,13 +25,14 @@ export function Drawer({ open, title, description, onClose, children }: DrawerPr
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <button
-        aria-label="Close"
-        onClick={onClose}
-        className="absolute inset-0 bg-black/20"
-      />
-      <div className="relative flex h-full w-full max-w-[440px] flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/30" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="relative flex max-h-[85vh] w-full max-w-[480px] flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg"
+      >
         <div className="flex items-start justify-between border-b border-[var(--color-border)] px-6 py-4">
           <div>
             <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{title}</h2>
@@ -41,7 +42,7 @@ export function Drawer({ open, title, description, onClose, children }: DrawerPr
           </div>
           <button
             onClick={onClose}
-            aria-label="Close drawer"
+            aria-label="Close dialog"
             className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
           >
             <X size={18} />

@@ -6,10 +6,21 @@ export const categoryInputSchema = z.object({
 });
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
 
+// Either an absolute URL (pasted by the cashier) or a site-relative path
+// under /uploads/menu/ (written by saveMenuImage for an uploaded file).
+const menuImageUrlSchema = z
+  .string()
+  .trim()
+  .max(2000)
+  .refine((v) => /^https?:\/\//i.test(v) || v.startsWith("/uploads/"), "Must be a valid URL")
+  .optional()
+  .or(z.literal(""));
+
 export const menuItemInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
   categoryId: z.string().uuid().optional().or(z.literal("")),
   description: z.string().trim().max(2000).optional().or(z.literal("")),
+  imageUrl: menuImageUrlSchema,
   basePrice: z.coerce.number().int().min(0, "Price cannot be negative"),
   taxBehavior: z.enum(["inclusive", "exclusive"]).default("exclusive"),
   tracksInventory: z.coerce.boolean().default(true),

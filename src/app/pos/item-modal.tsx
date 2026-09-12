@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { X, Minus, Plus } from "lucide-react";
+import { ImageOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import type { PosMenuItem } from "@/server/services/menu-service";
 
 function formatIDR(n: number) {
@@ -12,8 +13,9 @@ function formatIDR(n: number) {
 export interface ConfiguredLine {
   menuItemId: string;
   menuItemName: string;
-  variantId: string;
-  variantName: string;
+  // Null when the item has no variants — sold directly off its basePrice.
+  variantId: string | null;
+  variantName: string | null;
   unitBasePrice: number;
   modifierOptionIds: string[];
   modifierNames: string[];
@@ -31,10 +33,13 @@ export function ItemModal({
   onClose: () => void;
   onAdd: (line: ConfiguredLine) => void;
 }) {
-  const [variantId, setVariantId] = useState(item.variants[0]?.id ?? "");
+  const [variantId, setVariantId] = useState(
+    item.variants.find((v) => v.inStock)?.id ?? item.variants[0]?.id ?? "",
+  );
   const [selectedOptions, setSelectedOptions] = useState<Record<string, Set<string>>>({});
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
+  const [imageFailed, setImageFailed] = useState(false);
 
   const variant = item.variants.find((v) => v.id === variantId) ?? item.variants[0];
 
@@ -53,7 +58,7 @@ export function ItemModal({
   );
 
   const modifierAdjustmentTotal = flatSelected.reduce((sum, o) => sum + o.priceAdjustment, 0);
-  const unitPrice = (variant?.price ?? 0) + modifierAdjustmentTotal;
+  const unitPrice = (variant?.price ?? item.basePrice) + modifierAdjustmentTotal;
   const total = unitPrice * quantity;
 
   function toggleOption(groupId: string, optionId: string, max: number) {
@@ -77,13 +82,14 @@ export function ItemModal({
   );
 
   function handleAdd() {
-    if (!variant || missingRequired.length > 0) return;
+    // A variant is only required when the item actually has one to pick.
+    if ((item.variants.length > 0 && !variant) || (variant && !variant.inStock) || missingRequired.length > 0) return;
     onAdd({
       menuItemId: item.id,
       menuItemName: item.name,
-      variantId: variant.id,
-      variantName: variant.name,
-      unitBasePrice: variant.price,
+      variantId: variant?.id ?? null,
+      variantName: variant?.name ?? null,
+      unitBasePrice: variant?.price ?? item.basePrice,
       modifierOptionIds: flatSelected.map((o) => o.id),
       modifierNames: flatSelected.map((o) => o.name),
       modifierAdjustmentTotal,
@@ -96,12 +102,27 @@ export function ItemModal({
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/30" />
       <div className="relative flex max-h-[90vh] w-full max-w-[520px] flex-col rounded-t-[var(--radius-lg)] bg-[var(--color-surface)] shadow-lg sm:rounded-[var(--radius-lg)]">
-        <div className="flex items-start justify-between border-b border-[var(--color-border)] px-6 py-4">
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">{item.name}</h2>
-            {item.description ? <p className="mt-0.5 text-sm text-[var(--color-text-secondary)]">{item.description}</p> : null}
+        <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] px-6 py-4">
+          <div className="flex items-start gap-3">
+            {item.imageUrl && !imageFailed ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={item.imageUrl}
+                alt=""
+                className="h-14 w-14 shrink-0 rounded-[var(--radius-sm)] object-cover"
+                onError={() => setImageFailed(true)}
+              />
+            ) : (
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-page-bg)]">
+                <ImageOff size={16} className="text-[var(--color-text-muted)]" />
+              </div>
+            )}
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">{item.name}</h2>
+              {item.description ? <p className="mt-0.5 text-sm text-[var(--color-text-secondary)]">{item.description}</p> : null}
+            </div>
           </div>
-          <button onClick={onClose} className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)]">
+          <button onClick={onClose} className="shrink-0 rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)]">
             <X size={18} />
           </button>
         </div>
@@ -114,14 +135,18 @@ export function ItemModal({
                 {item.variants.map((v) => (
                   <button
                     key={v.id}
-                    onClick={() => setVariantId(v.id)}
+                    onClick={() => v.inStock && setVariantId(v.id)}
+                    disabled={!v.inStock}
                     className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
-                      v.id === variantId
-                        ? "border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"
-                        : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
+                      !v.inStock
+                        ? "cursor-not-allowed border-[var(--color-border)] text-[var(--color-text-muted)] opacity-50"
+                        : v.id === variantId
+                          ? "border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"
+                          : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
                     }`}
                   >
                     {v.name} · {formatIDR(v.price)}
+                    {!v.inStock ? " · Out of stock" : ""}
                   </button>
                 ))}
               </div>
@@ -143,11 +168,14 @@ export function ItemModal({
                   return (
                     <button
                       key={opt.id}
-                      onClick={() => toggleOption(group.id, opt.id, group.maxSelections)}
+                      onClick={() => opt.inStock && toggleOption(group.id, opt.id, group.maxSelections)}
+                      disabled={!opt.inStock}
                       className={`rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
-                        checked
-                          ? "border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"
-                          : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
+                        !opt.inStock
+                          ? "cursor-not-allowed border-[var(--color-border)] text-[var(--color-text-muted)] opacity-50"
+                          : checked
+                            ? "border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"
+                            : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
                       }`}
                     >
                       {opt.name}
@@ -157,6 +185,7 @@ export function ItemModal({
                           {formatIDR(opt.priceAdjustment)})
                         </span>
                       ) : null}
+                      {!opt.inStock ? " · Out of stock" : ""}
                     </button>
                   );
                 })}
@@ -180,23 +209,18 @@ export function ItemModal({
 
         <div className="flex items-center justify-between gap-4 border-t border-[var(--color-border)] px-6 py-4">
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--color-border)] text-[var(--color-text-primary)]"
-              aria-label="Decrease quantity"
-            >
-              <Minus size={16} />
-            </button>
-            <span className="w-6 text-center text-base font-semibold tabular-nums text-[var(--color-text-primary)]">{quantity}</span>
-            <button
-              onClick={() => setQuantity((q) => q + 1)}
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--color-border)] text-[var(--color-text-primary)]"
-              aria-label="Increase quantity"
-            >
-              <Plus size={16} />
-            </button>
+            <QuantityStepper
+              value={quantity}
+              onDecrease={() => setQuantity((q) => Math.max(1, q - 1))}
+              onIncrease={() => setQuantity((q) => q + 1)}
+            />
           </div>
-          <Button size="lg" className="flex-1" disabled={missingRequired.length > 0} onClick={handleAdd}>
+          <Button
+            size="lg"
+            className="flex-1"
+            disabled={missingRequired.length > 0 || (item.variants.length > 0 && !variant?.inStock)}
+            onClick={handleAdd}
+          >
             Add · {formatIDR(total)}
           </Button>
         </div>

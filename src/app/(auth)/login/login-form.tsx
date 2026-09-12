@@ -45,7 +45,7 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={isPending}
-        className="h-11 rounded-[var(--radius-sm)] bg-[var(--color-accent-primary)] text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+        className="h-11 rounded-[var(--radius-sm)] bg-[var(--color-accent-primary)] text-sm font-semibold text-[var(--color-accent-contrast)] transition-opacity hover:opacity-90 disabled:bg-[var(--color-border)] disabled:text-[var(--color-text-muted)]"
       >
         {isPending ? "Signing in…" : "Sign in"}
       </button>

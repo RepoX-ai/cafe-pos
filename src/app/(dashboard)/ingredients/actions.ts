@@ -25,6 +25,7 @@ function parseIngredientForm(formData: FormData) {
     baseUnit: formData.get("baseUnit"),
     reorderLevelBaseUnits: formData.get("reorderLevelBaseUnits") || undefined,
     targetStockBaseUnits: formData.get("targetStockBaseUnits") || undefined,
+    startingCostPerBaseUnit: formData.get("startingCostPerBaseUnit") || undefined,
     notes: formData.get("notes"),
   };
   return ingredientInputSchema.safeParse(raw);

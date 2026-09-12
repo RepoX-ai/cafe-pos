@@ -15,19 +15,8 @@ export default async function IngredientsPage() {
   const ingredients = await listIngredients(db, user.businessId, { includeArchived: true });
 
   return (
-    <div className="mx-auto max-w-[1200px] px-8 py-10">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Ingredients</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-            Base-unit stock, cost, and reorder thresholds for every ingredient.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-8">
-        <IngredientsClient ingredients={ingredients} canWrite={canWrite} />
-      </div>
+    <div className="mx-auto max-w-[1440px]">
+      <IngredientsClient ingredients={ingredients} canWrite={canWrite} />
     </div>
   );
 }

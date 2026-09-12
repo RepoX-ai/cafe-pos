@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Field, inputClassName, selectClassName } from "@/components/ui/form-field";
-import { createPurchaseAction, createSupplierAction, setSupplierActiveAction } from "./actions";
+import { Field, inputClassName, Select } from "@/components/ui/form-field";
+import { DatePicker } from "@/components/ui/date-picker";
+import { Modal } from "@/components/ui/modal";
+import { createPurchaseAction, createSupplierAction, updateSupplierAction, setSupplierActiveAction } from "./actions";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
 
@@ -18,6 +21,7 @@ interface IngredientOption {
 interface SupplierRow {
   id: string;
   name: string;
+  phone: string | null;
   active: boolean;
 }
 
@@ -87,7 +91,9 @@ export function PurchasesClient({
         ))}
       </div>
 
-      {tab === "new" ? <NewReceiptTab ingredients={ingredients} suppliers={suppliers} /> : null}
+      {tab === "new" ? (
+        <NewReceiptTab ingredients={ingredients} suppliers={suppliers.filter((s) => s.active)} />
+      ) : null}
       {tab === "history" ? <HistoryTab purchases={purchases} /> : null}
       {tab === "suppliers" ? <SuppliersTab suppliers={suppliers} /> : null}
     </div>
@@ -156,25 +162,34 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-3 gap-4">
         <Field label="Supplier" htmlFor="supplierId">
-          <select id="supplierId" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} className={selectClassName}>
+          <Select id="supplierId" value={supplierId} onChange={setSupplierId}>
             <option value="">No supplier</option>
             {suppliers.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Invoice / reference #" htmlFor="invoiceNumber">
           <input id="invoiceNumber" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} className={inputClassName} />
         </Field>
         <Field label="Purchase date" htmlFor="purchaseDate">
-          <input id="purchaseDate" type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} className={inputClassName} />
+          <DatePicker id="purchaseDate" value={purchaseDate} onChange={setPurchaseDate} />
         </Field>
       </div>
 
       <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <table className="w-full min-w-[820px] border-collapse text-sm">
+        <table className="w-full min-w-[960px] table-fixed border-collapse text-sm">
+          <colgroup>
+            <col className="w-[320px]" />
+            <col className="w-28" />
+            <col className="w-24" />
+            <col className="w-28" />
+            <col className="w-36" />
+            <col className="w-32" />
+            <col className="w-12" />
+          </colgroup>
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
               <th className="px-3 py-2.5">Ingredient</th>
@@ -193,18 +208,14 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
               return (
                 <tr key={line.key} className="border-b border-[var(--color-border)] last:border-0">
                   <td className="px-3 py-2">
-                    <select
-                      value={line.ingredientId}
-                      onChange={(e) => updateLine(line.key, { ingredientId: e.target.value })}
-                      className={selectClassName + " w-full"}
-                    >
+                    <Select value={line.ingredientId} onChange={(value) => updateLine(line.key, { ingredientId: value })}>
                       <option value="">Select…</option>
                       {ingredients.map((i) => (
                         <option key={i.id} value={i.id}>
                           {i.name}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </td>
                   <td className="px-3 py-2">
                     <input
@@ -213,7 +224,7 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
                       step="any"
                       value={line.quantityPurchased}
                       onChange={(e) => updateLine(line.key, { quantityPurchased: e.target.value })}
-                      className={inputClassName + " w-24"}
+                      className={inputClassName + " w-full"}
                     />
                   </td>
                   <td className="px-3 py-2">
@@ -221,7 +232,7 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
                       value={line.purchaseUnit}
                       placeholder="kg"
                       onChange={(e) => updateLine(line.key, { purchaseUnit: e.target.value })}
-                      className={inputClassName + " w-24"}
+                      className={inputClassName + " w-full"}
                     />
                   </td>
                   <td className="px-3 py-2">
@@ -232,7 +243,7 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
                       placeholder="1000"
                       value={line.conversionToBaseUnits}
                       onChange={(e) => updateLine(line.key, { conversionToBaseUnits: e.target.value })}
-                      className={inputClassName + " w-24"}
+                      className={inputClassName + " w-full"}
                     />
                   </td>
                   <td className="px-3 py-2">
@@ -242,13 +253,13 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
                       step={1}
                       value={line.unitPurchaseCost}
                       onChange={(e) => updateLine(line.key, { unitPurchaseCost: e.target.value })}
-                      className={inputClassName + " w-28"}
+                      className={inputClassName + " w-full"}
                     />
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-[var(--color-text-secondary)]">
                     {formatIDR(Math.round(qty * cost))}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-1.5 py-2 text-right">
                     <button onClick={() => removeLine(line.key)} className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]">
                       <Trash2 size={15} />
                     </button>
@@ -275,7 +286,7 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
         <p
           role="status"
           className={`rounded-[var(--radius-sm)] px-3 py-2 text-sm ${
-            result.ok ? "bg-[#E7F8EF] text-[var(--color-success)]" : "bg-[#FEF3F2] text-[var(--color-danger)]"
+            result.ok ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-danger-bg)] text-[var(--color-danger)]"
           }`}
         >
           {result.text}
@@ -313,10 +324,13 @@ function HistoryTab({ purchases }: { purchases: PurchaseRow[] }) {
             </tr>
           ) : (
             purchases.map((p) => (
-              <tr key={p.id} className="border-b border-[var(--color-border)] last:border-0">
-                <td className="px-4 py-3 text-[var(--color-text-secondary)]">{p.purchaseDate}</td>
+              <tr key={p.id} className="relative border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-page-bg)]">
+                <td className="relative px-4 py-3 text-[var(--color-text-secondary)]">
+                  <Link href={`/purchases/${p.id}`} className="absolute inset-0" aria-label={`View purchase ${p.invoiceNumber ?? p.purchaseDate}`} />
+                  {p.purchaseDate}
+                </td>
                 <td className="px-4 py-3 text-[var(--color-text-primary)]">{p.supplierName ?? "—"}</td>
-                <td className="px-4 py-3 font-mono text-xs text-[var(--color-text-muted)]">{p.invoiceNumber ?? "—"}</td>
+                <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{p.invoiceNumber ?? "—"}</td>
                 <td className="px-4 py-3">
                   <Badge tone={p.status === "FINALIZED" ? "success" : "neutral"}>{p.status}</Badge>
                 </td>
@@ -334,6 +348,7 @@ function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const [editing, setEditing] = useState<SupplierRow | null>(null);
 
   async function add() {
     if (!name.trim()) return;
@@ -363,6 +378,7 @@ function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
               <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Phone</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3" />
             </tr>
@@ -370,7 +386,7 @@ function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
           <tbody>
             {suppliers.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-4 py-8 text-center text-[var(--color-text-secondary)]">
+                <td colSpan={4} className="px-4 py-8 text-center text-[var(--color-text-secondary)]">
                   No suppliers yet.
                 </td>
               </tr>
@@ -378,22 +394,80 @@ function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
               suppliers.map((s) => (
                 <tr key={s.id} className="border-b border-[var(--color-border)] last:border-0">
                   <td className="px-4 py-3 font-medium text-[var(--color-text-primary)]">{s.name}</td>
+                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">{s.phone ?? "—"}</td>
                   <td className="px-4 py-3">
                     <Badge tone={s.active ? "success" : "neutral"}>{s.active ? "Active" : "Archived"}</Badge>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => setSupplierActiveAction(s.id, !s.active)}
-                      className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      {s.active ? "Archive" : "Restore"}
-                    </button>
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        onClick={() => setEditing(s)}
+                        className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
+                      >
+                        <Pencil size={13} />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => setSupplierActiveAction(s.id, !s.active)}
+                        className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                      >
+                        {s.active ? "Archive" : "Restore"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
             )}
           </tbody>
         </table>
+      </div>
+
+      <Modal open={editing !== null} onClose={() => setEditing(null)} title="Edit supplier">
+        {editing ? <EditSupplierForm supplier={editing} onDone={() => setEditing(null)} /> : null}
+      </Modal>
+    </div>
+  );
+}
+
+function EditSupplierForm({ supplier, onDone }: { supplier: SupplierRow; onDone: () => void }) {
+  const [name, setName] = useState(supplier.name);
+  const [phone, setPhone] = useState(supplier.phone ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, setIsPending] = useState(false);
+
+  async function save() {
+    if (!name.trim()) return;
+    setIsPending(true);
+    setError(null);
+    const result = await updateSupplierAction(supplier.id, { name, phone });
+    setIsPending(false);
+    if (result.ok) {
+      onDone();
+    } else {
+      setError(result.error);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Field label="Supplier name" htmlFor="editSupplierName">
+        <input id="editSupplierName" value={name} onChange={(e) => setName(e.target.value)} className={inputClassName} />
+      </Field>
+      <Field label="Phone" htmlFor="editSupplierPhone">
+        <input id="editSupplierPhone" value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClassName} />
+      </Field>
+      {error ? (
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button onClick={save} disabled={isPending || !name.trim()}>
+          {isPending ? "Saving…" : "Save changes"}
+        </Button>
       </div>
     </div>
   );

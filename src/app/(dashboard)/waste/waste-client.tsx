@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useActionState } from "react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field, inputClassName, selectClassName, textareaClassName } from "@/components/ui/form-field";
+import { Modal } from "@/components/ui/modal";
+import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
 import { createWasteRecordAction, type WasteActionState } from "./actions";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
@@ -39,57 +42,26 @@ function formatDate(value: string | Date) {
 }
 
 export function WasteClient({ ingredients, records }: { ingredients: IngredientOption[]; records: WasteRow[] }) {
-  const [state, formAction, isPending] = useActionState<WasteActionState, FormData>(createWasteRecordAction, undefined);
-  const errorState = state && !state.ok ? state : undefined;
-  const justSaved = state?.ok === true;
+  const [recording, setRecording] = useState(false);
 
   return (
     <div className="flex flex-col gap-8">
-      <form action={formAction} className="grid grid-cols-2 gap-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-        <Field label="Ingredient" htmlFor="ingredientId" error={errorState?.fieldErrors?.ingredientId}>
-          <select id="ingredientId" name="ingredientId" required className={selectClassName}>
-            <option value="">Select ingredient…</option>
-            {ingredients.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Quantity" htmlFor="quantityBaseUnits" hint="In the ingredient's base unit" error={errorState?.fieldErrors?.quantityBaseUnits}>
-          <input id="quantityBaseUnits" name="quantityBaseUnits" type="number" min={0} step="any" required className={inputClassName} />
-        </Field>
-        <Field label="Reason" htmlFor="reason" error={errorState?.fieldErrors?.reason}>
-          <select id="reason" name="reason" required className={selectClassName}>
-            {Object.entries(REASON_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Notes" htmlFor="notes">
-          <textarea id="notes" name="notes" className={textareaClassName} />
-        </Field>
-
-        <div className="col-span-2 flex flex-col gap-3">
-          {errorState?.error ? (
-            <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
-              {errorState.error}
-            </p>
-          ) : null}
-          {justSaved ? (
-            <p role="status" className="rounded-[var(--radius-sm)] bg-[#E7F8EF] px-3 py-2 text-sm text-[var(--color-success)]">
-              Waste recorded.
-            </p>
-          ) : null}
-          <div className="flex justify-end">
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Recording…" : "Record waste"}
-            </Button>
-          </div>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Waste</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+            Record spoilage and preparation waste. Estimated cost uses each ingredient&apos;s current average cost.
+          </p>
         </div>
-      </form>
+        <Button onClick={() => setRecording(true)}>
+          <Plus size={16} />
+          Record waste
+        </Button>
+      </div>
+
+      <Modal open={recording} onClose={() => setRecording(false)} title="Record waste">
+        <RecordWasteForm ingredients={ingredients} onDone={() => setRecording(false)} />
+      </Modal>
 
       <div>
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">History</h2>
@@ -114,7 +86,7 @@ export function WasteClient({ ingredients, records }: { ingredients: IngredientO
               ) : (
                 records.map((r) => (
                   <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0">
-                    <td className="px-4 py-3 font-mono text-xs text-[var(--color-text-muted)]">{formatDate(r.createdAt)}</td>
+                    <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDate(r.createdAt)}</td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{r.ingredientName}</td>
                     <td className="px-4 py-3 text-right tabular-nums">
                       {Number(r.quantityBaseUnits).toLocaleString("id-ID")} {UNIT_LABEL[r.baseUnit]}
@@ -129,5 +101,63 @@ export function WasteClient({ ingredients, records }: { ingredients: IngredientO
         </div>
       </div>
     </div>
+  );
+}
+
+function RecordWasteForm({ ingredients, onDone }: { ingredients: IngredientOption[]; onDone: () => void }) {
+  const [state, formAction, isPending] = useActionState<WasteActionState, FormData>(createWasteRecordAction, undefined);
+  const errorState = state && !state.ok ? state : undefined;
+
+  useEffect(() => {
+    if (state?.ok) onDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  return (
+    <form action={formAction} className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Ingredient" htmlFor="ingredientId" error={errorState?.fieldErrors?.ingredientId}>
+          <Select id="ingredientId" name="ingredientId" required>
+            <option value="">Select ingredient…</option>
+            {ingredients.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Quantity" htmlFor="quantityBaseUnits" hint="In the ingredient's base unit" error={errorState?.fieldErrors?.quantityBaseUnits}>
+          <input id="quantityBaseUnits" name="quantityBaseUnits" type="number" min={0} step="any" required className={inputClassName} />
+        </Field>
+      </div>
+      <Field label="Reason" htmlFor="reason" error={errorState?.fieldErrors?.reason}>
+        <Select id="reason" name="reason" required>
+          {Object.entries(REASON_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Notes" htmlFor="notes">
+        <textarea id="notes" name="notes" className={textareaClassName} />
+      </Field>
+
+      <div className="flex flex-col gap-3">
+        {errorState?.error ? (
+          <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
+            {errorState.error}
+          </p>
+        ) : null}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onDone}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={isPending}>
+            {isPending ? "Recording…" : "Record waste"}
+          </Button>
+        </div>
+      </div>
+    </form>
   );
 }

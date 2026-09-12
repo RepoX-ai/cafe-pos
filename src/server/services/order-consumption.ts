@@ -99,6 +99,27 @@ export async function calculateLineIngredientDemand(
   return demand;
 }
 
+/**
+ * For an order line with no variant (the item has none) — priced directly
+ * off the item's base price. There is no recipe row to look up here:
+ * `recipes.menuItemVariantId` is NOT NULL, so an item sold this way never
+ * produces ingredient consumption or COGS, regardless of its
+ * `tracksInventory` flag. Scoped by business.
+ */
+export async function getMenuItemForOrder(db: Database, businessId: string, menuItemId: string) {
+  const [row] = await db
+    .select({
+      menuItemId: menuItems.id,
+      menuItemName: menuItems.name,
+      menuItemActive: menuItems.active,
+      basePrice: menuItems.basePrice,
+    })
+    .from(menuItems)
+    .where(and(eq(menuItems.id, menuItemId), eq(menuItems.businessId, businessId)))
+    .limit(1);
+  return row ?? null;
+}
+
 /** Scoped by business so a client can never order against another business's variant id. */
 export async function getVariantWithItem(db: Database, businessId: string, variantId: string) {
   const [row] = await db

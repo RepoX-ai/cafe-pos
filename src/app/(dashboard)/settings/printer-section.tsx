@@ -19,7 +19,7 @@ export function PrinterSection({ providerName }: { providerName: string }) {
     <section className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
       <h2 className="mb-1 text-sm font-semibold text-[var(--color-text-primary)]">Printer</h2>
       <p className="mb-4 text-sm text-[var(--color-text-secondary)]">
-        Configured via the <code className="font-mono text-xs">PRINT_PROVIDER</code> environment variable. The exact
+        Configured via the <code className="text-xs">PRINT_PROVIDER</code> environment variable. The exact
         hardware printer is still an open decision (PRD §20) — until it&apos;s confirmed, orders print through a mock
         provider or the browser&apos;s print dialog.
       </p>

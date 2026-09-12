@@ -3,8 +3,9 @@ import { Download } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { startOfBusinessDay, endOfBusinessDay, todayInBusinessTimezone, formatBusinessDateTime } from "@/lib/dates/dates";
-import { inputClassName, selectClassName } from "@/components/ui/form-field";
-import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/form-field";
+import { DatePicker } from "@/components/ui/date-picker";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { listIngredients } from "@/server/services/ingredient-service";
 import { listMovements } from "@/server/services/inventory-service";
 import { listPurchases } from "@/server/services/purchase-service";
@@ -55,7 +56,7 @@ export default async function ReportsPage({
   const table = await renderReportTable(user.businessId, type, range);
 
   return (
-    <div className="mx-auto max-w-[1200px] px-8 py-10">
+    <div className="mx-auto max-w-[1440px]">
       <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Reports</h1>
       <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
         All exports use Asia/Jakarta display times and respect your permissions.
@@ -66,32 +67,32 @@ export default async function ReportsPage({
           <label htmlFor="type" className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">
             Report
           </label>
-          <select id="type" name="type" defaultValue={type} className={selectClassName}>
+          <Select id="type" name="type" defaultValue={type}>
             {REPORT_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div>
           <label htmlFor="from" className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">
             From
           </label>
-          <input id="from" name="from" type="date" defaultValue={fromDate} className={inputClassName} />
+          <DatePicker id="from" name="from" defaultValue={fromDate} className="w-[160px]" />
         </div>
         <div>
           <label htmlFor="to" className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">
             To
           </label>
-          <input id="to" name="to" type="date" defaultValue={toDate} className={inputClassName} />
+          <DatePicker id="to" name="to" defaultValue={toDate} className="w-[160px]" />
         </div>
-        <Button type="submit" variant="secondary">
+        <Button type="submit" variant="primary">
           Apply
         </Button>
         <a
           href={`/api/exports/reports?type=${type}&from=${fromDate}&to=${toDate}`}
-          className="inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3.5 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-selected-surface)]"
+          className={buttonVariants({ variant: "secondary" })}
         >
           <Download size={14} />
           Export CSV

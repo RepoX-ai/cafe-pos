@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Minus, Plus, Search, Trash2, WifiOff } from "lucide-react";
+import Link from "next/link";
+import { History, ImageOff, Search, Trash2, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { QuantityStepper } from "@/components/ui/quantity-stepper";
+import { Select } from "@/components/ui/form-field";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
 import type { TaxConfig } from "@/lib/settings/tax";
 import { calculateServiceCharge, calculateTax } from "@/lib/settings/tax";
@@ -27,6 +30,12 @@ function newIdempotencyKey() {
 
 type OrderType = "dine_in" | "takeaway" | "other";
 const PAYMENT_METHODS = ["cash", "card", "qris", "other"] as const;
+const CARD_BANKS = ["bca", "mandiri", "bri"] as const;
+const CARD_BANK_LABELS: Record<(typeof CARD_BANKS)[number], string> = {
+  bca: "BCA",
+  mandiri: "Mandiri",
+  bri: "BRI",
+};
 
 export function PosClient({
   userName,
@@ -34,12 +43,14 @@ export function PosClient({
   items,
   tax,
   serviceChargePercent,
+  canViewOrderHistory,
 }: {
   userName: string;
   categories: PosCategory[];
   items: PosMenuItem[];
   tax: TaxConfig | null;
   serviceChargePercent: number | null;
+  canViewOrderHistory: boolean;
 }) {
   const [activeCategory, setActiveCategory] = useState<string | "all">("all");
   const [search, setSearch] = useState("");
@@ -47,7 +58,10 @@ export function PosClient({
   const [cart, setCart] = useState<CartLine[]>([]);
   const [orderType, setOrderType] = useState<OrderType>("dine_in");
   const [tableLabel, setTableLabel] = useState("");
-  const [paymentMethodLabel, setPaymentMethodLabel] = useState<(typeof PAYMENT_METHODS)[number]>("cash");
+  const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>("cash");
+  const [cardBank, setCardBank] = useState<(typeof CARD_BANKS)[number] | null>(null);
+  const paymentMethodLabel =
+    paymentMethod === "card" && cardBank ? `card (${CARD_BANK_LABELS[cardBank]})` : paymentMethod;
   const [discountTotal, setDiscountTotal] = useState(0);
   const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -132,13 +146,20 @@ export function PosClient({
   }
 
   function handleItemTap(item: PosMenuItem) {
-    if (item.variants.length === 1 && item.modifierGroups.length === 0) {
+    if (item.outOfStock) return;
+    const variant = item.variants[0];
+    if (variant && !variant.inStock && item.variants.length <= 1) return;
+
+    // Zero variants (sold off basePrice) or exactly one variant can skip
+    // the picker and go straight to the cart; more than one variant, or
+    // any modifier groups, need the configure modal.
+    if (item.variants.length <= 1 && item.modifierGroups.length === 0) {
       addToCart({
         menuItemId: item.id,
         menuItemName: item.name,
-        variantId: item.variants[0].id,
-        variantName: item.variants[0].name,
-        unitBasePrice: item.variants[0].price,
+        variantId: variant?.id ?? null,
+        variantName: variant?.name ?? null,
+        unitBasePrice: variant?.price ?? item.basePrice,
         modifierOptionIds: [],
         modifierNames: [],
         modifierAdjustmentTotal: 0,
@@ -177,6 +198,7 @@ export function PosClient({
 
   async function handleSubmit() {
     if (cart.length === 0 || isSubmitting) return;
+    if (paymentMethod === "card" && !cardBank) return;
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -215,12 +237,12 @@ export function PosClient({
 
   if (confirmation) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--color-page-bg)] px-6 text-center">
+      <div className="force-light-theme flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--color-page-bg)] px-6 text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#E7F8EF]">
           <span className="text-3xl">✓</span>
         </div>
         <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Order submitted</h1>
-        <p className="font-mono text-lg text-[var(--color-text-secondary)]">{confirmation.orderNumber}</p>
+        <p className="text-lg text-[var(--color-text-secondary)]">{confirmation.orderNumber}</p>
         <p className="text-3xl font-semibold tabular-nums text-[var(--color-text-primary)]">{formatIDR(confirmation.total)}</p>
         <p className="text-sm text-[var(--color-text-secondary)]">
           Print status:{" "}
@@ -241,7 +263,7 @@ export function PosClient({
   }
 
   return (
-    <div className="flex h-screen flex-col bg-[var(--color-page-bg)]">
+    <div className="force-light-theme flex h-screen flex-col bg-[var(--color-page-bg)]">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6">
         <div className="flex items-center gap-3">
           <span className="text-sm font-semibold text-[var(--color-text-primary)]">CaféOps POS</span>
@@ -253,6 +275,15 @@ export function PosClient({
           ) : null}
         </div>
         <div className="flex items-center gap-3">
+          {canViewOrderHistory ? (
+            <Link
+              href="/pos/orders"
+              className="flex h-8 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 text-xs font-medium hover:bg-[var(--color-selected-surface)]"
+            >
+              <History size={12} />
+              Order history
+            </Link>
+          ) : null}
           <span className="text-sm text-[var(--color-text-secondary)]">{userName}</span>
           <form action={logoutAction}>
             <button type="submit" className="h-8 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 text-xs font-medium hover:bg-[var(--color-selected-surface)]">
@@ -307,18 +338,36 @@ export function PosClient({
             ) : (
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {filteredItems.map((item) => {
-                  const minPrice = Math.min(...item.variants.map((v) => v.price));
-                  const maxPrice = Math.max(...item.variants.map((v) => v.price));
+                  const prices = item.variants.length > 0 ? item.variants.map((v) => v.price) : [item.basePrice];
+                  const minPrice = Math.min(...prices);
+                  const maxPrice = Math.max(...prices);
+                  const singleVariantOutOfStock =
+                    item.variants.length === 1 && !item.variants[0].inStock;
+                  const unavailable = item.outOfStock || singleVariantOutOfStock;
                   return (
                     <button
                       key={item.id}
                       onClick={() => handleItemTap(item)}
-                      className="flex flex-col items-start gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-left transition-colors hover:border-[var(--color-accent-primary)] active:bg-[var(--color-selected-surface)]"
+                      disabled={unavailable}
+                      aria-disabled={unavailable}
+                      className={`relative flex flex-col items-start gap-2 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-left transition-colors ${
+                        unavailable
+                          ? "cursor-not-allowed opacity-50"
+                          : "hover:border-[var(--color-accent-primary)] active:bg-[var(--color-selected-surface)]"
+                      }`}
                     >
-                      <span className="text-sm font-semibold text-[var(--color-text-primary)]">{item.name}</span>
-                      <span className="tabular-nums text-sm text-[var(--color-text-secondary)]">
-                        {minPrice === maxPrice ? formatIDR(minPrice) : `${formatIDR(minPrice)}–${formatIDR(maxPrice)}`}
-                      </span>
+                      <ItemThumbnail item={item} />
+                      {unavailable ? (
+                        <span className="absolute right-2 top-2 rounded-full bg-[var(--color-danger)] px-2 py-0.5 text-xs font-medium text-white">
+                          Out of stock
+                        </span>
+                      ) : null}
+                      <div className="flex flex-col gap-0.5 px-4 pb-4">
+                        <span className="text-sm font-semibold text-[var(--color-text-primary)]">{item.name}</span>
+                        <span className="tabular-nums text-sm text-[var(--color-text-secondary)]">
+                          {minPrice === maxPrice ? formatIDR(minPrice) : `${formatIDR(minPrice)}–${formatIDR(maxPrice)}`}
+                        </span>
+                      </div>
                     </button>
                   );
                 })}
@@ -355,7 +404,10 @@ export function PosClient({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">
-                          {line.menuItemName} <span className="text-[var(--color-text-secondary)]">· {line.variantName}</span>
+                          {line.menuItemName}
+                          {line.variantName ? (
+                            <span className="text-[var(--color-text-secondary)]"> · {line.variantName}</span>
+                          ) : null}
                         </p>
                         {line.modifierNames.length > 0 ? (
                           <p className="truncate text-xs text-[var(--color-text-muted)]">{line.modifierNames.join(", ")}</p>
@@ -367,21 +419,12 @@ export function PosClient({
                       </span>
                     </div>
                     <div className="mt-1.5 flex items-center gap-2">
-                      <button
-                        onClick={() => updateQuantity(line.key, -1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-border)]"
-                        aria-label="Decrease quantity"
-                      >
-                        <Minus size={13} />
-                      </button>
-                      <span className="w-5 text-center text-sm tabular-nums">{line.quantity}</span>
-                      <button
-                        onClick={() => updateQuantity(line.key, 1)}
-                        className="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--color-border)]"
-                        aria-label="Increase quantity"
-                      >
-                        <Plus size={13} />
-                      </button>
+                      <QuantityStepper
+                        size="sm"
+                        value={line.quantity}
+                        onDecrease={() => updateQuantity(line.key, -1)}
+                        onIncrease={() => updateQuantity(line.key, 1)}
+                      />
                       <button
                         onClick={() => removeLine(line.key)}
                         className="ml-auto rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]"
@@ -402,20 +445,45 @@ export function PosClient({
                 value={tableLabel}
                 onChange={(e) => setTableLabel(e.target.value)}
                 placeholder="Table / customer"
-                className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2.5 text-sm outline-none focus:border-[var(--color-accent-primary)]"
+                className="h-10 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2.5 text-sm outline-none focus:border-[var(--color-accent-primary)]"
               />
-              <select
-                value={paymentMethodLabel}
-                onChange={(e) => setPaymentMethodLabel(e.target.value as (typeof PAYMENT_METHODS)[number])}
-                className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2.5 text-sm outline-none"
+              <Select
+                value={paymentMethod}
+                onChange={(v) => {
+                  const next = v as (typeof PAYMENT_METHODS)[number];
+                  setPaymentMethod(next);
+                  if (next !== "card") setCardBank(null);
+                }}
               >
                 {PAYMENT_METHODS.map((m) => (
                   <option key={m} value={m}>
                     {m[0].toUpperCase() + m.slice(1)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
+
+            {paymentMethod === "card" ? (
+              <div className="mb-3">
+                <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Which bank?</span>
+                <div className="flex gap-1 rounded-[var(--radius-sm)] bg-[var(--color-page-bg)] p-0.5">
+                  {CARD_BANKS.map((bank) => (
+                    <button
+                      key={bank}
+                      type="button"
+                      onClick={() => setCardBank(bank)}
+                      className={`flex-1 rounded-[calc(var(--radius-sm)-2px)] px-2.5 py-1.5 text-xs font-medium ${
+                        cardBank === bank
+                          ? "bg-[var(--color-surface)] text-[var(--color-text-primary)] shadow-sm"
+                          : "text-[var(--color-text-muted)]"
+                      }`}
+                    >
+                      {CARD_BANK_LABELS[bank]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="mb-3 flex items-center justify-between">
               <label htmlFor="discount" className="text-sm text-[var(--color-text-secondary)]">
@@ -451,7 +519,7 @@ export function PosClient({
             <Button
               size="lg"
               className="mt-3 w-full"
-              disabled={cart.length === 0 || isSubmitting || !isOnline}
+              disabled={cart.length === 0 || isSubmitting || !isOnline || (paymentMethod === "card" && !cardBank)}
               onClick={handleSubmit}
             >
               {isSubmitting ? "Submitting…" : `Submit order · ${formatIDR(total)}`}
@@ -464,6 +532,30 @@ export function PosClient({
         <ItemModal item={configuring} onClose={() => setConfiguring(null)} onAdd={addToCart} />
       ) : null}
     </div>
+  );
+}
+
+function ItemThumbnail({ item }: { item: PosMenuItem }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!item.imageUrl || failed) {
+    return (
+      <div className="flex h-24 w-full shrink-0 items-center justify-center bg-[var(--color-page-bg)]">
+        <ImageOff size={20} className="text-[var(--color-text-muted)]" />
+      </div>
+    );
+  }
+
+  return (
+    // Product photos live at cashier-pasted external URLs, not a fixed set of
+    // remote hosts, so next/image's remotePatterns allowlist doesn't fit here.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={item.imageUrl}
+      alt=""
+      className="h-24 w-full shrink-0 object-cover"
+      onError={() => setFailed(true)}
+    />
   );
 }
 

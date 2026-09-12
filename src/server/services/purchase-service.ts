@@ -29,8 +29,18 @@ export async function listPurchases(db: Database, businessId: string, limit = 10
 
 export async function getPurchaseWithLines(db: Database, businessId: string, id: string) {
   const [purchase] = await db
-    .select()
+    .select({
+      id: purchases.id,
+      invoiceNumber: purchases.invoiceNumber,
+      purchaseDate: purchases.purchaseDate,
+      status: purchases.status,
+      totalCost: purchases.totalCost,
+      createdAt: purchases.createdAt,
+      finalizedAt: purchases.finalizedAt,
+      supplierName: suppliers.name,
+    })
     .from(purchases)
+    .leftJoin(suppliers, eq(purchases.supplierId, suppliers.id))
     .where(and(eq(purchases.id, id), eq(purchases.businessId, businessId)))
     .limit(1);
   if (!purchase) return null;
@@ -40,6 +50,7 @@ export async function getPurchaseWithLines(db: Database, businessId: string, id:
       id: purchaseLines.id,
       ingredientId: purchaseLines.ingredientId,
       ingredientName: ingredients.name,
+      ingredientBaseUnit: ingredients.baseUnit,
       quantityPurchased: purchaseLines.quantityPurchased,
       purchaseUnit: purchaseLines.purchaseUnit,
       conversionToBaseUnits: purchaseLines.conversionToBaseUnits,

@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
@@ -12,9 +13,11 @@ import {
   modifierOptionInputSchema,
   variantInputSchema,
 } from "@/lib/validation/menu";
+import { recipeLineInputSchema, type RecipeLineInput } from "@/lib/validation/recipe";
 import {
   createCategory,
   createMenuItem,
+  createVariantWithRecipe,
   createModifierGroup,
   createModifierOption,
   createVariant,
@@ -28,6 +31,7 @@ import {
   updateMenuItem,
   updateVariant,
 } from "@/server/services/menu-service";
+import { saveMenuImage } from "@/server/services/menu-image-upload";
 
 export type FormActionState =
   | { ok: true }
@@ -46,6 +50,22 @@ function flattenZodErrors(error: { issues: Array<{ path: PropertyKey[]; message:
 async function actor() {
   const user = await requireCurrentUser();
   return { user, actor: { businessId: user.businessId, userId: user.id } };
+}
+
+/**
+ * An uploaded file (if any and non-empty) wins over the pasted-URL field.
+ * When the form's image field is in "upload" mode but nothing was chosen
+ * yet, `imageFile` is absent and the hidden `imageUrl` field carries the
+ * item's existing URL through unchanged — never a silent clear.
+ */
+async function resolveImageUrl(formData: FormData): Promise<{ ok: true; imageUrl: string } | { ok: false; error: string }> {
+  const file = formData.get("imageFile");
+  if (file instanceof File && file.size > 0) {
+    const saved = await saveMenuImage(file);
+    if (!saved.ok) return { ok: false, error: saved.error };
+    return { ok: true, imageUrl: saved.url };
+  }
+  return { ok: true, imageUrl: String(formData.get("imageUrl") || "") };
 }
 
 // --- Categories --------------------------------------------------------------
@@ -89,10 +109,16 @@ export async function setCategoryActiveAction(formData: FormData): Promise<void>
 export async function createMenuItemAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
   const { user, actor: ctx } = await actor();
   requirePermission(user.roles, "menu:write");
+  const image = await resolveImageUrl(formData);
+  if (!image.ok) return { ok: false, error: image.error, fieldErrors: { imageUrl: image.error } };
   const parsed = menuItemInputSchema.safeParse({
     name: formData.get("name"),
     categoryId: formData.get("categoryId") || "",
-    description: formData.get("description"),
+    // `|| ""` guards fields a given form may not render at all (e.g. NewItemForm
+    // has no description/imageUrl inputs): formData.get() then returns null,
+    // which fails these schema fields' `.optional()` (undefined-only, not null).
+    description: formData.get("description") || "",
+    imageUrl: image.imageUrl,
     basePrice: formData.get("basePrice"),
     taxBehavior: formData.get("taxBehavior") || "exclusive",
     tracksInventory: formData.get("tracksInventory") === "on",
@@ -109,10 +135,13 @@ export async function updateMenuItemAction(_prev: FormActionState, formData: For
   const { user, actor: ctx } = await actor();
   requirePermission(user.roles, "menu:write");
   const id = String(formData.get("id") ?? "");
+  const image = await resolveImageUrl(formData);
+  if (!image.ok) return { ok: false, error: image.error, fieldErrors: { imageUrl: image.error } };
   const parsed = menuItemInputSchema.safeParse({
     name: formData.get("name"),
     categoryId: formData.get("categoryId") || "",
-    description: formData.get("description"),
+    description: formData.get("description") || "",
+    imageUrl: image.imageUrl,
     basePrice: formData.get("basePrice"),
     taxBehavior: formData.get("taxBehavior") || "exclusive",
     tracksInventory: formData.get("tracksInventory") === "on",
@@ -151,6 +180,60 @@ export async function createVariantAction(_prev: FormActionState, formData: Form
   await createVariant(db, ctx, menuItemId, parsed.data);
   revalidatePath(`/menu/${menuItemId}`);
   return { ok: true };
+}
+
+export type CreateVariantWithRecipeResult =
+  | { ok: true; variantId: string }
+  | { ok: false; error: string; fieldErrors?: Record<string, string> };
+
+/**
+ * Adds a variant and its recipe in one step, instead of the two separate
+ * trips (add variant, then visit /recipe) createVariantAction requires.
+ * `recipeLines` may be an empty array — same as adding a variant with no
+ * recipe yet.
+ */
+export async function createVariantWithRecipeAction(
+  menuItemId: string,
+  variantInput: unknown,
+  recipeLines: unknown,
+): Promise<CreateVariantWithRecipeResult> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+
+  const parsedVariant = variantInputSchema.safeParse(variantInput);
+  if (!parsedVariant.success) {
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsedVariant.error) };
+  }
+
+  let lines: RecipeLineInput[] = [];
+  const rawLines = Array.isArray(recipeLines) ? recipeLines : [];
+  if (rawLines.length > 0) {
+    // Recipe lines are a separate permission from creating the variant
+    // itself — the UI hides this section without recipes:write, but the
+    // server never trusts that alone.
+    requirePermission(user.roles, "recipes:write");
+    const parsedLines = z.array(recipeLineInputSchema).safeParse(rawLines);
+    if (!parsedLines.success) {
+      return { ok: false, error: parsedLines.error.issues[0]?.message ?? "Check the recipe ingredients." };
+    }
+    const seen = new Set<string>();
+    for (const line of parsedLines.data) {
+      if (seen.has(line.ingredientId)) {
+        return { ok: false, error: "This ingredient is already in the recipe." };
+      }
+      seen.add(line.ingredientId);
+    }
+    lines = parsedLines.data;
+  }
+
+  try {
+    const variant = await createVariantWithRecipe(db, ctx, menuItemId, parsedVariant.data, lines);
+    revalidatePath(`/menu/${menuItemId}`);
+    revalidatePath(`/menu/${menuItemId}/recipe`);
+    return { ok: true, variantId: variant.id };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
 }
 
 export async function updateVariantAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {

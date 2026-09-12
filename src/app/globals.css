@@ -1,24 +1,42 @@
 @import "tailwindcss";
 
 /*
- * Design tokens (PRD §5 "Design direction"). Light-first only for the MVP —
- * the PRD explicitly says dark mode can come later for admin users and must
- * not delay this. Every color used in the app should resolve through one
- * of these variables, never a hardcoded hex value in a component.
+ * Design tokens (PRD §5 "Design direction"). Every color used in the app
+ * should resolve through one of these variables, never a hardcoded hex
+ * value in a component.
+ *
+ * Dark mode (PRD §"Visual design": "may be added later for admin users")
+ * is admin-only. The `.dark` class is toggled on <html> by next-themes,
+ * mounted inside AdminShell — see src/components/admin-shell.tsx. The POS
+ * terminal and login screen share these same token names but must stay
+ * light regardless: their root elements carry `.force-light-theme`, which
+ * re-pins the light values even if `.dark` is still sitting on <html>
+ * (e.g. right after a client-side nav away from /dashboard, before
+ * next-themes' effect has a chance to clean up).
  */
 :root {
-  --color-page-bg: #f7f8fc;
+  --color-page-bg: #f7f8f9;
   --color-surface: #ffffff;
-  --color-text-primary: #0b1220;
-  --color-text-secondary: #667085;
-  --color-text-muted: #98a2b3;
-  --color-border: #e5e7eb;
-  --color-selected-surface: #f0eeff;
-  --color-accent-primary: #6c4cf1;
-  --color-accent-secondary: #4e67ff;
-  --color-success: #12b76a;
-  --color-warning: #f79009;
-  --color-danger: #f04438;
+  --color-text-primary: #141517;
+  --color-text-secondary: #6a6e78;
+  --color-text-muted: #9297a0;
+  --color-border: #e6e7e9;
+  --color-selected-surface: #f1f2f4;
+  /* "Emblem rust" — the one brand accent. Muted/warm on purpose: a stark
+     black-or-white accent read as glare against the dark surfaces, this
+     reads as intentional at any brightness. */
+  --color-accent-primary: #a5502b;
+  --color-accent-secondary: #874020;
+  /* Text/icon color to place on top of a solid --color-accent-primary
+     fill. Rust is dark enough in both themes that this never needs to
+     flip — always white. */
+  --color-accent-contrast: #ffffff;
+  --color-success: #067647;
+  --color-warning: #b54708;
+  --color-danger: #b42318;
+  --color-success-bg: #ecfdf3;
+  --color-warning-bg: #fffaeb;
+  --color-danger-bg: #fef3f2;
 
   /* 8px spacing rhythm */
   --space-1: 4px;
@@ -35,6 +53,44 @@
   --radius-lg: 16px;
 }
 
+.dark {
+  --color-page-bg: #08090a;
+  --color-surface: #0f1011;
+  --color-text-primary: #f7f8f8;
+  --color-text-secondary: #8a8f98;
+  --color-text-muted: #6b6f78;
+  --color-border: #23252a;
+  --color-selected-surface: #1a1c1f;
+  --color-accent-primary: #c56a3e;
+  --color-accent-secondary: #d78a5c;
+  --color-accent-contrast: #ffffff;
+  --color-success: #75e0a7;
+  --color-warning: #fec84b;
+  --color-danger: #f04438;
+  --color-success-bg: rgba(23, 178, 106, 0.12);
+  --color-warning-bg: rgba(247, 144, 9, 0.12);
+  --color-danger-bg: rgba(240, 68, 56, 0.12);
+}
+
+.dark .force-light-theme {
+  --color-page-bg: #f7f8f9;
+  --color-surface: #ffffff;
+  --color-text-primary: #141517;
+  --color-text-secondary: #6a6e78;
+  --color-text-muted: #9297a0;
+  --color-border: #e6e7e9;
+  --color-selected-surface: #f1f2f4;
+  --color-accent-primary: #a5502b;
+  --color-accent-secondary: #874020;
+  --color-accent-contrast: #ffffff;
+  --color-success: #067647;
+  --color-warning: #b54708;
+  --color-danger: #b42318;
+  --color-success-bg: #ecfdf3;
+  --color-warning-bg: #fffaeb;
+  --color-danger-bg: #fef3f2;
+}
+
 @theme inline {
   --color-background: var(--color-page-bg);
   --color-foreground: var(--color-text-primary);
@@ -43,13 +99,16 @@
   --color-selected: var(--color-selected-surface);
   --color-accent: var(--color-accent-primary);
   --color-accent-secondary: var(--color-accent-secondary);
+  --color-accent-contrast: var(--color-accent-contrast);
   --color-success: var(--color-success);
   --color-warning: var(--color-warning);
   --color-danger: var(--color-danger);
+  --color-success-bg: var(--color-success-bg);
+  --color-warning-bg: var(--color-warning-bg);
+  --color-danger-bg: var(--color-danger-bg);
   --color-text-secondary: var(--color-text-secondary);
   --color-text-muted: var(--color-text-muted);
   --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
 }
 
 body {

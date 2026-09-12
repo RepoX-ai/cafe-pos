@@ -48,7 +48,7 @@ export function OrderActionButton({
   }
 
   return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--color-danger)] bg-[#FEF3F2] p-4">
+    <div className="rounded-[var(--radius-md)] border border-[var(--color-danger)] bg-[var(--color-danger-bg)] p-4">
       <p className="mb-2 text-sm font-medium text-[var(--color-text-primary)]">
         {warning} A reason is required.
       </p>

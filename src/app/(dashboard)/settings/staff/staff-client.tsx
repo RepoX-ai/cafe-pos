@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Drawer } from "@/components/ui/drawer";
-import { Field, inputClassName, selectClassName } from "@/components/ui/form-field";
+import { Modal } from "@/components/ui/modal";
+import { Field, inputClassName, Select } from "@/components/ui/form-field";
 import { ROLE_NAMES } from "@/lib/validation/staff";
 import { ROLE_LABELS } from "@/lib/permissions/role-labels";
 import type { RoleName } from "@/lib/permissions/permissions";
@@ -25,31 +26,44 @@ export function StaffClient({ staff, currentUserId }: { staff: StaffRow[]; curre
 
   return (
     <div>
-      {tempPasswordBanner ? (
-        <div className="mb-4 rounded-[var(--radius-md)] border border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] p-4">
-          <p className="text-sm font-medium text-[var(--color-text-primary)]">
-            Account created for {tempPasswordBanner.email}. Share this temporary password securely — it won&apos;t be shown again:
-          </p>
-          <p className="mt-2 rounded-[var(--radius-sm)] bg-[var(--color-surface)] px-3 py-2 font-mono text-sm text-[var(--color-text-primary)]">
-            {tempPasswordBanner.password}
-          </p>
-          <button
-            onClick={() => setTempPasswordBanner(null)}
-            className="mt-2 text-xs font-medium text-[var(--color-accent-primary)] hover:underline"
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <Link
+            href="/settings"
+            className="inline-flex items-center gap-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
           >
-            Dismiss
-          </button>
+            <ArrowLeft size={14} />
+            Back to settings
+          </Link>
+          <h1 className="mt-2 text-2xl font-semibold text-[var(--color-text-primary)]">Staff</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+            Create accounts, assign roles, and deactivate staff who no longer work here.
+          </p>
         </div>
-      ) : null}
-
-      <div className="mb-4 flex justify-end">
         <Button onClick={() => setCreating(true)}>
           <Plus size={16} />
           New staff account
         </Button>
       </div>
 
-      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      {tempPasswordBanner ? (
+        <div className="mt-8 rounded-[var(--radius-md)] border border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] p-4">
+          <p className="text-sm font-medium text-[var(--color-text-primary)]">
+            Account created for {tempPasswordBanner.email}. Share this temporary password securely — it won&apos;t be shown again:
+          </p>
+          <p className="mt-2 rounded-[var(--radius-sm)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]">
+            {tempPasswordBanner.password}
+          </p>
+          <button
+            onClick={() => setTempPasswordBanner(null)}
+            className="mt-2 text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
+      <div className="mt-8 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -73,14 +87,14 @@ export function StaffClient({ staff, currentUserId }: { staff: StaffRow[]; curre
         </table>
       </div>
 
-      <Drawer open={creating} onClose={() => setCreating(false)} title="New staff account">
+      <Modal open={creating} onClose={() => setCreating(false)} title="New staff account">
         <CreateStaffForm
           onDone={(result) => {
             setCreating(false);
             if (result) setTempPasswordBanner(result);
           }}
         />
-      </Drawer>
+      </Modal>
     </div>
   );
 }
@@ -137,18 +151,13 @@ function StaffRowItem({
         {isSuperAdmin ? (
           <Badge tone="accent">Super Admin</Badge>
         ) : (
-          <select
-            value={role}
-            disabled={isPending}
-            onChange={(e) => handleRoleChange(e.target.value as RoleName)}
-            className={selectClassName}
-          >
+          <Select value={role} disabled={isPending} onChange={(value) => handleRoleChange(value as RoleName)}>
             {ROLE_NAMES.map((r) => (
               <option key={r} value={r}>
                 {ROLE_LABELS[r]}
               </option>
             ))}
-          </select>
+          </Select>
         )}
       </td>
       <td className="px-4 py-3">
@@ -160,7 +169,7 @@ function StaffRowItem({
             <button
               onClick={resetPassword}
               disabled={isPending}
-              className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
+              className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
             >
               Reset password
             </button>
@@ -168,7 +177,11 @@ function StaffRowItem({
               onClick={toggleActive}
               disabled={isPending || isSelf}
               title={isSelf ? "You can't deactivate your own account" : undefined}
-              className="text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
+              className={
+                staff.active
+                  ? "text-sm font-medium text-[var(--color-danger)] hover:underline disabled:opacity-40 disabled:no-underline"
+                  : "text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
+              }
             >
               {staff.active ? "Deactivate" : "Reactivate"}
             </button>
@@ -211,17 +224,17 @@ function CreateStaffForm({ onDone }: { onDone: (result: { email: string; passwor
         <input id="staff-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClassName} />
       </Field>
       <Field label="Role" htmlFor="staff-role" error={fieldErrors.role}>
-        <select id="staff-role" value={role} onChange={(e) => setRole(e.target.value as RoleName)} className={selectClassName}>
+        <Select id="staff-role" value={role} onChange={(value) => setRole(value as RoleName)}>
           {ROLE_NAMES.map((r) => (
             <option key={r} value={r}>
               {ROLE_LABELS[r]}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
 
       {error ? (
-        <p role="alert" className="rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
           {error}
         </p>
       ) : null}

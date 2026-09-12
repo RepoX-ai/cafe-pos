@@ -1,12 +1,12 @@
 import { cn } from "@/lib/utils";
 
-type BadgeTone = "neutral" | "success" | "warning" | "danger" | "accent";
+export type BadgeTone = "neutral" | "success" | "warning" | "danger" | "accent";
 
 const TONE_CLASSES: Record<BadgeTone, string> = {
   neutral: "bg-[var(--color-page-bg)] text-[var(--color-text-secondary)]",
-  success: "bg-[#E7F8EF] text-[var(--color-success)]",
-  warning: "bg-[#FEF2E3] text-[var(--color-warning)]",
-  danger: "bg-[#FEF3F2] text-[var(--color-danger)]",
+  success: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
+  warning: "bg-[var(--color-warning-bg)] text-[var(--color-warning)]",
+  danger: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
   accent: "bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]",
 };
 
