@@ -7,12 +7,12 @@ export const categoryInputSchema = z.object({
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
 
 // Either an absolute URL (pasted by the cashier) or a site-relative path
-// under /uploads/menu/ (written by saveMenuImage for an uploaded file).
+// under /uploads/menu/ or a bundled Matsudon menu-board photo.
 const menuImageUrlSchema = z
   .string()
   .trim()
   .max(2000)
-  .refine((v) => /^https?:\/\//i.test(v) || v.startsWith("/uploads/"), "Must be a valid URL")
+  .refine((v) => /^https?:\/\//i.test(v) || v.startsWith("/uploads/") || /^\/images\/menu\/matsudon\/[a-z0-9-]+\.webp$/.test(v), "Must be a valid URL")
   .optional()
   .or(z.literal(""));
 
@@ -52,3 +52,4 @@ export const modifierOptionInputSchema = z.object({
   displayOrder: z.coerce.number().int().default(0),
 });
 export type ModifierOptionInput = z.infer<typeof modifierOptionInputSchema>;
+

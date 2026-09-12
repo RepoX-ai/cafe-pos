@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { matsudonImageUrl } from "./matsudon-menu-images";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -16,9 +17,8 @@ import * as schema from "../src/lib/db/schema";
  * with an actual price delta (Crispy Enoki: +Egg / +Chicken Karage, 7K
  * each) becomes a modifier group instead.
  *
- * Photos weren't available to crop, so imageUrl is left null for every
- * item — attach real photos afterwards via the menu admin UI's new
- * "Upload file" option.
+ * Photos are cropped from the supplied Matsudon menu board. Existing
+ * installations can attach missing photos with db:backfill:matsudon-images.
  *
  * Idempotent: skips entirely if a "Noodle", "Rice", or "Snack" category
  * already exists for the target business.
@@ -138,6 +138,7 @@ async function main() {
           businessId,
           categoryId: categoryRow.id,
           name: item.name,
+          imageUrl: matsudonImageUrl(item.name),
           description: item.description ?? null,
           basePrice: item.price,
           tracksInventory: false, // no recipes for these yet — flip on once ingredients/recipes are set up
@@ -167,7 +168,7 @@ async function main() {
     }
   }
 
-  console.log("Done. Every item was seeded without an image — attach real photos via Menu > item > Image > Upload file.");
+  console.log("Done. Every item was seeded with its matched menu-board photo.");
   await pool.end();
 }
 
@@ -175,3 +176,4 @@ main().catch((error) => {
   console.error("Matsudon menu seed failed:", error);
   process.exit(1);
 });
+

@@ -17,7 +17,8 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:studio": "drizzle-kit studio",
     "db:backfill-default-variants": "tsx scripts/backfill-default-variants.ts",
-    "db:seed:matsudon-menu": "tsx scripts/seed-matsudon-menu.ts"
+    "db:seed:matsudon-menu": "tsx scripts/seed-matsudon-menu.ts",
+    "db:backfill:matsudon-images": "tsx scripts/backfill-matsudon-images.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
