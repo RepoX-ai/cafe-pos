@@ -21,12 +21,19 @@ export function ToastForm({
   errorMessage = "Something went wrong. Please try again.",
   className,
   children,
+  onSettled,
 }: {
   action: (formData: FormData) => Promise<void>;
   successMessage?: string;
   errorMessage?: string;
   className?: string;
   children: ReactNode;
+  /**
+   * Runs after the action resolves, with whether it succeeded — for
+   * callers that wrap the form in something they need to tear down either
+   * way, e.g. closing a confirm dialog once its toast has been raised.
+   */
+  onSettled?: (ok: boolean) => void;
 }) {
   const showToast = useToast();
   const [isPending, startTransition] = useTransition();
@@ -41,12 +48,14 @@ export function ToastForm({
           try {
             await action(formData);
             showToast("success", successMessage);
+            onSettled?.(true);
           } catch (error) {
             // Actions in this pattern don't redirect today, but rethrow
             // Next's internal redirect/notFound signals just in case one
             // starts to — they must never be swallowed as a real error.
             unstable_rethrow(error);
             showToast("error", error instanceof Error ? error.message : errorMessage);
+            onSettled?.(false);
           }
         });
       }}

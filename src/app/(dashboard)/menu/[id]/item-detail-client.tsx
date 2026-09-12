@@ -4,7 +4,8 @@ import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ChefHat, Pencil, Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, ChefHat, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
@@ -13,6 +14,8 @@ import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import {
   createVariantWithRecipeAction,
+  deleteMenuItemAction,
+  deleteVariantAction,
   setItemModifierGroupsAction,
   setVariantActiveAction,
   updateMenuItemAction,
@@ -22,6 +25,7 @@ import {
 import { ImageField } from "../image-field";
 import { newRecipeLineKey, RecipeLinesTable, type IngredientOption, type RecipeLineDraft } from "../recipe-lines-table";
 import { ToastForm } from "@/components/ui/toast-form";
+import { DeleteButton } from "@/components/ui/delete-button";
 import { useToast } from "@/components/ui/toast";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
 import { unstable_rethrow } from "next/navigation";
@@ -64,6 +68,8 @@ export function ItemDetailClient({
   categories,
   modifierGroups,
   ingredients,
+  soldVariantIds,
+  itemHasBeenSold,
   canWrite,
   canWriteRecipe,
 }: {
@@ -73,11 +79,16 @@ export function ItemDetailClient({
   categories: Category[];
   modifierGroups: ModifierGroup[];
   ingredients: IngredientOption[];
+  /** Variants that appear on at least one order line, and so can only be archived. */
+  soldVariantIds: string[];
+  itemHasBeenSold: boolean;
   canWrite: boolean;
   canWriteRecipe: boolean;
 }) {
+  const router = useRouter();
   const [addingVariant, setAddingVariant] = useState(false);
   const [editingVariant, setEditingVariant] = useState<Variant | null>(null);
+  const soldVariants = new Set(soldVariantIds);
 
   return (
     <div className="flex flex-col gap-8">
@@ -86,9 +97,35 @@ export function ItemDetailClient({
           <ArrowLeft size={14} />
           Back to menu
         </Link>
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{item.name}</h1>
           <Badge tone={item.active ? "success" : "neutral"}>{item.active ? "Active" : "Archived"}</Badge>
+          {canWrite ? (
+            <DeleteButton
+              action={deleteMenuItemAction}
+              fields={{ id: item.id }}
+              disabled={itemHasBeenSold}
+              disabledReason={`"${item.name}" has already been sold — archive it instead so its sales history stays intact.`}
+              title={`Delete "${item.name}"?`}
+              successMessage={`"${item.name}" deleted.`}
+              onDeleted={() => router.push("/menu")}
+              className="ml-auto inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-danger)] disabled:cursor-not-allowed disabled:text-[var(--color-text-muted)] disabled:hover:text-[var(--color-text-muted)]"
+              description={
+                <>
+                  This removes the item, its {variants.length} variant
+                  {variants.length === 1 ? "" : "s"}, and their recipes for good. It can&rsquo;t be
+                  undone.
+                  <br />
+                  <br />
+                  Only items that have never been sold can be deleted — anything with order history
+                  has to be archived instead, so sales reports stay accurate.
+                </>
+              }
+            >
+              <Trash2 size={14} />
+              Delete item
+            </DeleteButton>
+          ) : null}
         </div>
       </div>
 
@@ -151,6 +188,30 @@ export function ItemDetailClient({
                         {v.active ? "Archive" : "Restore"}
                       </button>
                     </ToastForm>
+                  ) : null}
+                  {canWrite ? (
+                    <DeleteButton
+                      action={deleteVariantAction}
+                      fields={{ menuItemId: item.id, variantId: v.id }}
+                      disabled={soldVariants.has(v.id) || variants.length <= 1}
+                      disabledReason={
+                        soldVariants.has(v.id)
+                          ? `"${v.name}" has already been sold — archive it instead.`
+                          : "An item needs at least one variant to hold its price and recipe."
+                      }
+                      title={`Delete "${v.name}"?`}
+                      successMessage={`"${v.name}" deleted.`}
+                      description={
+                        <>
+                          This removes the variant and its recipe for good. It can&rsquo;t be
+                          undone.
+                          <br />
+                          <br />
+                          Only variants that have never been sold can be deleted — anything with
+                          order history has to be archived instead.
+                        </>
+                      }
+                    />
                   ) : null}
                 </div>
               </div>

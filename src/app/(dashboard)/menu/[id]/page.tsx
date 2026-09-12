@@ -3,7 +3,12 @@ import { notFound } from "next/navigation";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
-import { getMenuItemById, listCategories, listModifierGroupsWithOptions } from "@/server/services/menu-service";
+import {
+  getMenuItemById,
+  getSoldMenuReferences,
+  listCategories,
+  listModifierGroupsWithOptions,
+} from "@/server/services/menu-service";
 import { listIngredients } from "@/server/services/ingredient-service";
 import { ItemDetailClient } from "./item-detail-client";
 
@@ -17,11 +22,12 @@ export default async function MenuItemDetailPage({ params }: { params: Promise<{
   const canWrite = hasAnyRolePermission(user.roles, "menu:write");
   const canWriteRecipe = hasAnyRolePermission(user.roles, "recipes:write");
 
-  const [detail, categories, modifierGroups, ingredients] = await Promise.all([
+  const [detail, categories, modifierGroups, ingredients, sold] = await Promise.all([
     getMenuItemById(db, user.businessId, id),
     listCategories(db, user.businessId),
     listModifierGroupsWithOptions(db, user.businessId),
     listIngredients(db, user.businessId),
+    getSoldMenuReferences(db, user.businessId),
   ]);
 
   if (!detail) notFound();
@@ -40,6 +46,8 @@ export default async function MenuItemDetailPage({ params }: { params: Promise<{
           baseUnit: ing.baseUnit,
           costPerBaseUnit: ing.averageCostPerBaseUnit,
         }))}
+        soldVariantIds={sold.soldVariantIds}
+        itemHasBeenSold={sold.soldItemIds.includes(id)}
         canWrite={canWrite}
         canWriteRecipe={canWriteRecipe}
       />

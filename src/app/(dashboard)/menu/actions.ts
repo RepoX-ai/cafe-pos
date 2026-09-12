@@ -20,6 +20,11 @@ import {
   createVariantWithRecipe,
   createModifierGroup,
   createModifierOption,
+  deleteCategory,
+  deleteMenuItem,
+  deleteModifierGroup,
+  deleteModifierOption,
+  deleteVariant,
   setCategoryActive,
   setItemModifierGroups,
   setMenuItemActive,
@@ -88,6 +93,19 @@ export async function setCategoryActiveAction(formData: FormData): Promise<void>
   revalidatePath("/menu");
 }
 
+/**
+ * Permanent delete, as opposed to the archive toggle above. The service
+ * layer decides whether it is allowed (nothing that has been sold, or that
+ * still has menu items pointing at it, can go) and throws a message meant
+ * to be read by the person who clicked — `ToastForm` shows it as-is.
+ */
+export async function deleteCategoryAction(formData: FormData): Promise<void> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+  await deleteCategory(db, ctx, String(formData.get("id")));
+  revalidatePath("/menu");
+}
+
 // --- Menu items ----------------------------------------------------------------
 
 export async function createMenuItemAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
@@ -146,6 +164,18 @@ export async function setMenuItemActiveAction(formData: FormData): Promise<void>
   await setMenuItemActive(db, ctx, id, formData.get("active") === "true");
   revalidatePath("/menu");
   revalidatePath(`/menu/${id}`);
+}
+
+/**
+ * Deletes the item along with its variants and their recipes. Refused by
+ * the service once the item has been sold — archive is the path for
+ * anything with order history.
+ */
+export async function deleteMenuItemAction(formData: FormData): Promise<void> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+  await deleteMenuItem(db, ctx, String(formData.get("id")));
+  revalidatePath("/menu");
 }
 
 export type CreateVariantWithRecipeResult =
@@ -227,6 +257,15 @@ export async function setVariantActiveAction(formData: FormData): Promise<void> 
   revalidatePath(`/menu/${menuItemId}`);
 }
 
+export async function deleteVariantAction(formData: FormData): Promise<void> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+  const menuItemId = String(formData.get("menuItemId"));
+  await deleteVariant(db, ctx, menuItemId, String(formData.get("variantId")));
+  revalidatePath(`/menu/${menuItemId}`);
+  revalidatePath("/menu");
+}
+
 // --- Modifier groups + options -----------------------------------------------------
 
 export async function createModifierGroupAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
@@ -277,6 +316,20 @@ export async function setModifierOptionActiveAction(formData: FormData): Promise
     String(formData.get("optionId")),
     formData.get("active") === "true",
   );
+  revalidatePath("/menu");
+}
+
+export async function deleteModifierGroupAction(formData: FormData): Promise<void> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+  await deleteModifierGroup(db, ctx, String(formData.get("id")));
+  revalidatePath("/menu");
+}
+
+export async function deleteModifierOptionAction(formData: FormData): Promise<void> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+  await deleteModifierOption(db, ctx, String(formData.get("groupId")), String(formData.get("optionId")));
   revalidatePath("/menu");
 }
 
