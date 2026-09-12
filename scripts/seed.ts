@@ -14,6 +14,14 @@ import { DEV_SEED_ACCOUNTS, DEV_SEED_PASSWORD } from "../src/lib/dev-seed-accoun
 const DEV_BUSINESS_NAME = "Fictional Coffee Co. (Dev Seed)";
 
 async function main() {
+  // This creates real, functioning accounts behind a password that is
+  // public in this repo's history (DEV_SEED_PASSWORD) — running it
+  // against anything but a throwaway local/dev database would hand out a
+  // known login. Same guard as the dev quick-login server action.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Refusing to run the dev seed script with NODE_ENV=production.");
+  }
+
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is not set.");
 
