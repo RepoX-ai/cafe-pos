@@ -18,7 +18,8 @@
     "db:studio": "drizzle-kit studio",
     "db:backfill-default-variants": "tsx scripts/backfill-default-variants.ts",
     "db:seed:matsudon-menu": "tsx scripts/seed-matsudon-menu.ts",
-    "db:backfill:matsudon-images": "tsx scripts/backfill-matsudon-images.ts"
+    "db:backfill:matsudon-images": "tsx scripts/backfill-matsudon-images.ts",
+    "db:create-owner": "tsx scripts/create-owner.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",
