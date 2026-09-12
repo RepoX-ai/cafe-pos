@@ -1,16 +1,24 @@
 "use client";
 
+import { formatIDR } from "@/lib/money/money";
 import { useState } from "react";
 import Link from "next/link";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Field, inputClassName, Select } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName } from "@/components/ui/form-styles";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Modal } from "@/components/ui/modal";
+import { Pagination } from "@/components/ui/pagination";
+import { usePagination } from "@/components/ui/use-pagination";
 import { createPurchaseAction, createSupplierAction, updateSupplierAction, setSupplierActiveAction } from "./actions";
+import { useToast } from "@/components/ui/toast";
+import { unstable_rethrow } from "next/navigation";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
+
+const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
 
 interface IngredientOption {
   id: string;
@@ -48,10 +56,6 @@ let keySeq = 0;
 function newKey() {
   keySeq += 1;
   return `pline-${keySeq}`;
-}
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
 }
 
 type Tab = "new" | "history" | "suppliers";
@@ -109,6 +113,7 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
   ]);
   const [isPending, setIsPending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const showToast = useToast();
 
   function updateLine(key: string, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -150,11 +155,13 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
     });
     setIsPending(false);
     if (res.ok) {
-      setResult({ ok: true, text: "Purchase receipt finalized — stock and average cost updated." });
+      showToast("success", "Purchase receipt finalized — stock and average cost updated.");
+      setResult(null);
       setLines([{ key: newKey(), ingredientId: "", quantityPurchased: "", purchaseUnit: "", conversionToBaseUnits: "", unitPurchaseCost: "" }]);
       setInvoiceNumber("");
     } else {
       setResult({ ok: false, text: res.error });
+      showToast("error", res.error);
     }
   }
 
@@ -182,10 +189,9 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
       <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="w-full min-w-[960px] table-fixed border-collapse text-sm">
           <colgroup>
-            <col className="w-[320px]" />
-            <col className="w-28" />
+            <col className="w-[280px]" />
             <col className="w-24" />
-            <col className="w-28" />
+            <col className="w-[260px]" />
             <col className="w-36" />
             <col className="w-32" />
             <col className="w-12" />
@@ -194,8 +200,7 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
               <th className="px-3 py-2.5">Ingredient</th>
               <th className="px-3 py-2.5">Qty purchased</th>
-              <th className="px-3 py-2.5">Unit (e.g. kg)</th>
-              <th className="px-3 py-2.5">→ base units</th>
+              <th className="px-3 py-2.5">How you buy it</th>
               <th className="px-3 py-2.5">Cost / purchased unit (Rp)</th>
               <th className="px-3 py-2.5 text-right">Line total</th>
               <th className="px-3 py-2.5" />
@@ -205,6 +210,8 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
             {lines.map((line) => {
               const qty = Number(line.quantityPurchased) || 0;
               const cost = Number(line.unitPurchaseCost) || 0;
+              const ingredient = ingredients.find((i) => i.id === line.ingredientId);
+              const baseUnitLabel = ingredient ? UNIT_LABEL[ingredient.baseUnit] : "base unit";
               return (
                 <tr key={line.key} className="border-b border-[var(--color-border)] last:border-0">
                   <td className="px-3 py-2">
@@ -228,23 +235,28 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
                     />
                   </td>
                   <td className="px-3 py-2">
-                    <input
-                      value={line.purchaseUnit}
-                      placeholder="kg"
-                      onChange={(e) => updateLine(line.key, { purchaseUnit: e.target.value })}
-                      className={inputClassName + " w-full"}
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      placeholder="1000"
-                      value={line.conversionToBaseUnits}
-                      onChange={(e) => updateLine(line.key, { conversionToBaseUnits: e.target.value })}
-                      className={inputClassName + " w-full"}
-                    />
+                    <div className="flex items-center gap-1.5 whitespace-nowrap text-sm text-[var(--color-text-secondary)]">
+                      <span>1</span>
+                      <input
+                        value={line.purchaseUnit}
+                        placeholder="kg"
+                        onChange={(e) => updateLine(line.key, { purchaseUnit: e.target.value })}
+                        className={inputClassName + " w-16"}
+                        aria-label="Purchase unit"
+                      />
+                      <span>=</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="any"
+                        placeholder="1000"
+                        value={line.conversionToBaseUnits}
+                        onChange={(e) => updateLine(line.key, { conversionToBaseUnits: e.target.value })}
+                        className={inputClassName + " w-20"}
+                        aria-label={`Equivalent in ${baseUnitLabel}`}
+                      />
+                      <span>{baseUnitLabel}</span>
+                    </div>
                   </td>
                   <td className="px-3 py-2">
                     <input
@@ -303,8 +315,11 @@ function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOpti
 }
 
 function HistoryTab({ purchases }: { purchases: PurchaseRow[] }) {
+  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(purchases, 20);
+
   return (
-    <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+    <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -316,14 +331,14 @@ function HistoryTab({ purchases }: { purchases: PurchaseRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {purchases.length === 0 ? (
+          {pageItems.length === 0 ? (
             <tr>
               <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                 No purchases recorded yet.
               </td>
             </tr>
           ) : (
-            purchases.map((p) => (
+            pageItems.map((p) => (
               <tr key={p.id} className="relative border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-page-bg)]">
                 <td className="relative px-4 py-3 text-[var(--color-text-secondary)]">
                   <Link href={`/purchases/${p.id}`} className="absolute inset-0" aria-label={`View purchase ${p.invoiceNumber ?? p.purchaseDate}`} />
@@ -340,6 +355,8 @@ function HistoryTab({ purchases }: { purchases: PurchaseRow[] }) {
           )}
         </tbody>
       </table>
+      </div>
+      <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
     </div>
   );
 }
@@ -349,14 +366,30 @@ function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
   const [phone, setPhone] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [editing, setEditing] = useState<SupplierRow | null>(null);
+  const showToast = useToast();
 
   async function add() {
     if (!name.trim()) return;
     setIsPending(true);
-    await createSupplierAction({ name, phone });
+    const result = await createSupplierAction({ name, phone });
     setIsPending(false);
-    setName("");
-    setPhone("");
+    if (result.ok) {
+      showToast("success", "Supplier added.");
+      setName("");
+      setPhone("");
+    } else {
+      showToast("error", result.error);
+    }
+  }
+
+  async function toggleActive(supplier: SupplierRow) {
+    try {
+      await setSupplierActiveAction(supplier.id, !supplier.active);
+      showToast("success", supplier.active ? "Supplier archived." : "Supplier restored.");
+    } catch (error) {
+      unstable_rethrow(error);
+      showToast("error", error instanceof Error ? error.message : "Couldn't update supplier.");
+    }
   }
 
   return (
@@ -408,7 +441,7 @@ function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
                         Edit
                       </button>
                       <button
-                        onClick={() => setSupplierActiveAction(s.id, !s.active)}
+                        onClick={() => toggleActive(s)}
                         className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                       >
                         {s.active ? "Archive" : "Restore"}
@@ -434,6 +467,7 @@ function EditSupplierForm({ supplier, onDone }: { supplier: SupplierRow; onDone:
   const [phone, setPhone] = useState(supplier.phone ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const showToast = useToast();
 
   async function save() {
     if (!name.trim()) return;
@@ -442,9 +476,11 @@ function EditSupplierForm({ supplier, onDone }: { supplier: SupplierRow; onDone:
     const result = await updateSupplierAction(supplier.id, { name, phone });
     setIsPending(false);
     if (result.ok) {
+      showToast("success", "Supplier saved.");
       onDone();
     } else {
       setError(result.error);
+      showToast("error", result.error);
     }
   }
 

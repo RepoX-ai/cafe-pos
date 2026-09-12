@@ -11,7 +11,8 @@ function createPool() {
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set. Copy .env.example to .env and configure it.");
   }
-  return new Pool({ connectionString });
+  return new Pool({ connectionString, max: Number(process.env.DATABASE_POOL_MAX || 5),
+    idleTimeoutMillis: 30_000, connectionTimeoutMillis: 10_000 });
 }
 
 // Reuse the pool across Next.js dev hot-reloads so we don't leak

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatIDR } from "@/lib/money/money";
 import { useId, useState } from "react";
 
 export interface SalesTrendPoint {
@@ -10,10 +11,6 @@ export interface SalesTrendPoint {
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
 
 function formatIDRCompact(n: number) {
   if (n >= 1_000_000) return `Rp${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}jt`;

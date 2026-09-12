@@ -1,3 +1,4 @@
+import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -6,9 +7,10 @@ import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
 import { listOrders } from "@/server/services/order-service";
 import type { BadgeTone } from "@/components/ui/badge";
-import { inputClassName, Select } from "@/components/ui/form-field";
+import { Select } from "@/components/ui/form-field";
+import { inputClassName } from "@/components/ui/form-styles";
 import { Button } from "@/components/ui/button";
-import { OrdersTable } from "./orders-table";
+import { OrdersTable } from "@/components/orders-table";
 
 export const metadata: Metadata = {
   title: "Order history — CaféOps",
@@ -22,10 +24,6 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   CANCELLED: "neutral",
   REFUNDED: "danger",
 };
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
 
 function formatDate(value: Date) {
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
@@ -88,6 +86,7 @@ export default async function PosOrderHistoryPage({
 
         <div className="mt-6 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <OrdersTable
+            basePath="/pos/orders"
             orders={orders.map((o) => ({
               id: o.id,
               orderNumber: o.orderNumber,

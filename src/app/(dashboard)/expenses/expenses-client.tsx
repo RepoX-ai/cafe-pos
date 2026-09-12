@@ -1,15 +1,20 @@
 "use client";
 
+import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState } from "react";
 import { useActionState } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Pagination } from "@/components/ui/pagination";
+import { usePagination } from "@/components/ui/use-pagination";
 import { EXPENSE_CATEGORIES } from "@/lib/validation/expense";
 import { createExpenseAction, updateExpenseAction, type ExpenseActionState } from "./actions";
+import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 interface ExpenseRow {
   id: string;
@@ -26,16 +31,13 @@ const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
   EXPENSE_CATEGORIES.map((c) => [c, c.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())]),
 );
 
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
-
 export function ExpensesClient({ records }: { records: ExpenseRow[] }) {
   const [drawerState, setDrawerState] = useState<{ mode: "create" } | { mode: "edit"; row: ExpenseRow } | null>(
     null,
   );
 
   const total = records.reduce((sum, r) => sum + r.amount, 0);
+  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(records, 20);
 
   return (
     <div className="flex flex-col gap-8">
@@ -71,7 +73,8 @@ export function ExpensesClient({ records }: { records: ExpenseRow[] }) {
           <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">History</h2>
           <span className="text-sm font-medium text-[var(--color-text-secondary)]">Total: {formatIDR(total)}</span>
         </div>
-        <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+          <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -83,14 +86,14 @@ export function ExpensesClient({ records }: { records: ExpenseRow[] }) {
               </tr>
             </thead>
             <tbody>
-              {records.length === 0 ? (
+              {pageItems.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                     No expenses recorded yet.
                   </td>
                 </tr>
               ) : (
-                records.map((r) => (
+                pageItems.map((r) => (
                   <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.expenseDate}</td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{CATEGORY_LABEL[r.category] ?? r.category}</td>
@@ -110,6 +113,8 @@ export function ExpensesClient({ records }: { records: ExpenseRow[] }) {
               )}
             </tbody>
           </table>
+          </div>
+          <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
         </div>
       </div>
     </div>
@@ -120,6 +125,7 @@ function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone
   const action = existing ? updateExpenseAction : createExpenseAction;
   const [state, formAction, isPending] = useActionState<ExpenseActionState, FormData>(action, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, existing ? "Expense saved." : "Expense recorded.");
 
   useEffect(() => {
     if (state?.ok) onDone();

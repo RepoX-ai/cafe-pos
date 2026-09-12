@@ -20,14 +20,12 @@ import {
   createVariantWithRecipe,
   createModifierGroup,
   createModifierOption,
-  createVariant,
   setCategoryActive,
   setItemModifierGroups,
   setMenuItemActive,
   setModifierGroupActive,
   setModifierOptionActive,
   setVariantActive,
-  updateCategory,
   updateMenuItem,
   updateVariant,
 } from "@/server/services/menu-service";
@@ -79,20 +77,6 @@ export async function createCategoryAction(_prev: FormActionState, formData: For
   });
   if (!parsed.success) return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
   await createCategory(db, ctx, parsed.data);
-  revalidatePath("/menu");
-  return { ok: true };
-}
-
-export async function updateCategoryAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
-  const { user, actor: ctx } = await actor();
-  requirePermission(user.roles, "menu:write");
-  const id = String(formData.get("id") ?? "");
-  const parsed = categoryInputSchema.safeParse({
-    name: formData.get("name"),
-    displayOrder: formData.get("displayOrder") || 0,
-  });
-  if (!parsed.success) return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
-  await updateCategory(db, ctx, id, parsed.data);
   revalidatePath("/menu");
   return { ok: true };
 }
@@ -164,31 +148,13 @@ export async function setMenuItemActiveAction(formData: FormData): Promise<void>
   revalidatePath(`/menu/${id}`);
 }
 
-// --- Variants --------------------------------------------------------------------
-
-export async function createVariantAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
-  const { user, actor: ctx } = await actor();
-  requirePermission(user.roles, "menu:write");
-  const menuItemId = String(formData.get("menuItemId") ?? "");
-  const parsed = variantInputSchema.safeParse({
-    name: formData.get("name"),
-    price: formData.get("price"),
-    active: formData.get("active") === "on" || formData.get("active") === null,
-    displayOrder: formData.get("displayOrder") || 0,
-  });
-  if (!parsed.success) return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
-  await createVariant(db, ctx, menuItemId, parsed.data);
-  revalidatePath(`/menu/${menuItemId}`);
-  return { ok: true };
-}
-
 export type CreateVariantWithRecipeResult =
   | { ok: true; variantId: string }
   | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
 /**
  * Adds a variant and its recipe in one step, instead of the two separate
- * trips (add variant, then visit /recipe) createVariantAction requires.
+ * trips to add a variant and then visit its recipe page.
  * `recipeLines` may be an empty array — same as adding a variant with no
  * recipe yet.
  */

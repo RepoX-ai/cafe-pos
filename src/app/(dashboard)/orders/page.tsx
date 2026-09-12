@@ -1,11 +1,13 @@
+import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { listOrders } from "@/server/services/order-service";
 import type { BadgeTone } from "@/components/ui/badge";
-import { inputClassName, Select } from "@/components/ui/form-field";
+import { Select } from "@/components/ui/form-field";
+import { inputClassName } from "@/components/ui/form-styles";
 import { Button } from "@/components/ui/button";
-import { OrdersTable } from "./orders-table";
+import { OrdersTable } from "@/components/orders-table";
 
 export const metadata: Metadata = {
   title: "Orders — CaféOps",
@@ -19,10 +21,6 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   CANCELLED: "neutral",
   REFUNDED: "danger",
 };
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
 
 function formatDate(value: Date) {
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });

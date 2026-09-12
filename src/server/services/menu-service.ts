@@ -53,28 +53,6 @@ export async function createCategory(db: Database, actor: ActorContext, input: C
   return row;
 }
 
-export async function updateCategory(
-  db: Database,
-  actor: ActorContext,
-  id: string,
-  input: CategoryInput,
-) {
-  const [row] = await db
-    .update(menuCategories)
-    .set({ name: input.name, displayOrder: input.displayOrder, updatedAt: new Date() })
-    .where(and(eq(menuCategories.id, id), eq(menuCategories.businessId, actor.businessId)))
-    .returning();
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "menu_category.updated",
-    entityType: "menu_category",
-    entityId: id,
-    after: row,
-  });
-  return row;
-}
-
 export async function setCategoryActive(
   db: Database,
   actor: ActorContext,
@@ -109,6 +87,7 @@ export async function listMenuItemsWithVariants(db: Database, businessId: string
       description: menuItems.description,
       categoryId: menuItems.categoryId,
       categoryName: menuCategories.name,
+      imageUrl: menuItems.imageUrl,
       basePrice: menuItems.basePrice,
       active: menuItems.active,
       tracksInventory: menuItems.tracksInventory,

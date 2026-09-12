@@ -1,5 +1,6 @@
 "use client";
 
+import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
@@ -8,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import {
   createVariantWithRecipeAction,
   setItemModifierGroupsAction,
@@ -19,6 +21,10 @@ import {
 } from "../actions";
 import { ImageField } from "../image-field";
 import { newRecipeLineKey, RecipeLinesTable, type IngredientOption, type RecipeLineDraft } from "../recipe-lines-table";
+import { ToastForm } from "@/components/ui/toast-form";
+import { useToast } from "@/components/ui/toast";
+import { useActionResultToast } from "@/components/ui/use-action-toast";
+import { unstable_rethrow } from "next/navigation";
 
 interface Item {
   id: string;
@@ -49,10 +55,6 @@ interface ModifierGroup {
   id: string;
   name: string;
   active: boolean;
-}
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
 }
 
 export function ItemDetailClient({
@@ -138,14 +140,17 @@ export function ItemDetailClient({
                     </button>
                   ) : null}
                   {canWrite ? (
-                    <form action={setVariantActiveAction}>
+                    <ToastForm
+                      action={setVariantActiveAction}
+                      successMessage={v.active ? "Variant archived." : "Variant restored."}
+                    >
                       <input type="hidden" name="menuItemId" value={item.id} />
                       <input type="hidden" name="variantId" value={v.id} />
                       <input type="hidden" name="active" value={(!v.active).toString()} />
                       <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
                         {v.active ? "Archive" : "Restore"}
                       </button>
-                    </form>
+                    </ToastForm>
                   ) : null}
                 </div>
               </div>
@@ -167,7 +172,12 @@ export function ItemDetailClient({
         />
       </section>
 
-      <Modal open={addingVariant} onClose={() => setAddingVariant(false)} title="Add variant">
+      <Modal
+        open={addingVariant}
+        onClose={() => setAddingVariant(false)}
+        title="Add variant"
+        maxWidthClassName="max-w-[640px]"
+      >
         <VariantForm
           menuItemId={item.id}
           ingredients={ingredients}
@@ -192,6 +202,7 @@ export function ItemDetailClient({
 function ItemDetailsForm({ item, categories, canWrite }: { item: Item; categories: Category[]; canWrite: boolean }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(updateMenuItemAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Item saved.");
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -264,6 +275,7 @@ function VariantForm({
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isPending, startTransition] = useTransition();
+  const showToast = useToast();
 
   function updateLine(key: string, patch: Partial<RecipeLineDraft>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -293,10 +305,12 @@ function VariantForm({
           })),
       );
       if (result.ok) {
+        showToast("success", "Variant added.");
         onDone();
       } else {
         setError(result.error);
         setFieldErrors(result.fieldErrors ?? {});
+        showToast("error", result.error);
       }
     });
   }
@@ -328,6 +342,10 @@ function VariantForm({
       {canWriteRecipe ? (
         <div>
           <p className="mb-2 text-sm font-medium text-[var(--color-text-primary)]">Recipe (optional)</p>
+          <p className="mb-2 text-xs text-[var(--color-text-muted)]">
+            Waste % inflates how much is actually drawn from stock beyond the stated quantity — for prep loss like
+            spillage, trimming, or evaporation. Leave it at 0 if there&apos;s nothing worth accounting for.
+          </p>
           <RecipeLinesTable
             lines={lines}
             ingredients={ingredients}
@@ -370,6 +388,7 @@ function EditVariantForm({
 }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(updateVariantAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Variant saved.");
 
   useEffect(() => {
     if (state?.ok) onDone();
@@ -427,6 +446,7 @@ function ModifierGroupAssignment({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set(assignedIds));
   const [saving, setSaving] = useState(false);
+  const showToast = useToast();
   const dirty =
     selected.size !== assignedIds.length || assignedIds.some((id) => !selected.has(id));
 
@@ -475,8 +495,15 @@ function ModifierGroupAssignment({
             disabled={!dirty || saving}
             onClick={async () => {
               setSaving(true);
-              await setItemModifierGroupsAction(menuItemId, Array.from(selected));
-              setSaving(false);
+              try {
+                await setItemModifierGroupsAction(menuItemId, Array.from(selected));
+                showToast("success", "Modifier groups saved.");
+              } catch (error) {
+                unstable_rethrow(error);
+                showToast("error", error instanceof Error ? error.message : "Couldn't save modifier groups.");
+              } finally {
+                setSaving(false);
+              }
             }}
           >
             {saving ? "Saving…" : "Save assignment"}

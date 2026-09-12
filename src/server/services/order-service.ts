@@ -14,6 +14,7 @@ import type { SubmitOrderInput } from "@/lib/validation/order";
 import { recordAuditLog } from "./audit";
 import {
   calculateLineIngredientDemand,
+  getOrderSelectionRules,
   getMenuItemForOrder,
   getModifierOptionsById,
   getVariantWithItem,
@@ -91,6 +92,8 @@ export async function submitOrder(
 
 async function attemptSubmitOrder(db: Database, actor: ActorContext, input: SubmitOrderInput) {
   return db.transaction(async (tx) => {
+    // Serialize submissions per business before checking keys and allocating order numbers.
+    await tx.select({ id: businesses.id }).from(businesses).where(eq(businesses.id, actor.businessId)).for("update");
     const [existing] = await tx
       .select()
       .from(orders)
@@ -111,6 +114,10 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
     >();
 
     for (const line of input.lines) {
+      const rules = await getOrderSelectionRules(tx, actor.businessId, line.menuItemId);
+      if (!line.menuItemVariantId && rules.variants.length > 0) {
+        throw new OrderValidationError("Choose an available variant for this item.");
+      }
       // Two pricing paths: a selected variant (the normal case), or — when
       // the item has no variants at all — the item's own base price. An
       // item sold the second way has no recipe row to deduct stock or
@@ -152,6 +159,17 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
       const inactiveModifier = modifierOptions.find((m) => !m.active);
       if (inactiveModifier) {
         throw new OrderValidationError(`"${inactiveModifier.name}" is no longer available.`);
+      }
+
+      const assigned = new Map(rules.groups.filter((g) => g.active).map((g) => [g.id, g]));
+      if (modifierOptions.some((option) => !assigned.has(option.modifierGroupId))) {
+        throw new OrderValidationError("A selected modifier does not belong to this item.");
+      }
+      for (const group of assigned.values()) {
+        const count = modifierOptions.filter((option) => option.modifierGroupId === group.id).length;
+        if (count < Math.max(group.minSelections, group.required ? 1 : 0) || count > group.maxSelections) {
+          throw new OrderValidationError(`Check the number of selections for "${group.name}".`);
+        }
       }
 
       const modifierAdjustmentTotal = sumRupiah(modifierOptions.map((m) => m.priceAdjustment));

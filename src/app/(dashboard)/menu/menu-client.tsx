@@ -1,15 +1,19 @@
 "use client";
 
+import { formatIDR } from "@/lib/money/money";
 import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, Search } from "lucide-react";
+import { ImageOff, Pencil, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, inputClassName, Select } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName } from "@/components/ui/form-styles";
+import { Pagination } from "@/components/ui/pagination";
+import { usePagination } from "@/components/ui/use-pagination";
 import {
   createCategoryAction,
   createModifierGroupAction,
@@ -22,6 +26,8 @@ import {
 } from "./actions";
 import { createMenuItemAction } from "./actions";
 import { ImageField } from "./image-field";
+import { ToastForm } from "@/components/ui/toast-form";
+import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 export interface CategoryRow {
   id: string;
@@ -44,6 +50,7 @@ export interface MenuItemRow {
   description: string | null;
   categoryId: string | null;
   categoryName: string | null;
+  imageUrl: string | null;
   basePrice: number;
   active: boolean;
   tracksInventory: boolean;
@@ -67,10 +74,6 @@ export interface ModifierGroupRow {
   maxSelections: number;
   active: boolean;
   options: ModifierOptionRow[];
-}
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
 }
 
 type Tab = "items" | "categories" | "modifiers";
@@ -155,6 +158,13 @@ function ItemsTab({
     });
   }, [items, query, categoryFilter, statusFilter]);
 
+  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(filteredItems, 20);
+
+  useEffect(() => {
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, categoryFilter, statusFilter]);
+
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -204,10 +214,12 @@ function ItemsTab({
         ) : null}
       </div>
 
-      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              <th className="px-4 py-3" />
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Category</th>
               <th className="px-4 py-3">Variants</th>
@@ -217,14 +229,14 @@ function ItemsTab({
             </tr>
           </thead>
           <tbody>
-            {filteredItems.length === 0 ? (
+            {pageItems.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                <td colSpan={7} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                   {items.length === 0 ? "No menu items yet." : "No items match your search or filters."}
                 </td>
               </tr>
             ) : (
-              filteredItems.map((item) => {
+              pageItems.map((item) => {
                 // Price now lives on the variant(s), not basePrice (which only
                 // ever seeded the first one at creation) — same range display
                 // the POS grid uses, so this list doesn't go stale the moment
@@ -238,6 +250,9 @@ function ItemsTab({
                     onClick={() => router.push(`/menu/${item.id}`)}
                     className="cursor-pointer border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-page-bg)]"
                   >
+                    <td className="px-4 py-3">
+                      <ItemThumbnail imageUrl={item.imageUrl} name={item.name} />
+                    </td>
                     <td className="px-4 py-3">
                       <Link
                         href={`/menu/${item.id}`}
@@ -272,7 +287,10 @@ function ItemsTab({
                           {canWrite ? "Edit" : "View"}
                         </Link>
                         {canWrite ? (
-                          <form action={setMenuItemActiveAction}>
+                          <ToastForm
+                            action={setMenuItemActiveAction}
+                            successMessage={item.active ? "Item archived." : "Item restored."}
+                          >
                             <input type="hidden" name="id" value={item.id} />
                             <input type="hidden" name="active" value={(!item.active).toString()} />
                             <button
@@ -282,7 +300,7 @@ function ItemsTab({
                             >
                               {item.active ? "Archive" : "Restore"}
                             </button>
-                          </form>
+                          </ToastForm>
                         ) : null}
                       </div>
                     </td>
@@ -292,6 +310,8 @@ function ItemsTab({
             )}
           </tbody>
         </table>
+        </div>
+        <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
       </div>
 
       <Modal open={creating} onClose={() => setCreating(false)} title="New menu item">
@@ -301,9 +321,36 @@ function ItemsTab({
   );
 }
 
+function ItemThumbnail({ imageUrl, name }: { imageUrl: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!imageUrl || failed) {
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-page-bg)]">
+        <ImageOff size={14} className="text-[var(--color-text-muted)]" />
+      </div>
+    );
+  }
+
+  return (
+    // Same reasoning as the POS thumbnail: product photos are cashier-pasted
+    // external URLs, not a fixed set of remote hosts next/image can allowlist.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={imageUrl}
+      alt={name}
+      className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)] object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function NewItemForm({ categories, onDone }: { categories: CategoryRow[]; onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createMenuItemAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  // Success isn't observed here — createMenuItemAction redirects to the new
+  // item's page, which is itself the success signal. Failures still toast.
+  useActionResultToast(state, "Item created.");
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -396,13 +443,13 @@ function CategoriesTab({ categories, canWrite }: { categories: CategoryRow[]; ca
                   </td>
                   {canWrite ? (
                     <td className="px-4 py-3 text-right">
-                      <form action={setCategoryActiveAction}>
+                      <ToastForm action={setCategoryActiveAction} successMessage={c.active ? "Category archived." : "Category restored."}>
                         <input type="hidden" name="id" value={c.id} />
                         <input type="hidden" name="active" value={(!c.active).toString()} />
                         <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
                           {c.active ? "Archive" : "Restore"}
                         </button>
-                      </form>
+                      </ToastForm>
                     </td>
                   ) : null}
                 </tr>
@@ -422,6 +469,7 @@ function CategoriesTab({ categories, canWrite }: { categories: CategoryRow[]; ca
 function CategoryForm({ onDone }: { onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createCategoryAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Category created.");
 
   useEffect(() => {
     if (state?.ok) onDone();
@@ -496,13 +544,16 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
                   >
                     Add option
                   </button>
-                  <form action={setModifierGroupActiveAction}>
+                  <ToastForm
+                    action={setModifierGroupActiveAction}
+                    successMessage={group.active ? "Modifier group archived." : "Modifier group restored."}
+                  >
                     <input type="hidden" name="id" value={group.id} />
                     <input type="hidden" name="active" value={(!group.active).toString()} />
                     <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
                       {group.active ? "Archive" : "Restore"}
                     </button>
-                  </form>
+                  </ToastForm>
                 </div>
               ) : null}
             </div>
@@ -525,14 +576,17 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
                       </span>
                     ) : null}
                     {canWrite ? (
-                      <form action={setModifierOptionActiveAction}>
+                      <ToastForm
+                        action={setModifierOptionActiveAction}
+                        successMessage={opt.active ? "Option archived." : "Option restored."}
+                      >
                         <input type="hidden" name="groupId" value={group.id} />
                         <input type="hidden" name="optionId" value={opt.id} />
                         <input type="hidden" name="active" value={(!opt.active).toString()} />
                         <button type="submit" className="text-[var(--color-text-muted)] hover:text-[var(--color-danger)]">
                           ×
                         </button>
-                      </form>
+                      </ToastForm>
                     ) : null}
                   </span>
                 ))
@@ -558,6 +612,7 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
 function ModifierGroupForm({ onDone }: { onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createModifierGroupAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Modifier group created.");
 
   useEffect(() => {
     if (state?.ok) onDone();
@@ -601,6 +656,7 @@ function ModifierGroupForm({ onDone }: { onDone: () => void }) {
 function ModifierOptionForm({ groupId, onDone }: { groupId: string; onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createModifierOptionAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Option added.");
 
   useEffect(() => {
     if (state?.ok) onDone();

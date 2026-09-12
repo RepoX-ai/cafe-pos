@@ -1,12 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
+import { ClipboardList, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
+import { Modal } from "@/components/ui/modal";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
+import { Pagination } from "@/components/ui/pagination";
+import { usePagination } from "@/components/ui/use-pagination";
 import { createManualAdjustmentAction, submitStockCountAction, type InventoryActionState } from "./actions";
+import { useToast } from "@/components/ui/toast";
+import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
 
@@ -57,8 +64,6 @@ const MOVEMENT_LABEL: Record<string, string> = {
   OPENING_BALANCE: "Opening balance",
 };
 
-type Tab = "low_stock" | "ledger" | "adjust" | "count";
-
 export function InventoryClient({
   ingredients,
   movements,
@@ -68,7 +73,8 @@ export function InventoryClient({
   movements: MovementRow[];
   canAdjust: boolean;
 }) {
-  const [tab, setTab] = useState<Tab>("low_stock");
+  const [adjusting, setAdjusting] = useState(false);
+  const [counting, setCounting] = useState(false);
 
   const lowStock = useMemo(
     () =>
@@ -78,77 +84,93 @@ export function InventoryClient({
     [ingredients],
   );
 
-  const tabs: Array<[Tab, string]> = [
-    ["low_stock", `Low stock${lowStock.length ? ` (${lowStock.length})` : ""}`],
-    ["ledger", "Ledger"],
-    ...(canAdjust ? ([["adjust", "Adjust stock"], ["count", "Stock count"]] as Array<[Tab, string]>) : []),
-  ];
-
   return (
-    <div>
-      <div className="mb-6 flex gap-1 border-b border-[var(--color-border)]">
-        {tabs.map(([value, label]) => (
-          <button
-            key={value}
-            onClick={() => setTab(value)}
-            className={`border-b-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-              tab === value
-                ? "border-[var(--color-accent-primary)] text-[var(--color-text-primary)]"
-                : "border-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+    <div className="flex flex-col gap-8">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Inventory</h1>
+          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+            Stock levels, the movement ledger, adjustments, and stock counts.
+          </p>
+        </div>
+        {canAdjust ? (
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setCounting(true)}>
+              <ClipboardList size={16} />
+              Stock count
+            </Button>
+            <Button onClick={() => setAdjusting(true)}>
+              <SlidersHorizontal size={16} />
+              Adjust stock
+            </Button>
+          </div>
+        ) : null}
       </div>
 
-      {tab === "low_stock" ? <LowStockTab rows={lowStock} /> : null}
-      {tab === "ledger" ? <LedgerTab movements={movements} /> : null}
-      {tab === "adjust" && canAdjust ? <AdjustTab ingredients={ingredients} /> : null}
-      {tab === "count" && canAdjust ? <StockCountTab ingredients={ingredients} /> : null}
+      {canAdjust ? (
+        <Modal open={adjusting} onClose={() => setAdjusting(false)} title="Adjust stock">
+          <AdjustStockForm ingredients={ingredients} onDone={() => setAdjusting(false)} />
+        </Modal>
+      ) : null}
+
+      {canAdjust ? (
+        <Modal
+          open={counting}
+          onClose={() => setCounting(false)}
+          title="Stock count"
+          maxWidthClassName="max-w-[640px]"
+        >
+          <StockCountFlow ingredients={ingredients} onDone={() => setCounting(false)} />
+        </Modal>
+      ) : null}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <div className="lg:col-span-3">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Ledger</h2>
+          <LedgerTab movements={movements} />
+        </div>
+        <div className="lg:col-span-1">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
+            Low stock{lowStock.length ? ` (${lowStock.length})` : ""}
+          </h2>
+          <LowStockPanel rows={lowStock} />
+        </div>
+      </div>
     </div>
   );
 }
 
-function LowStockTab({ rows }: { rows: IngredientRow[] }) {
+function LowStockPanel({ rows }: { rows: IngredientRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-8 text-center text-sm text-[var(--color-text-secondary)]">
+      <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-text-secondary)]">
         Nothing below its reorder level.
       </div>
     );
   }
   return (
-    <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-            <th className="px-4 py-3">Ingredient</th>
-            <th className="px-4 py-3 text-right">Current stock</th>
-            <th className="px-4 py-3 text-right">Reorder level</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((i) => (
-            <tr key={i.id} className="border-b border-[var(--color-border)] last:border-0">
-              <td className="px-4 py-3 font-medium text-[var(--color-text-primary)]">{i.name}</td>
-              <td className="px-4 py-3 text-right tabular-nums">
-                <Badge tone="warning">{formatQty(i.currentQuantityBaseUnits, i.baseUnit)}</Badge>
-              </td>
-              <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">
-                {formatQty(i.reorderLevelBaseUnits!, i.baseUnit)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="flex flex-col divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      {rows.map((i) => (
+        <div key={i.id} className="flex flex-col gap-1 px-4 py-3">
+          <span className="text-sm font-medium text-[var(--color-text-primary)]">{i.name}</span>
+          <div className="flex items-center justify-between">
+            <Badge tone="warning">{formatQty(i.currentQuantityBaseUnits, i.baseUnit)}</Badge>
+            <span className="text-xs text-[var(--color-text-muted)]">
+              reorder at {formatQty(i.reorderLevelBaseUnits!, i.baseUnit)}
+            </span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
 function LedgerTab({ movements }: { movements: MovementRow[] }) {
+  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(movements, 20);
+
   return (
-    <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+    <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="overflow-x-auto">
       <table className="w-full min-w-[820px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -161,14 +183,14 @@ function LedgerTab({ movements }: { movements: MovementRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {movements.length === 0 ? (
+          {pageItems.length === 0 ? (
             <tr>
               <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                 No movements yet.
               </td>
             </tr>
           ) : (
-            movements.map((m) => {
+            pageItems.map((m) => {
               const qty = Number(m.quantityBaseUnits);
               return (
                 <tr key={m.id} className="border-b border-[var(--color-border)] last:border-0">
@@ -191,74 +213,77 @@ function LedgerTab({ movements }: { movements: MovementRow[] }) {
           )}
         </tbody>
       </table>
+      </div>
+      <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
     </div>
   );
 }
 
-function AdjustTab({ ingredients }: { ingredients: IngredientRow[] }) {
+function AdjustStockForm({ ingredients, onDone }: { ingredients: IngredientRow[]; onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<InventoryActionState, FormData>(
     createManualAdjustmentAction,
     undefined,
   );
   const errorState = state && !state.ok ? state : undefined;
-  const justSaved = state?.ok === true;
+  useActionResultToast(state, "Adjustment recorded.");
+
+  useEffect(() => {
+    if (state?.ok) onDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
 
   return (
-    <div className="max-w-md">
-      <form action={formAction} className="flex flex-col gap-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-        <Field label="Ingredient" htmlFor="ingredientId" error={errorState?.fieldErrors?.ingredientId}>
-          <Select id="ingredientId" name="ingredientId" required>
-            <option value="">Select ingredient…</option>
-            {ingredients.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.name} ({formatQty(i.currentQuantityBaseUnits, i.baseUnit)})
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Direction" htmlFor="direction">
-          <Select id="direction" name="direction">
-            <option value="in">Increase stock (in)</option>
-            <option value="out">Decrease stock (out)</option>
-          </Select>
-        </Field>
-        <Field label="Quantity" htmlFor="quantityBaseUnits" hint="In the ingredient's base unit" error={errorState?.fieldErrors?.quantityBaseUnits}>
-          <input id="quantityBaseUnits" name="quantityBaseUnits" type="number" min={0} step="any" required className={inputClassName} />
-        </Field>
-        <Field label="Reason" htmlFor="reason" error={errorState?.fieldErrors?.reason}>
-          <input id="reason" name="reason" required placeholder="e.g. Correcting count error" className={inputClassName} />
-        </Field>
-        <Field label="Notes" htmlFor="notes">
-          <textarea id="notes" name="notes" className={textareaClassName} />
-        </Field>
+    <form action={formAction} className="flex flex-col gap-4">
+      <Field label="Ingredient" htmlFor="ingredientId" error={errorState?.fieldErrors?.ingredientId}>
+        <Select id="ingredientId" name="ingredientId" required>
+          <option value="">Select ingredient…</option>
+          {ingredients.map((i) => (
+            <option key={i.id} value={i.id}>
+              {i.name} ({formatQty(i.currentQuantityBaseUnits, i.baseUnit)})
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Direction" htmlFor="direction">
+        <Select id="direction" name="direction">
+          <option value="in">Increase stock (in)</option>
+          <option value="out">Decrease stock (out)</option>
+        </Select>
+      </Field>
+      <Field label="Quantity" htmlFor="quantityBaseUnits" hint="In the ingredient's base unit" error={errorState?.fieldErrors?.quantityBaseUnits}>
+        <input id="quantityBaseUnits" name="quantityBaseUnits" type="number" min={0} step="any" required className={inputClassName} />
+      </Field>
+      <Field label="Reason" htmlFor="reason" error={errorState?.fieldErrors?.reason}>
+        <input id="reason" name="reason" required placeholder="e.g. Correcting count error" className={inputClassName} />
+      </Field>
+      <Field label="Notes" htmlFor="notes">
+        <textarea id="notes" name="notes" className={textareaClassName} />
+      </Field>
 
-        {errorState?.error ? (
-          <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
-            {errorState.error}
-          </p>
-        ) : null}
-        {justSaved ? (
-          <p role="status" className="rounded-[var(--radius-sm)] bg-[var(--color-success-bg)] px-3 py-2 text-sm text-[var(--color-success)]">
-            Adjustment recorded.
-          </p>
-        ) : null}
-
-        <div className="flex justify-end">
-          <Button type="submit" disabled={isPending}>
-            {isPending ? "Saving…" : "Record adjustment"}
-          </Button>
-        </div>
-      </form>
-    </div>
+      {errorState?.error ? (
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
+          {errorState.error}
+        </p>
+      ) : null}
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Saving…" : "Record adjustment"}
+        </Button>
+      </div>
+    </form>
   );
 }
 
-function StockCountTab({ ingredients }: { ingredients: IngredientRow[] }) {
+function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[]; onDone: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [counts, setCounts] = useState<Record<string, string>>({});
   const [reviewing, setReviewing] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const showToast = useToast();
 
   const selectedIngredients = ingredients.filter((i) => selected.has(i.id));
 
@@ -281,18 +306,22 @@ function StockCountTab({ ingredients }: { ingredients: IngredientRow[] }) {
     const res = await submitStockCountAction({ lines });
     setIsPending(false);
     if (res?.ok) {
-      setResult({ ok: true, text: "Stock count submitted." });
+      showToast("success", "Stock count submitted.");
+      setResult(null);
       setReviewing(false);
       setSelected(new Set());
       setCounts({});
+      onDone();
     } else {
-      setResult({ ok: false, text: res?.error ?? "Something went wrong." });
+      const text = res?.error ?? "Something went wrong.";
+      setResult({ ok: false, text });
+      showToast("error", text);
     }
   }
 
   if (reviewing) {
     return (
-      <div className="max-w-xl">
+      <div>
         <h3 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Review adjustments</h3>
         <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <table className="w-full border-collapse text-sm">
@@ -350,16 +379,11 @@ function StockCountTab({ ingredients }: { ingredients: IngredientRow[] }) {
   }
 
   return (
-    <div className="max-w-xl">
+    <div>
       <p className="mb-3 text-sm text-[var(--color-text-secondary)]">
         Select ingredients to count, enter the physical quantity for each, then review before submitting.
       </p>
-      {result?.ok ? (
-        <p role="status" className="mb-3 rounded-[var(--radius-sm)] bg-[var(--color-success-bg)] px-3 py-2 text-sm text-[var(--color-success)]">
-          {result.text}
-        </p>
-      ) : null}
-      <div className="flex flex-col divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="flex max-h-[50vh] flex-col divide-y divide-[var(--color-border)] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         {ingredients.map((i) => (
           <div key={i.id} className="flex items-center gap-3 px-4 py-2.5">
             <Checkbox checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
@@ -380,7 +404,10 @@ function StockCountTab({ ingredients }: { ingredients: IngredientRow[] }) {
           </div>
         ))}
       </div>
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
         <Button disabled={selected.size === 0} onClick={() => setReviewing(true)}>
           Review count
         </Button>

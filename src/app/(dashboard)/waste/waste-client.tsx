@@ -5,8 +5,12 @@ import { useActionState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
+import { Pagination } from "@/components/ui/pagination";
+import { usePagination } from "@/components/ui/use-pagination";
 import { createWasteRecordAction, type WasteActionState } from "./actions";
+import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
 
@@ -43,6 +47,7 @@ function formatDate(value: string | Date) {
 
 export function WasteClient({ ingredients, records }: { ingredients: IngredientOption[]; records: WasteRow[] }) {
   const [recording, setRecording] = useState(false);
+  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(records, 20);
 
   return (
     <div className="flex flex-col gap-8">
@@ -65,7 +70,8 @@ export function WasteClient({ ingredients, records }: { ingredients: IngredientO
 
       <div>
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">History</h2>
-        <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+          <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -77,14 +83,14 @@ export function WasteClient({ ingredients, records }: { ingredients: IngredientO
               </tr>
             </thead>
             <tbody>
-              {records.length === 0 ? (
+              {pageItems.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                     No waste recorded yet.
                   </td>
                 </tr>
               ) : (
-                records.map((r) => (
+                pageItems.map((r) => (
                   <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDate(r.createdAt)}</td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{r.ingredientName}</td>
@@ -98,6 +104,8 @@ export function WasteClient({ ingredients, records }: { ingredients: IngredientO
               )}
             </tbody>
           </table>
+          </div>
+          <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
         </div>
       </div>
     </div>
@@ -107,6 +115,7 @@ export function WasteClient({ ingredients, records }: { ingredients: IngredientO
 function RecordWasteForm({ ingredients, onDone }: { ingredients: IngredientOption[]; onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<WasteActionState, FormData>(createWasteRecordAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Waste recorded.");
 
   useEffect(() => {
     if (state?.ok) onDone();

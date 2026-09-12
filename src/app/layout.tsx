@@ -3,6 +3,7 @@ import { Geist } from "next/font/google";
 import "./globals.css";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { DevRoleSwitcher } from "@/components/dev-role-switcher";
+import { ToastProvider } from "@/components/ui/toast";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,8 +26,10 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
-        {children}
-        {isDev ? <DevRoleSwitcher currentEmail={currentUser?.email ?? null} /> : null}
+        <ToastProvider>
+          {children}
+          {isDev ? <DevRoleSwitcher currentEmail={currentUser?.email ?? null} /> : null}
+        </ToastProvider>
       </body>
     </html>
   );

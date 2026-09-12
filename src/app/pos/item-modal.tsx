@@ -1,14 +1,12 @@
 "use client";
 
+import { formatIDR } from "@/lib/money/money";
 import { useMemo, useState } from "react";
+import { Dialog } from "@/components/ui/dialog";
 import { ImageOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import type { PosMenuItem } from "@/server/services/menu-service";
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
 
 export interface ConfiguredLine {
   menuItemId: string;
@@ -78,7 +76,7 @@ export function ItemModal({
   }
 
   const missingRequired = item.modifierGroups.filter(
-    (g) => g.required && (selectedOptions[g.id]?.size ?? 0) < Math.max(1, g.minSelections),
+    (g) => (selectedOptions[g.id]?.size ?? 0) < Math.max(g.required ? 1 : 0, g.minSelections),
   );
 
   function handleAdd() {
@@ -99,8 +97,7 @@ export function ItemModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/30" />
+    <Dialog open label={item.name} onClose={onClose} className="max-w-[520px]">
       <div className="relative flex max-h-[90vh] w-full max-w-[520px] flex-col rounded-t-[var(--radius-lg)] bg-[var(--color-surface)] shadow-lg sm:rounded-[var(--radius-lg)]">
         <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] px-6 py-4">
           <div className="flex items-start gap-3">
@@ -122,7 +119,7 @@ export function ItemModal({
               {item.description ? <p className="mt-0.5 text-sm text-[var(--color-text-secondary)]">{item.description}</p> : null}
             </div>
           </div>
-          <button onClick={onClose} className="shrink-0 rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)]">
+          <button aria-label="Close item" onClick={onClose} className="shrink-0 rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)]">
             <X size={18} />
           </button>
         </div>
@@ -225,6 +222,6 @@ export function ItemModal({
           </Button>
         </div>
       </div>
-    </div>
+    </Dialog>
   );
 }

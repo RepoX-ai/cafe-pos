@@ -1,3 +1,4 @@
+import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -13,10 +14,6 @@ import { PrintJobsPanel } from "./print-jobs-panel";
 export const metadata: Metadata = {
   title: "Order — CaféOps",
 };
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
 
 function formatDate(value: Date) {
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });

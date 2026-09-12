@@ -1,3 +1,4 @@
+import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -11,10 +12,6 @@ import { Badge } from "@/components/ui/badge";
 export const metadata: Metadata = {
   title: "Order — CaféOps",
 };
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
 
 function formatDate(value: Date) {
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
@@ -104,18 +101,18 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
           <Metric label="Discount" value={formatIDR(order.discountTotal)} />
           <Metric label="Tax" value={formatIDR(order.taxTotal)} />
           <Metric label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
-          <Metric label="Total" value={formatIDR(order.total)} emphasize />
+          <Metric label="Total" value={formatIDR(order.total)} />
         </section>
       </div>
     </div>
   );
 }
 
-function Metric({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
       <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">{label}</p>
-      <p className={`mt-1 tabular-nums text-[var(--color-text-primary)] ${emphasize ? "text-xl font-semibold" : "text-sm font-medium"}`}>{value}</p>
+      <p className="mt-1 text-sm font-medium tabular-nums text-[var(--color-text-primary)]">{value}</p>
     </div>
   );
 }

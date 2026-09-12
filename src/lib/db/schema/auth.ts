@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   boolean,
+  integer,
+  index,
   jsonb,
   pgTable,
   primaryKey,
@@ -87,3 +89,10 @@ export const auditLogs = pgTable("audit_logs", {
   userAgent: text("user_agent"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Shared login windows; hashed keys avoid retaining raw email/IP identifiers. */
+export const loginAttempts = pgTable("login_attempts", {
+  keyHash: text("key_hash").primaryKey(),
+  count: integer("count").notNull().default(0),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("login_attempts_window_start_idx").on(table.windowStart)]);

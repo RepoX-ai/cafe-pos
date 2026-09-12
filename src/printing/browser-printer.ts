@@ -1,4 +1,4 @@
-import type { PrinterConnectionResult, PrinterProvider, PrinterStatus, PrintJobPayload, PrintResult } from "./printer-provider";
+import type { PrinterConnectionResult, PrinterProvider, PrinterStatus, PrintResult } from "./printer-provider";
 
 /**
  * Browser print fallback (PRD §6.11): there is no real thermal-printer
@@ -17,7 +17,7 @@ export class BrowserPrinterProvider implements PrinterProvider {
     };
   }
 
-  async print(_payload: PrintJobPayload): Promise<PrintResult> {
+  async print(): Promise<PrintResult> {
     return { success: false, requiresClientAction: "window_print" };
   }
 

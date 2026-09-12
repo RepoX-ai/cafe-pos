@@ -1,3 +1,4 @@
+import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -14,10 +15,6 @@ export const metadata: Metadata = {
 type BaseUnit = "gram" | "millilitre" | "piece";
 
 const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
 
 function formatRate(n: number) {
   return `Rp${n.toLocaleString("id-ID", { maximumFractionDigits: 2 })}`;

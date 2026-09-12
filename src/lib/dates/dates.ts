@@ -1,4 +1,4 @@
-import { formatInTimeZone, toZonedTime, fromZonedTime } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
 /**
  * All timestamps are stored in UTC (Postgres `timestamptz`). This module is
@@ -40,8 +40,4 @@ export function shiftBusinessDate(calendarDate: string, days: number): string {
   const d = new Date(`${calendarDate}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
-}
-
-export function toBusinessZonedTime(date: Date): Date {
-  return toZonedTime(date, BUSINESS_TIMEZONE);
 }

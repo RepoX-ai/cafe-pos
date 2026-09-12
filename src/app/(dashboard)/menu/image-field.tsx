@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Field, inputClassName } from "@/components/ui/form-field";
+import { Field } from "@/components/ui/form-field";
+import { inputClassName } from "@/components/ui/form-styles";
 
 /**
  * Shared "Image" field for the menu item create/edit forms: a tab toggle
@@ -69,7 +70,7 @@ export function ImageField({
                 onClick={() => setMode(m)}
                 className={`rounded-[var(--radius-sm)] px-2 py-1 text-xs font-medium transition-colors ${
                   mode === m
-                    ? "bg-[var(--color-accent-primary)] text-white"
+                    ? "bg-[var(--color-accent-primary)] text-[var(--color-accent-contrast)]"
                     : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                 }`}
               >
@@ -82,7 +83,8 @@ export function ImageField({
             <input
               id="imageUrl"
               name="imageUrl"
-              type="url"
+              type="text"
+              inputMode="url"
               placeholder="https://…"
               value={urlValue}
               onChange={(e) => setUrlValue(e.target.value)}
@@ -108,7 +110,7 @@ export function ImageField({
             <p className="mt-1 text-xs text-[var(--color-danger)]">Couldn&apos;t load that image — the cashier will see the name only.</p>
           ) : (
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              {mode === "upload" ? "JPG, PNG, or WebP, up to 5MB." : "Shown on the POS grid so cashiers can spot items faster."}
+              {mode === "upload" ? "JPG, PNG, or WebP, up to 3MB." : "Shown on the POS grid so cashiers can spot items faster."}
             </p>
           )}
         </div>

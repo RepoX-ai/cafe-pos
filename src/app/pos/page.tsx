@@ -25,6 +25,7 @@ export default async function PosPage() {
 
   return (
     <PosClient
+      draftScope={`${user.businessId}:${user.id}`}
       userName={user.name}
       categories={categories}
       items={items}

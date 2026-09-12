@@ -1,3 +1,4 @@
+import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
@@ -45,10 +46,6 @@ function computeTrend(current: number, previous: number): { pct: number; up: boo
 export const metadata: Metadata = {
   title: "Dashboard — CaféOps",
 };
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
 
 export default async function DashboardPage({
   searchParams,

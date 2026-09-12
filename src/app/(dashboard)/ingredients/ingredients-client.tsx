@@ -6,13 +6,18 @@ import { Plus, Pencil, Archive, ArchiveRestore } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
+import { Pagination } from "@/components/ui/pagination";
+import { usePagination } from "@/components/ui/use-pagination";
 import {
   createIngredientAction,
   setIngredientActiveAction,
   updateIngredientAction,
   type IngredientFormState,
 } from "./actions";
+import { ToastForm } from "@/components/ui/toast-form";
+import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
 
@@ -64,6 +69,8 @@ export function IngredientsClient({
     return set;
   }, [ingredients]);
 
+  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(ingredients, 20);
+
   return (
     <div>
       <div className="flex items-center justify-between gap-4">
@@ -81,7 +88,8 @@ export function IngredientsClient({
         ) : null}
       </div>
 
-      <div className="mt-8 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="mt-8 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="overflow-x-auto">
         <table className="w-full min-w-[820px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
@@ -94,14 +102,14 @@ export function IngredientsClient({
             </tr>
           </thead>
           <tbody>
-            {ingredients.length === 0 ? (
+            {pageItems.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                   No ingredients yet.{canWrite ? " Add your first one to start building recipes." : ""}
                 </td>
               </tr>
             ) : (
-              ingredients.map((ing) => (
+              pageItems.map((ing) => (
                 <tr key={ing.id} className="border-b border-[var(--color-border)] last:border-0">
                   <td className="px-4 py-3">
                     <div className="font-medium text-[var(--color-text-primary)]">{ing.name}</div>
@@ -134,7 +142,10 @@ export function IngredientsClient({
                         >
                           <Pencil size={15} />
                         </button>
-                        <form action={setIngredientActiveAction}>
+                        <ToastForm
+                          action={setIngredientActiveAction}
+                          successMessage={ing.active ? "Ingredient archived." : "Ingredient restored."}
+                        >
                           <input type="hidden" name="id" value={ing.id} />
                           <input type="hidden" name="active" value={(!ing.active).toString()} />
                           <button
@@ -144,7 +155,7 @@ export function IngredientsClient({
                           >
                             {ing.active ? <Archive size={15} /> : <ArchiveRestore size={15} />}
                           </button>
-                        </form>
+                        </ToastForm>
                       </div>
                     </td>
                   ) : null}
@@ -153,6 +164,8 @@ export function IngredientsClient({
             )}
           </tbody>
         </table>
+        </div>
+        <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
       </div>
 
       <Modal
@@ -176,6 +189,7 @@ export function IngredientsClient({
 function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; onDone: () => void }) {
   const action = existing ? updateIngredientAction : createIngredientAction;
   const [state, formAction, isPending] = useActionState<IngredientFormState, FormData>(action, undefined);
+  useActionResultToast(state, existing ? "Ingredient saved." : "Ingredient created.");
 
   useEffect(() => {
     if (state?.ok) onDone();

@@ -8,7 +8,7 @@ import { users } from "@/lib/db/schema";
 import { login, logout } from "@/server/services/auth-service";
 import { createSession, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { clearAttempts, isRateLimited, recordAttempt } from "@/lib/auth/rate-limit";
+import { clearLoginAttempts, consumeLoginAttempt } from "@/server/services/login-rate-limit";
 import { DEV_SEED_ACCOUNTS } from "@/lib/dev-seed-accounts";
 
 export type LoginFormState = { error?: string } | undefined;
@@ -31,7 +31,7 @@ export async function loginAction(
   // single IP either (PRD §12).
   const rateLimitKey = `${ipAddress ?? "unknown"}:${identifier.toLowerCase()}`;
 
-  if (isRateLimited(rateLimitKey)) {
+  if (!(await consumeLoginAttempt(db, rateLimitKey))) {
     return { error: "Too many attempts. Wait a few minutes and try again." };
   }
 
@@ -41,7 +41,6 @@ export async function loginAction(
   });
 
   if (!result.ok) {
-    recordAttempt(rateLimitKey);
     return {
       error:
         result.error === "account_deactivated"
@@ -50,7 +49,7 @@ export async function loginAction(
     };
   }
 
-  clearAttempts(rateLimitKey);
+  await clearLoginAttempts(db, rateLimitKey);
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, result.token, {

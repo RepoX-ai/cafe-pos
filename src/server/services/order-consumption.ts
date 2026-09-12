@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   ingredients,
+  menuItemModifierGroups,
   menuItemVariants,
   menuItems,
   modifierGroups,
@@ -104,7 +105,7 @@ export async function calculateLineIngredientDemand(
  * off the item's base price. There is no recipe row to look up here:
  * `recipes.menuItemVariantId` is NOT NULL, so an item sold this way never
  * produces ingredient consumption or COGS, regardless of its
- * `tracksInventory` flag. Scoped by business.
+ * `tracksInventory` flag. The caller rejects this path if any variant exists. Scoped by business.
  */
 export async function getMenuItemForOrder(db: Database, businessId: string, menuItemId: string) {
   const [row] = await db
@@ -154,4 +155,18 @@ export async function getModifierOptionsById(db: Database, businessId: string, i
     .from(modifierOptions)
     .innerJoin(modifierGroups, eq(modifierOptions.modifierGroupId, modifierGroups.id))
     .where(and(inArray(modifierOptions.id, ids), eq(modifierGroups.businessId, businessId)));
+}
+
+/** Read every assigned group, including required groups with no selected options. */
+export async function getOrderSelectionRules(db: Database, businessId: string, menuItemId: string) {
+  const variants = await db.select({ id: menuItemVariants.id }).from(menuItemVariants)
+    .innerJoin(menuItems, eq(menuItems.id, menuItemVariants.menuItemId))
+    .where(and(eq(menuItems.id, menuItemId), eq(menuItems.businessId, businessId)));
+  const groups = await db.select({ id: modifierGroups.id, name: modifierGroups.name,
+    active: modifierGroups.active, required: modifierGroups.required,
+    minSelections: modifierGroups.minSelections, maxSelections: modifierGroups.maxSelections })
+    .from(menuItemModifierGroups)
+    .innerJoin(modifierGroups, eq(modifierGroups.id, menuItemModifierGroups.modifierGroupId))
+    .where(and(eq(menuItemModifierGroups.menuItemId, menuItemId), eq(modifierGroups.businessId, businessId)));
+  return { variants, groups };
 }

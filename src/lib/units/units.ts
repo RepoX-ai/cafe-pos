@@ -25,13 +25,6 @@ export function convertToBaseUnits({
   return round(quantityPurchased * conversionToBaseUnits, 4);
 }
 
-/** Common conversion factors, offered as UI shortcuts — not enforced. */
-export const COMMON_CONVERSIONS: Record<BaseUnit, Record<string, number>> = {
-  gram: { kg: 1000, gram: 1 },
-  millilitre: { litre: 1000, ml: 1 },
-  piece: { box_of_12: 12, box_of_24: 24, piece: 1 },
-};
-
 function round(value: number, decimals: number): number {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
