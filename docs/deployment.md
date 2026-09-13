@@ -32,21 +32,35 @@ Compose for the whole stack, or Node + any local/managed Postgres.
    which is fine here — nothing in the codebase calls Drizzle's
    `.prepare()` — but keep it in mind before adding one.
 4. Run migrations once against the staging database before the first
-   deploy serves traffic. Use the **session pooler** (port 5432 on the
-   `...pooler.supabase.com` host) — *not* the transaction pooler, because
-   DDL and transaction pooling don't mix, and *not* the direct
-   `db.<ref>.supabase.co` host, which resolves to IPv6 only unless the
-   project has the IPv4 add-on and will simply time out from most home
-   connections. Session mode behaves like a direct connection:
+   deploy serves traffic.
+
+   Use the **transaction pooler** (port 6543 on the
+   `...pooler.supabase.com` host) — the same URL the app uses. The
+   textbook advice is to keep DDL off a transaction pooler, but Drizzle's
+   migrator runs each migration inside a single transaction and uses no
+   prepared statements, so it goes through cleanly; this was verified
+   against a real Supabase project (31 tables, one pass, no errors).
+
+   The other two candidates did *not* work on that project, so don't
+   burn time on them: the direct `db.<ref>.supabase.co` host has no
+   public A record (new projects are IPv6-only without the IPv4 add-on),
+   and the session pooler on port 5432 rejected the same credentials the
+   transaction pooler accepted. If your project differs, connect first
+   and migrate second — a wrong host fails as a DNS or auth error, not
+   as anything that mentions migrations.
    ```bash
-   DATABASE_URL=<session-pooler-url> npm run db:migrate
+   DATABASE_URL=<transaction-pooler-url> npm run db:migrate
    ```
+
+   Note that the database password must be **URL-encoded** in the
+   connection string. Supabase-generated passwords routinely contain
+   characters that silently truncate or corrupt the URL otherwise.
 5. Create the account you'll log in with. A freshly migrated database has
    no users, and `npm run db:seed` refuses to run with
    `NODE_ENV=production` (it creates accounts behind a password that is
    public in this repo's history):
    ```bash
-   DATABASE_URL=<session-pooler-url> npm run db:create-owner
+   DATABASE_URL=<transaction-pooler-url> npm run db:create-owner
    ```
 6. Deploy, then check `/api/health` — it returns
    `{"status":"ok","database":"connected"}` only if the app can actually
