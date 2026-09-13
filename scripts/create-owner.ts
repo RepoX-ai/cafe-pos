@@ -5,6 +5,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "../src/lib/db/schema";
 import { hashPassword } from "../src/lib/auth/password";
+import { DEV_SEED_PASSWORD } from "../src/lib/dev-seed-accounts";
 
 /**
  * Creates the first business and its owner account on a fresh database.
@@ -101,6 +102,13 @@ async function main() {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(`Not a valid email address: ${email || "(empty)"}`);
   if (password.length < MIN_PASSWORD_LENGTH) {
     fail(`Password must be at least ${MIN_PASSWORD_LENGTH} characters (got ${password.length}).`);
+  }
+  // The dev seed password happens to be exactly MIN_PASSWORD_LENGTH long,
+  // so the length check alone would wave it through — and it is public in
+  // this repo's history, which makes it the one password that must never
+  // reach a real deployment.
+  if (password === DEV_SEED_PASSWORD) {
+    fail("That is the development seed password, which is public in this repo's history. Choose a different one.");
   }
   orderPrefix = (orderPrefix || "ORD").toUpperCase();
 
