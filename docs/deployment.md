@@ -10,22 +10,49 @@ Compose for the whole stack, or Node + any local/managed Postgres.
 
 ## Staging: Vercel + managed Postgres
 
-1. Create a managed Postgres database (Supabase, Neon, RDS, etc.) —
-   separate from whatever production ends up using.
+1. Create a managed Postgres database (Supabase per PRD §Hosting, or
+   Neon/RDS) — separate from whatever production ends up using.
+
+   **Pick a region next to the café, not next to you.** For a Jakarta
+   café that means Southeast Asia (Singapore, `ap-southeast-1`). Vercel
+   otherwise defaults to `iad1` (Virginia); functions in Virginia talking
+   to a database in Singapore add roughly a quarter-second to *every*
+   query, and the dashboard pages issue several in sequence. `vercel.json`
+   pins functions to `sin1` to match — change both together if the café
+   is somewhere else.
 2. Import the project into Vercel from this repo.
 3. Set environment variables in the Vercel project (from `.env.example`):
    `DATABASE_URL`, `AUTH_SECRET`, `APP_URL` (your Vercel URL),
    `BUSINESS_TIMEZONE=Asia/Jakarta`, `PRINT_PROVIDER=mock` (or `browser`
    until hardware is confirmed).
+
+   On Supabase use the **transaction pooler** (port 6543) for
+   `DATABASE_URL`: serverless functions open far more connections than a
+   long-lived server would. That pooler cannot run prepared statements,
+   which is fine here — nothing in the codebase calls Drizzle's
+   `.prepare()` — but keep it in mind before adding one.
 4. Run migrations once against the staging database before the first
-   deploy serves traffic:
+   deploy serves traffic, using the **direct** connection (port 5432),
+   not the pooler — DDL and transaction pooling don't mix:
    ```bash
-   DATABASE_URL=<staging-url> npm run db:migrate
-   DATABASE_URL=<staging-url> npm run db:seed   # optional, dev fixtures only
+   DATABASE_URL=<direct-url> npm run db:migrate
    ```
-5. Deploy. Nothing in this codebase depends on Vercel-specific APIs
-   (Blob, Cron, Edge Functions) for core workflows, so this step is just
-   "point Vercel at the repo" — no staging-only code paths to maintain.
+5. Create the account you'll log in with. A freshly migrated database has
+   no users, and `npm run db:seed` refuses to run with
+   `NODE_ENV=production` (it creates accounts behind a password that is
+   public in this repo's history):
+   ```bash
+   DATABASE_URL=<direct-url> npm run db:create-owner
+   ```
+6. Deploy, then check `/api/health` — it returns
+   `{"status":"ok","database":"connected"}` only if the app can actually
+   reach the database. Nothing in this codebase depends on Vercel-specific
+   APIs (Blob, Cron, Edge Functions) for core workflows, so this step is
+   just "point Vercel at the repo" — no staging-only code paths.
+7. Optional, needed only for menu photo uploads: set `STORAGE_PROVIDER=s3`
+   and the `STORAGE_*` keys. Local disk is deliberately refused on Vercel
+   (the filesystem is ephemeral, so uploads would vanish). Supabase
+   Storage is S3-compatible and needs `STORAGE_FORCE_PATH_STYLE=true`.
 
 ## Production option A: VPS app + managed Postgres
 
