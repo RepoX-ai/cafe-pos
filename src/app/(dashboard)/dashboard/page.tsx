@@ -12,8 +12,6 @@ import {
   PiggyBank,
   XCircle,
   Trash2,
-  ArrowUp,
-  ArrowDown,
 } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
@@ -27,21 +25,9 @@ import {
 } from "@/server/services/reports-service";
 import { startOfBusinessDay, endOfBusinessDay, todayInBusinessTimezone, shiftBusinessDate } from "@/lib/dates/dates";
 import { Badge } from "@/components/ui/badge";
-import { DateRangeForm } from "./date-range-form";
-import { SalesTrendChart, type SalesTrendPoint } from "./sales-trend-chart";
-
-/**
- * Percent change vs. the immediately preceding period of equal length. A
- * previous value of 0 can't produce a ratio, so a rise from 0 reads as a
- * flat +100% (matches how the comparison badge is understood elsewhere in
- * the app) rather than an undefined/Infinity percentage.
- */
-function computeTrend(current: number, previous: number): { pct: number; up: boolean } | null {
-  if (previous === 0) return current > 0 ? { pct: 100, up: true } : null;
-  const pct = ((current - previous) / previous) * 100;
-  if (pct === 0) return null;
-  return { pct: Math.round(Math.abs(pct)), up: pct > 0 };
-}
+import { DateRangeForm } from "@/components/ui/date-range-form";
+import { StatCard as Card, computeTrend } from "@/components/ui/stat-card";
+import { TrendChart, type TrendPoint } from "@/components/ui/trend-chart";
 
 export const metadata: Metadata = {
   title: "Dashboard — CaféOps",
@@ -85,10 +71,10 @@ export default async function DashboardPage({
   ]);
 
   const salesByDayMap = new Map(salesByDay.map((d) => [d.day, d]));
-  const trendData: SalesTrendPoint[] = Array.from({ length: 14 }, (_, i) => {
+  const trendData: TrendPoint[] = Array.from({ length: 14 }, (_, i) => {
     const day = shiftBusinessDate(chartFromDate, i);
     const row = salesByDayMap.get(day);
-    return { day, totalSales: row?.totalSales ?? 0, orderCount: row?.orderCount ?? 0 };
+    return { day, value: row?.totalSales ?? 0, caption: `${row?.orderCount ?? 0} orders` };
   });
 
   const lowStock = ingredients.filter(
@@ -105,7 +91,7 @@ export default async function DashboardPage({
           <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Dashboard</h1>
           <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Welcome back, {user.name}.</p>
         </div>
-        <DateRangeForm from={fromDate} to={toDate} today={today} />
+        <DateRangeForm from={fromDate} to={toDate} today={today} basePath="/dashboard" />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
@@ -153,7 +139,11 @@ export default async function DashboardPage({
         <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:col-span-2">
           <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Sales trend — last 14 days</h2>
           <div className="mt-3">
-            <SalesTrendChart data={trendData} />
+            <TrendChart
+              data={trendData}
+              ariaLabel="Daily total sales for the last 14 days"
+              emptyText="No sales in the last 14 days."
+            />
           </div>
         </div>
 
@@ -257,57 +247,6 @@ export default async function DashboardPage({
           )}
         </Widget>
       </div>
-    </div>
-  );
-}
-
-function Card({
-  icon: Icon,
-  label,
-  value,
-  tone,
-  emphasize,
-  trend,
-  previousLabel,
-}: {
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  label: string;
-  value: string;
-  tone?: "danger" | "warning";
-  emphasize?: boolean;
-  trend?: { pct: number; up: boolean } | null;
-  previousLabel?: string;
-}) {
-  const color =
-    tone === "danger" ? "text-[var(--color-danger)]" : tone === "warning" ? "text-[var(--color-warning)]" : "text-[var(--color-text-primary)]";
-  return (
-    <div
-      className={`rounded-[var(--radius-md)] border p-4 ${
-        emphasize
-          ? "border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)]"
-          : "border-[var(--color-border)] bg-[var(--color-surface)]"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">{label}</p>
-        <Icon size={14} className="shrink-0 text-[var(--color-text-muted)]" />
-      </div>
-      {/* All card numbers share one size/weight so the row reads as one set — emphasis is by
-          border/background above, not a bigger number. */}
-      <div className="mt-1 flex items-baseline gap-2">
-        <p className={`text-xl font-semibold tabular-nums ${color}`}>{value}</p>
-        {trend ? (
-          <span
-            className={`flex items-center gap-0.5 text-xs font-medium tabular-nums ${
-              trend.up ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"
-            }`}
-          >
-            {trend.up ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-            {trend.pct}%
-          </span>
-        ) : null}
-      </div>
-      {previousLabel ? <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">{previousLabel}</p> : null}
     </div>
   );
 }

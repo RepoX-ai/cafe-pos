@@ -24,7 +24,11 @@ export function Modal({ open, title, description, onClose, children, maxWidthCla
   return (
     <Dialog open={open} label={title} onClose={onClose} className={maxWidthClassName}>
       <div
-        className={`relative flex max-h-[85vh] w-full ${maxWidthClassName} flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg`}
+        // `text-left` is deliberate: a <dialog> still inherits CSS from
+        // wherever it was declared in the DOM, so a modal opened from a
+        // right-aligned table cell rendered its whole form right-aligned.
+        // Content alignment shouldn't depend on the call site.
+        className={`relative flex max-h-[85vh] w-full ${maxWidthClassName} flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] text-left shadow-lg`}
       >
         <div className="flex items-start justify-between border-b border-[var(--color-border)] px-6 py-4">
           <div>

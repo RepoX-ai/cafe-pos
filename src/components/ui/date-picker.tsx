@@ -4,35 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { todayInBusinessTimezone } from "@/lib/dates/dates";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { inputClassName } from "@/components/ui/form-styles";
-
-// Monday-first weekday header (id-ID convention).
-const WEEKDAY_LABELS = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
-
-/**
- * Parse a Y-M-D string as a UTC-anchored Date and format with UTC getters
- * throughout this file — never `new Date(value)` / local getters, which are
- * affected by the runtime's local timezone and can land a day off. Same
- * convention as src/lib/dates/dates.ts's `shiftBusinessDate`.
- */
-function toDateOnly(value: string): Date {
-  return new Date(`${value}T00:00:00Z`);
-}
-
-function toValue(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-function formatDisplay(value: string): string {
-  return toDateOnly(value).toLocaleDateString("id-ID", { dateStyle: "medium", timeZone: "UTC" });
-}
-
-function daysInMonth(year: number, monthIndex: number): number {
-  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
-}
-
-function mondayFirstIndex(jsWeekday: number): number {
-  return (jsWeekday + 6) % 7; // JS: Sun=0..Sat=6 -> Mon=0..Sun=6
-}
+import {
+  WEEKDAY_LABELS,
+  buildMonthCells,
+  formatDisplay,
+  formatMonthYear,
+  toDateOnly,
+  toValue,
+} from "@/components/ui/calendar-utils";
 
 interface DatePickerProps {
   id?: string;
@@ -93,20 +72,8 @@ export function DatePicker({
 
   const year = viewDate.getUTCFullYear();
   const month = viewDate.getUTCMonth();
-  const totalDays = daysInMonth(year, month);
-  const leading = mondayFirstIndex(new Date(Date.UTC(year, month, 1)).getUTCDay());
   const todayValue = todayInBusinessTimezone();
-
-  const cells: { date: Date; inMonth: boolean }[] = [];
-  for (let i = leading; i > 0; i--) {
-    cells.push({ date: new Date(Date.UTC(year, month, 1 - i)), inMonth: false });
-  }
-  for (let day = 1; day <= totalDays; day++) {
-    cells.push({ date: new Date(Date.UTC(year, month, day)), inMonth: true });
-  }
-  for (let day = 1; cells.length < 42; day++) {
-    cells.push({ date: new Date(Date.UTC(year, month + 1, day)), inMonth: false });
-  }
+  const cells = buildMonthCells(viewDate);
 
   return (
     <div ref={rootRef} className={`relative ${className ?? ""}`}>
@@ -141,7 +108,7 @@ export function DatePicker({
               <ChevronLeft size={16} />
             </button>
             <span className="text-sm font-semibold text-[var(--color-text-primary)]">
-              {viewDate.toLocaleDateString("id-ID", { month: "long", year: "numeric", timeZone: "UTC" })}
+              {formatMonthYear(viewDate)}
             </span>
             <button
               type="button"
@@ -162,8 +129,7 @@ export function DatePicker({
                 {d}
               </span>
             ))}
-            {cells.map(({ date, inMonth }) => {
-              const cellValue = toValue(date);
+            {cells.map(({ date, value: cellValue, inMonth }) => {
               const isSelected = cellValue === selected;
               const isToday = cellValue === todayValue;
               return (

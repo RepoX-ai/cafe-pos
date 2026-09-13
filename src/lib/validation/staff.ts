@@ -12,3 +12,10 @@ export const createStaffInputSchema = z.object({
 });
 
 export type CreateStaffInput = z.infer<typeof createStaffInputSchema>;
+
+// Editing a staff member takes exactly the same three fields as creating
+// one — the password is never part of this form (there's a separate
+// owner-initiated reset).
+export const updateStaffInputSchema = createStaffInputSchema;
+
+export type UpdateStaffInput = z.infer<typeof updateStaffInputSchema>;

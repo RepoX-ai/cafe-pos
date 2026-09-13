@@ -1,13 +1,15 @@
 "use client";
 
 import { formatIDR } from "@/lib/money/money";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
-export interface SalesTrendPoint {
+export interface TrendPoint {
   /** Y-M-D, business timezone. */
   day: string;
-  totalSales: number;
-  orderCount: number;
+  /** The plotted Rupiah amount. */
+  value: number;
+  /** Secondary line in the tooltip, e.g. "3 orders" or "2 entries". */
+  caption: string;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -28,26 +30,57 @@ function formatDayFull(day: string) {
   return `${parseInt(d, 10)} ${MONTHS[parseInt(m, 10) - 1]}`;
 }
 
-const WIDTH = 480;
+/** Fallback width for the first paint, before the container is measured. */
+const FALLBACK_WIDTH = 480;
 const HEIGHT = 210;
-// Wide enough for the longest y-axis label ("Rp500rb") at 10px — narrower
+// Axis labels sit on the 12px step of the type scale — the smallest standard
+// size — now that one SVG user unit renders as one CSS pixel.
+const AXIS_FONT_SIZE = 12;
+// Wide enough for the longest y-axis label ("Rp500rb") at 12px — narrower
 // clipped its leading "R" against the SVG's left edge.
-const PAD_LEFT = 56;
+const PAD_LEFT = 64;
 const PAD_RIGHT = 8;
 const PAD_TOP = 12;
-const PAD_BOTTOM = 24;
+// Room for a 12px day label below the baseline.
+const PAD_BOTTOM = 28;
 const TOOLTIP_WIDTH = 108;
 const TOOLTIP_HEIGHT = 38;
 
-export function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
+export function TrendChart({
+  data,
+  ariaLabel,
+  emptyText,
+}: {
+  data: TrendPoint[];
+  ariaLabel: string;
+  emptyText: string;
+}) {
   const [hovered, setHovered] = useState<number | null>(null);
   const gradientId = useId();
 
-  const plotWidth = WIDTH - PAD_LEFT - PAD_RIGHT;
+  // The viewBox tracks the container's real pixel width and the SVG keeps a
+  // fixed pixel height, so one user unit is always one CSS pixel. Without this
+  // a `w-full` SVG on a fixed viewBox scales uniformly — a wider card would
+  // stretch the chart taller and blow up every label with it.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(FALLBACK_WIDTH);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const next = entry.contentRect.width;
+      if (next > 0) setWidth(next);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const plotWidth = width - PAD_LEFT - PAD_RIGHT;
   const plotHeight = HEIGHT - PAD_TOP - PAD_BOTTOM;
   const baseline = PAD_TOP + plotHeight;
 
-  const maxValue = Math.max(...data.map((d) => d.totalSales), 1);
+  const maxValue = Math.max(...data.map((d) => d.value), 1);
   // Round the axis ceiling up to a friendly step so gridline labels aren't jagged.
   const niceMax = niceCeiling(maxValue);
 
@@ -56,9 +89,9 @@ export function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
   const slotWidth = data.length > 0 ? plotWidth / data.length : plotWidth;
 
   const gridLines = [0, 0.5, 1];
-  const hasAnySales = data.some((d) => d.totalSales > 0);
+  const hasAnyValue = data.some((d) => d.value > 0);
 
-  const linePath = data.map((d, i) => `${i === 0 ? "M" : "L"}${xAt(i)},${yAt(d.totalSales)}`).join(" ");
+  const linePath = data.map((d, i) => `${i === 0 ? "M" : "L"}${xAt(i)},${yAt(d.value)}`).join(" ");
   const areaPath = data.length > 0 ? `${linePath} L${xAt(data.length - 1)},${baseline} L${xAt(0)},${baseline} Z` : "";
 
   const hoveredPoint = hovered !== null ? data[hovered] : null;
@@ -66,19 +99,21 @@ export function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
   let tooltipY = 0;
   if (hoveredPoint) {
     const px = xAt(hovered!);
-    const py = yAt(hoveredPoint.totalSales);
-    tooltipX = Math.min(Math.max(px - TOOLTIP_WIDTH / 2, PAD_LEFT), WIDTH - PAD_RIGHT - TOOLTIP_WIDTH);
+    const py = yAt(hoveredPoint.value);
+    tooltipX = Math.min(Math.max(px - TOOLTIP_WIDTH / 2, PAD_LEFT), width - PAD_RIGHT - TOOLTIP_WIDTH);
     tooltipY = py - TOOLTIP_HEIGHT - 10;
     if (tooltipY < 0) tooltipY = py + 10; // flip below the point if it's too close to the top
   }
 
   return (
-    <div>
+    <div ref={containerRef}>
       <svg
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="w-full overflow-visible"
+        viewBox={`0 0 ${width} ${HEIGHT}`}
+        width="100%"
+        height={HEIGHT}
+        className="overflow-visible"
         role="img"
-        aria-label="Daily total sales for the last 14 days"
+        aria-label={ariaLabel}
         onMouseLeave={() => setHovered(null)}
       >
         <defs>
@@ -92,22 +127,29 @@ export function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
           const y = baseline - frac * plotHeight;
           return (
             <g key={frac}>
-              <line x1={PAD_LEFT} x2={WIDTH - PAD_RIGHT} y1={y} y2={y} stroke="var(--color-border)" strokeWidth={1} />
-              <text x={PAD_LEFT - 8} y={y} textAnchor="end" dominantBaseline="middle" className="fill-[var(--color-text-muted)]" fontSize={10}>
+              <line x1={PAD_LEFT} x2={width - PAD_RIGHT} y1={y} y2={y} stroke="var(--color-border)" strokeWidth={1} />
+              <text
+                x={PAD_LEFT - 8}
+                y={y}
+                textAnchor="end"
+                dominantBaseline="middle"
+                className="fill-[var(--color-text-muted)]"
+                fontSize={AXIS_FONT_SIZE}
+              >
                 {formatIDRCompact(niceMax * frac)}
               </text>
             </g>
           );
         })}
 
-        {hasAnySales ? (
+        {hasAnyValue ? (
           <>
             <path d={areaPath} fill={`url(#${gradientId})`} />
             <path d={linePath} fill="none" stroke="var(--color-accent-primary)" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
           </>
         ) : (
-          <text x={WIDTH / 2} y={HEIGHT / 2} textAnchor="middle" className="fill-[var(--color-text-muted)]" fontSize={12}>
-            No sales in the last 14 days.
+          <text x={width / 2} y={HEIGHT / 2} textAnchor="middle" className="fill-[var(--color-text-muted)]" fontSize={12}>
+            {emptyText}
           </text>
         )}
 
@@ -138,12 +180,12 @@ export function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
                 onMouseEnter={() => setHovered(i)}
                 onFocus={() => setHovered(i)}
                 tabIndex={0}
-                aria-label={`${point.day}: ${formatIDR(point.totalSales)}, ${point.orderCount} orders`}
+                aria-label={`${point.day}: ${formatIDR(point.value)}, ${point.caption}`}
               />
               {isHovered ? (
                 <circle
                   cx={xAt(i)}
-                  cy={yAt(point.totalSales)}
+                  cy={yAt(point.value)}
                   r={4}
                   fill="var(--color-accent-primary)"
                   stroke="var(--color-surface)"
@@ -152,7 +194,13 @@ export function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
                 />
               ) : null}
               {data.length <= 7 || i % 3 === 0 || i === data.length - 1 ? (
-                <text x={xAt(i)} y={HEIGHT - 6} textAnchor="middle" className="fill-[var(--color-text-muted)]" fontSize={9}>
+                <text
+                  x={xAt(i)}
+                  y={HEIGHT - 8}
+                  textAnchor="middle"
+                  className="fill-[var(--color-text-muted)]"
+                  fontSize={AXIS_FONT_SIZE}
+                >
                   {formatDayLabel(point.day)}
                 </text>
               ) : null}
@@ -176,7 +224,7 @@ export function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
               {formatDayFull(hoveredPoint.day)}
             </text>
             <text x={tooltipX + 10} y={tooltipY + 29} className="fill-[var(--color-surface)]" fontSize={9.5} opacity={0.85}>
-              {formatIDR(hoveredPoint.totalSales)} · {hoveredPoint.orderCount} orders
+              {formatIDR(hoveredPoint.value)} · {hoveredPoint.caption}
             </text>
           </g>
         ) : null}

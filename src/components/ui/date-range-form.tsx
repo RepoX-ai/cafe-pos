@@ -2,8 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { DatePicker } from "@/components/ui/date-picker";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { shiftBusinessDate } from "@/lib/dates/dates";
 
 type Preset = "daily" | "weekly" | "monthly" | "custom";
@@ -29,18 +28,29 @@ function pillClassName(active: boolean) {
   }`;
 }
 
-export function DateRangeForm({ from, to, today }: { from: string; to: string; today: string }) {
+export function DateRangeForm({
+  from,
+  to,
+  today,
+  basePath,
+}: {
+  from: string;
+  to: string;
+  today: string;
+  /** Route the presets and the custom range picker navigate to. */
+  basePath: string;
+}) {
   const router = useRouter();
   const [preset, setPreset] = useState<Preset>(() => detectPreset(from, to, today));
 
   function applyPreset(daysBack: number, key: Exclude<Preset, "custom">) {
     setPreset(key);
     const nextFrom = shiftBusinessDate(today, -daysBack);
-    router.push(`/dashboard?from=${nextFrom}&to=${today}`);
+    router.push(`${basePath}?from=${nextFrom}&to=${today}`);
   }
 
   return (
-    <div className="flex flex-wrap items-end gap-3">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="flex items-center gap-2">
         {PRESETS.map((p) => (
           <button
@@ -62,21 +72,11 @@ export function DateRangeForm({ from, to, today }: { from: string; to: string; t
       </div>
 
       {preset === "custom" ? (
-        <form action="/dashboard" className="flex items-end gap-2">
-          <div>
-            <label htmlFor="from" className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-              From
-            </label>
-            <DatePicker id="from" name="from" defaultValue={from} className="w-[160px]" />
-          </div>
-          <div>
-            <label htmlFor="to" className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-              To
-            </label>
-            <DatePicker id="to" name="to" defaultValue={to} className="w-[160px]" />
-          </div>
-          <Button type="submit">Apply</Button>
-        </form>
+        <DateRangePicker
+          from={from}
+          to={to}
+          onApply={(range) => router.push(`${basePath}?from=${range.from}&to=${range.to}`)}
+        />
       ) : null}
     </div>
   );
