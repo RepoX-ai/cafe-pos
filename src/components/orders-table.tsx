@@ -12,9 +12,17 @@ export interface OrderRow {
   placed: string;
   orderType: string;
   tableLabel: string;
+  items: Array<{ name: string; quantity: number }>;
   totalFormatted: string;
   status: string;
   statusTone: BadgeTone;
+}
+
+/** Item lines shown inline before the column collapses into "+N more". */
+const MAX_VISIBLE_ITEMS = 3;
+
+function formatItem(item: { name: string; quantity: number }) {
+  return `${item.quantity}× ${item.name}`;
 }
 
 /** Whole-row click target for the orders list — not just the order-number link. */
@@ -24,7 +32,7 @@ export function OrdersTable({ orders, basePath = "/orders" }: { orders: OrderRow
 
   if (orders.length === 0) {
     return (
-      <table className="w-full min-w-[820px] border-collapse text-sm">
+      <table className="w-full min-w-[1100px] border-collapse text-sm">
         <tbody>
           <tr>
             <td className="px-4 py-10 text-center text-[var(--color-text-secondary)]">No orders found.</td>
@@ -36,15 +44,16 @@ export function OrdersTable({ orders, basePath = "/orders" }: { orders: OrderRow
 
   return (
     <div>
-      <table className="w-full min-w-[820px] border-collapse text-sm">
+      <table className="w-full min-w-[1100px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-            <th className="px-4 py-3">Order #</th>
-            <th className="px-4 py-3">Placed</th>
-            <th className="px-4 py-3">Type</th>
-            <th className="px-4 py-3">Table</th>
-            <th className="px-4 py-3 text-right">Total</th>
-            <th className="px-4 py-3">Status</th>
+            <th className="whitespace-nowrap px-4 py-3">Order #</th>
+            <th className="whitespace-nowrap px-4 py-3">Placed</th>
+            <th className="whitespace-nowrap px-4 py-3">Type</th>
+            <th className="whitespace-nowrap px-4 py-3">Table</th>
+            <th className="px-4 py-3">Items</th>
+            <th className="w-[1%] whitespace-nowrap px-3 py-3 text-right">Total</th>
+            <th className="whitespace-nowrap px-4 py-3">Status</th>
           </tr>
         </thead>
         <tbody>
@@ -54,7 +63,7 @@ export function OrdersTable({ orders, basePath = "/orders" }: { orders: OrderRow
               onClick={() => router.push(`${basePath}/${o.id}`)}
               className="cursor-pointer border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-page-bg)]"
             >
-              <td className="px-4 py-3">
+              <td className="whitespace-nowrap px-4 py-3">
                 <Link
                   href={`${basePath}/${o.id}`}
                   onClick={(e) => e.stopPropagation()}
@@ -63,11 +72,27 @@ export function OrdersTable({ orders, basePath = "/orders" }: { orders: OrderRow
                   {o.orderNumber}
                 </Link>
               </td>
-              <td className="px-4 py-3 text-[var(--color-text-secondary)]">{o.placed}</td>
-              <td className="px-4 py-3 text-[var(--color-text-secondary)]">{o.orderType}</td>
-              <td className="px-4 py-3 text-[var(--color-text-secondary)]">{o.tableLabel}</td>
-              <td className="px-4 py-3 text-right tabular-nums">{o.totalFormatted}</td>
+              <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">{o.placed}</td>
+              <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">{o.orderType}</td>
+              <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">{o.tableLabel}</td>
               <td className="px-4 py-3">
+                {o.items.length === 0 ? (
+                  <span className="text-[var(--color-text-secondary)]">&mdash;</span>
+                ) : (
+                  <div className="flex max-w-[480px] items-baseline gap-1.5" title={o.items.map(formatItem).join(", ")}>
+                    <span className="truncate text-[var(--color-text-secondary)]">
+                      {o.items.slice(0, MAX_VISIBLE_ITEMS).map(formatItem).join(", ")}
+                    </span>
+                    {o.items.length > MAX_VISIBLE_ITEMS ? (
+                      <span className="shrink-0 text-xs text-[var(--color-text-muted)]">
+                        +{o.items.length - MAX_VISIBLE_ITEMS} more
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+              </td>
+              <td className="w-[1%] whitespace-nowrap px-3 py-3 text-right tabular-nums">{o.totalFormatted}</td>
+              <td className="whitespace-nowrap px-4 py-3">
                 <Badge tone={o.statusTone}>{o.status}</Badge>
               </td>
             </tr>

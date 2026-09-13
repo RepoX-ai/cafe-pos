@@ -8,7 +8,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { businesses, locations } from "./core";
-import { movementTypeEnum, stockCountStatusEnum, wasteReasonEnum } from "./enums";
+import { baseUnitEnum, movementTypeEnum, stockCountStatusEnum, wasteReasonEnum } from "./enums";
 import { ingredients } from "./ingredients";
 import { users } from "./auth";
 
@@ -26,9 +26,14 @@ export const inventoryMovements = pgTable("inventory_movements", {
     .notNull()
     .references(() => businesses.id, { onDelete: "restrict" }),
   locationId: uuid("location_id").references(() => locations.id, { onDelete: "set null" }),
-  ingredientId: uuid("ingredient_id")
-    .notNull()
-    .references(() => ingredients.id, { onDelete: "restrict" }),
+  ingredientId: uuid("ingredient_id").references(() => ingredients.id, {
+    onDelete: "set null",
+  }),
+  // Snapshot columns, not a join: an ingredient can be deleted outright and
+  // `ingredient_id` then goes NULL, so the row has to be able to say what it
+  // was about on its own.
+  ingredientNameSnapshot: text("ingredient_name_snapshot"),
+  ingredientBaseUnitSnapshot: baseUnitEnum("ingredient_base_unit_snapshot"),
   movementType: movementTypeEnum("movement_type").notNull(),
   quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
   // Cost rate applied to this movement (exact decimal, Rupiah per base unit).
@@ -63,9 +68,11 @@ export const stockCountLines = pgTable("stock_count_lines", {
   stockCountId: uuid("stock_count_id")
     .notNull()
     .references(() => stockCounts.id, { onDelete: "cascade" }),
-  ingredientId: uuid("ingredient_id")
-    .notNull()
-    .references(() => ingredients.id, { onDelete: "restrict" }),
+  ingredientId: uuid("ingredient_id").references(() => ingredients.id, {
+    onDelete: "set null",
+  }),
+  ingredientNameSnapshot: text("ingredient_name_snapshot"),
+  ingredientBaseUnitSnapshot: baseUnitEnum("ingredient_base_unit_snapshot"),
   systemQuantity: numeric("system_quantity", { precision: 16, scale: 4 }).notNull(),
   countedQuantity: numeric("counted_quantity", { precision: 16, scale: 4 }).notNull(),
   differenceQuantity: numeric("difference_quantity", { precision: 16, scale: 4 }).notNull(),
@@ -77,9 +84,11 @@ export const wasteRecords = pgTable("waste_records", {
     .notNull()
     .references(() => businesses.id, { onDelete: "restrict" }),
   locationId: uuid("location_id").references(() => locations.id, { onDelete: "set null" }),
-  ingredientId: uuid("ingredient_id")
-    .notNull()
-    .references(() => ingredients.id, { onDelete: "restrict" }),
+  ingredientId: uuid("ingredient_id").references(() => ingredients.id, {
+    onDelete: "set null",
+  }),
+  ingredientNameSnapshot: text("ingredient_name_snapshot"),
+  ingredientBaseUnitSnapshot: baseUnitEnum("ingredient_base_unit_snapshot"),
   quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
   reason: wasteReasonEnum("reason").notNull(),
   // Whole Rupiah, computed from the ingredient's average cost at time of entry.

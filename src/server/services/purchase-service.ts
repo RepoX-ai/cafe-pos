@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { ingredients, purchaseLines, purchases, suppliers } from "@/lib/db/schema";
 import { convertToBaseUnits } from "@/lib/units/units";
@@ -49,8 +49,8 @@ export async function getPurchaseWithLines(db: Database, businessId: string, id:
     .select({
       id: purchaseLines.id,
       ingredientId: purchaseLines.ingredientId,
-      ingredientName: ingredients.name,
-      ingredientBaseUnit: ingredients.baseUnit,
+      ingredientName: sql<string>`coalesce(${ingredients.name}, ${purchaseLines.ingredientNameSnapshot}, 'Deleted ingredient')`,
+      ingredientBaseUnit: sql<"gram" | "millilitre" | "piece">`coalesce(${ingredients.baseUnit}, ${purchaseLines.ingredientBaseUnitSnapshot}, 'gram')`,
       quantityPurchased: purchaseLines.quantityPurchased,
       purchaseUnit: purchaseLines.purchaseUnit,
       conversionToBaseUnits: purchaseLines.conversionToBaseUnits,
@@ -59,7 +59,7 @@ export async function getPurchaseWithLines(db: Database, businessId: string, id:
       costPerBaseUnit: purchaseLines.costPerBaseUnit,
     })
     .from(purchaseLines)
-    .innerJoin(ingredients, eq(purchaseLines.ingredientId, ingredients.id))
+    .leftJoin(ingredients, eq(purchaseLines.ingredientId, ingredients.id))
     .where(eq(purchaseLines.purchaseId, id));
 
   return { purchase, lines };
@@ -118,6 +118,8 @@ export async function createAndFinalizePurchase(
       await tx.insert(purchaseLines).values({
         purchaseId: created.id,
         ingredientId: line.ingredientId,
+        ingredientNameSnapshot: locked.name,
+        ingredientBaseUnitSnapshot: locked.baseUnit,
         quantityPurchased: String(line.quantityPurchased),
         purchaseUnit: line.purchaseUnit,
         conversionToBaseUnits: String(line.conversionToBaseUnits),

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { ingredients, inventoryMovements } from "@/lib/db/schema";
 import { recordAuditLog } from "./audit";
@@ -61,12 +61,24 @@ export async function insertMovementAndApplyStock(
   input: InsertMovementInput,
   effects: { newQuantityBaseUnits: number; newAverageCostPerBaseUnit?: number },
 ) {
+  // Snapshot the ingredient's name/unit onto the ledger row, so the row
+  // still reads correctly if the ingredient is deleted later (the FK then
+  // goes NULL). Callers have already locked this row, so this is a read of
+  // a row this transaction is holding.
+  const [snapshot] = await tx
+    .select({ name: ingredients.name, baseUnit: ingredients.baseUnit })
+    .from(ingredients)
+    .where(eq(ingredients.id, input.ingredientId))
+    .limit(1);
+
   const [movement] = await tx
     .insert(inventoryMovements)
     .values({
       businessId: input.businessId,
       locationId: input.locationId ?? null,
       ingredientId: input.ingredientId,
+      ingredientNameSnapshot: snapshot?.name ?? null,
+      ingredientBaseUnitSnapshot: snapshot?.baseUnit ?? null,
       movementType: input.movementType,
       quantityBaseUnits: String(input.quantityBaseUnits),
       unitCost: input.unitCost ?? null,
@@ -182,8 +194,10 @@ export async function listMovements(
     .select({
       id: inventoryMovements.id,
       ingredientId: inventoryMovements.ingredientId,
-      ingredientName: ingredients.name,
-      baseUnit: ingredients.baseUnit,
+      // Prefer the live ingredient, fall back to what the row recorded —
+      // the fallback is what a deleted ingredient's movements read as.
+      ingredientName: sql<string>`coalesce(${ingredients.name}, ${inventoryMovements.ingredientNameSnapshot}, 'Deleted ingredient')`,
+      baseUnit: sql<"gram" | "millilitre" | "piece">`coalesce(${ingredients.baseUnit}, ${inventoryMovements.ingredientBaseUnitSnapshot}, 'gram')`,
       movementType: inventoryMovements.movementType,
       quantityBaseUnits: inventoryMovements.quantityBaseUnits,
       unitCost: inventoryMovements.unitCost,
@@ -195,7 +209,7 @@ export async function listMovements(
       createdAt: inventoryMovements.createdAt,
     })
     .from(inventoryMovements)
-    .innerJoin(ingredients, eq(inventoryMovements.ingredientId, ingredients.id))
+    .leftJoin(ingredients, eq(inventoryMovements.ingredientId, ingredients.id))
     .where(and(...conditions))
     .orderBy(desc(inventoryMovements.createdAt))
     .limit(opts.limit ?? 200);

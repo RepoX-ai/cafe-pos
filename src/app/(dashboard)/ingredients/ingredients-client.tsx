@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
-import { Plus, Pencil, Archive, ArchiveRestore } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +12,14 @@ import { Pagination } from "@/components/ui/pagination";
 import { usePagination } from "@/components/ui/use-pagination";
 import {
   createIngredientAction,
+  deleteIngredientAction,
   setIngredientActiveAction,
   updateIngredientAction,
   type IngredientFormState,
 } from "./actions";
-import { ToastForm } from "@/components/ui/toast-form";
+import { ActionMenu } from "@/components/ui/action-menu";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
+import { formDataOf, useToastAction } from "@/components/ui/use-toast-action";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
@@ -49,9 +52,12 @@ function formatCost(value: string) {
 
 export function IngredientsClient({
   ingredients,
+  recipeUsage,
   canWrite,
 }: {
   ingredients: IngredientRow[];
+  /** Recipe lines each ingredient still appears in, keyed by ingredient id. */
+  recipeUsage: Record<string, number>;
   canWrite: boolean;
 }) {
   const [drawerState, setDrawerState] = useState<{ mode: "create" } | { mode: "edit"; row: IngredientRow } | null>(
@@ -133,29 +139,13 @@ export function IngredientsClient({
                     </Badge>
                   </td>
                   {canWrite ? (
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
-                        <button
-                          onClick={() => setDrawerState({ mode: "edit", row: ing })}
-                          className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
-                          aria-label={`Edit ${ing.name}`}
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <ToastForm
-                          action={setIngredientActiveAction}
-                          successMessage={ing.active ? "Ingredient archived." : "Ingredient restored."}
-                        >
-                          <input type="hidden" name="id" value={ing.id} />
-                          <input type="hidden" name="active" value={(!ing.active).toString()} />
-                          <button
-                            type="submit"
-                            className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
-                            aria-label={ing.active ? `Archive ${ing.name}` : `Restore ${ing.name}`}
-                          >
-                            {ing.active ? <Archive size={15} /> : <ArchiveRestore size={15} />}
-                          </button>
-                        </ToastForm>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end">
+                        <IngredientRowActions
+                          ingredient={ing}
+                          recipeUsage={recipeUsage[ing.id] ?? 0}
+                          onEdit={() => setDrawerState({ mode: "edit", row: ing })}
+                        />
                       </div>
                     </td>
                   ) : null}
@@ -271,7 +261,7 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
             type="number"
             min={0}
             step="any"
-            defaultValue={existing?.reorderLevelBaseUnits ?? ""}
+            defaultValue={existing?.reorderLevelBaseUnits ? Number(existing.reorderLevelBaseUnits) : ""}
             className={inputClassName}
           />
         </Field>
@@ -311,5 +301,82 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
         </Button>
       </div>
     </form>
+  );
+}
+
+/**
+ * Per-row actions live behind the shared "…" menu, the same affordance
+ * every other table in the dashboard uses. The confirm dialog is a sibling
+ * of the menu rather than something the menu renders: menu items are
+ * callbacks, and the menu closes the moment one fires.
+ */
+function IngredientRowActions({
+  ingredient,
+  recipeUsage,
+  onEdit,
+}: {
+  ingredient: IngredientRow;
+  recipeUsage: number;
+  onEdit: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const { run, isPending } = useToastAction();
+
+  return (
+    <>
+      <ActionMenu
+        label={`Actions for ${ingredient.name}`}
+        items={[
+          { label: "Edit details", onSelect: onEdit, disabled: isPending },
+          {
+            label: ingredient.active ? "Archive" : "Restore",
+            onSelect: () =>
+              run(
+                () =>
+                  setIngredientActiveAction(
+                    formDataOf({ id: ingredient.id, active: (!ingredient.active).toString() }),
+                  ),
+                { success: ingredient.active ? "Ingredient archived." : "Ingredient restored." },
+              ),
+            disabled: isPending,
+          },
+          {
+            label: "Delete permanently",
+            onSelect: () => setDeleting(true),
+            tone: "danger",
+            disabled: isPending,
+          },
+        ]}
+      />
+
+      <ConfirmDeleteDialog
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        action={deleteIngredientAction}
+        fields={{ id: ingredient.id }}
+        title={`Delete "${ingredient.name}"?`}
+        successMessage={`"${ingredient.name}" deleted.`}
+        description={
+          <>
+            This removes the ingredient for good. It can&rsquo;t be undone.
+            {recipeUsage > 0 ? (
+              <>
+                {" "}
+                It is used in{" "}
+                <strong className="text-[var(--color-text-primary)]">
+                  {recipeUsage} recipe{recipeUsage === 1 ? "" : "s"}
+                </strong>
+                , and will be dropped from {recipeUsage === 1 ? "it" : "them"} — those items will
+                cost less to make from now on.
+              </>
+            ) : null}
+            <br />
+            <br />
+            Stock and cost history is unaffected: the ledger, past purchases, waste records and the
+            COGS behind every past order all keep their own record of this ingredient.
+          </>
+        }
+      />
+    </>
   );
 }

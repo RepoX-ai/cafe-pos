@@ -35,9 +35,14 @@ export const recipeLines = pgTable("recipe_lines", {
   recipeId: uuid("recipe_id")
     .notNull()
     .references(() => recipes.id, { onDelete: "cascade" }),
+  // Deleting an ingredient drops it out of every recipe that used it (the
+  // owner is warned how many first). Unlike the history tables there is
+  // nothing to preserve here: a recipe is a forward-looking instruction,
+  // and what past orders actually consumed lives in
+  // `order_ingredient_consumption`.
   ingredientId: uuid("ingredient_id")
     .notNull()
-    .references(() => ingredients.id, { onDelete: "restrict" }),
+    .references(() => ingredients.id, { onDelete: "cascade" }),
   quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
   wastePercentage: numeric("waste_percentage", { precision: 5, scale: 2 }).default("0"),
   notes: text("notes"),
@@ -50,7 +55,7 @@ export const modifierRecipeLines = pgTable("modifier_recipe_lines", {
     .references(() => modifierOptions.id, { onDelete: "cascade" }),
   ingredientId: uuid("ingredient_id")
     .notNull()
-    .references(() => ingredients.id, { onDelete: "restrict" }),
+    .references(() => ingredients.id, { onDelete: "cascade" }),
   quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
   wastePercentage: numeric("waste_percentage", { precision: 5, scale: 2 }).default("0"),
 });

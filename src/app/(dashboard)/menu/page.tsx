@@ -3,7 +3,6 @@ import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
 import {
-  getSoldMenuReferences,
   listCategories,
   listMenuItemsWithVariants,
   listModifierGroupsWithOptions,
@@ -18,11 +17,10 @@ export default async function MenuPage() {
   const user = await requirePageAccess("menu:read");
   const canWrite = hasAnyRolePermission(user.roles, "menu:write");
 
-  const [categories, items, modifierGroups, sold] = await Promise.all([
+  const [categories, items, modifierGroups] = await Promise.all([
     listCategories(db, user.businessId),
     listMenuItemsWithVariants(db, user.businessId),
     listModifierGroupsWithOptions(db, user.businessId),
-    getSoldMenuReferences(db, user.businessId),
   ]);
 
   return (
@@ -33,13 +31,7 @@ export default async function MenuPage() {
       </p>
 
       <div className="mt-8">
-        <MenuClient
-          categories={categories}
-          items={items}
-          modifierGroups={modifierGroups}
-          soldItemIds={sold.soldItemIds}
-          canWrite={canWrite}
-        />
+        <MenuClient categories={categories} items={items} modifierGroups={modifierGroups} canWrite={canWrite} />
       </div>
     </div>
   );

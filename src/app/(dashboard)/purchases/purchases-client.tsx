@@ -3,7 +3,8 @@
 import { formatIDR } from "@/lib/money/money";
 import { useState } from "react";
 import Link from "next/link";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Field, Select } from "@/components/ui/form-field";
@@ -431,21 +432,19 @@ function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
                   <td className="px-4 py-3">
                     <Badge tone={s.active ? "success" : "neutral"}>{s.active ? "Active" : "Archived"}</Badge>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      <button
-                        onClick={() => setEditing(s)}
-                        className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
-                      >
-                        <Pencil size={13} />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => toggleActive(s)}
-                        className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                      >
-                        {s.active ? "Archive" : "Restore"}
-                      </button>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end">
+                      <ActionMenu
+                        label={`Actions for ${s.name}`}
+                        items={[
+                          { label: "Edit details", onSelect: () => setEditing(s) },
+                          {
+                            label: s.active ? "Archive" : "Restore",
+                            onSelect: () => toggleActive(s),
+                            tone: s.active ? "danger" : "default",
+                          },
+                        ]}
+                      />
                     </div>
                   </td>
                 </tr>

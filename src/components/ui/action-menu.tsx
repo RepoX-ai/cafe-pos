@@ -34,7 +34,16 @@ const ITEM_HEIGHT = 34;
  * so the items are the focusable things here and the highlight is just
  * `:focus`.
  */
-export function ActionMenu({ items, label = "Actions" }: { items: ActionMenuItem[]; label?: string }) {
+export function ActionMenu({
+  items,
+  label = "Actions",
+  size = "md",
+}: {
+  items: ActionMenuItem[];
+  label?: string;
+  /** "sm" fits the trigger inside compact chips (e.g. modifier option pills). */
+  size?: "sm" | "md";
+}) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [portalRoot, setPortalRoot] = useState<Element | null>(null);
@@ -163,11 +172,11 @@ export function ActionMenu({ items, label = "Actions" }: { items: ActionMenuItem
         aria-controls={open ? menuId : undefined}
         onClick={() => (open ? closeMenu() : openMenu())}
         onKeyDown={handleTriggerKeyDown}
-        className={`inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)] ${
-          open ? "bg-[var(--color-page-bg)] text-[var(--color-text-primary)]" : ""
-        }`}
+        className={`inline-flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-muted)] transition-colors hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)] ${
+          size === "sm" ? "h-5 w-5" : "h-8 w-8"
+        } ${open ? "bg-[var(--color-page-bg)] text-[var(--color-text-primary)]" : ""}`}
       >
-        <MoreVertical size={16} aria-hidden />
+        <MoreVertical size={size === "sm" ? 13 : 16} aria-hidden />
       </button>
 
       {open && portalRoot && position

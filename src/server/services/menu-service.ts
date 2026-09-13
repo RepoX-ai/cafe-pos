@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   ingredients,
@@ -9,9 +9,6 @@ import {
   modifierGroups,
   modifierOptions,
   modifierRecipeLines,
-  orderLineModifiers,
-  orderLines,
-  orders,
   recipeLines,
   recipes,
 } from "@/lib/db/schema";
@@ -498,69 +495,24 @@ export async function setModifierOptionActive(
 // ---------------------------------------------------------------------------
 
 /**
- * Permanent delete is only ever allowed for menu rows that were never sold.
+ * Menu rows can be deleted outright, sold or not — the owner's explicit
+ * call. What makes that safe is that an order never reads the live menu:
+ * every order line carries its own item name, variant name, category name,
+ * unit price, COGS and gross profit as snapshot columns (PRD rule 8), and
+ * `order_lines.menu_item_id` is ON DELETE SET NULL. So a delete drops the
+ * link, never the history — receipts, daily totals, sales-by-item and
+ * sales-by-category all keep reading exactly what they read before.
  *
- * An order keeps its own name/price/COGS snapshots (PRD rule 8), so a
- * delete can never change what an old receipt says. But
- * `order_lines.menu_item_id` is ON DELETE SET NULL and
- * `getSalesByCategory` reaches the category by joining order_lines ->
- * menu_items -> menu_categories, so deleting a *sold* item would silently
- * move its past revenue into "Uncategorized" with no way to get it back.
- * Archive is the answer for anything with sales history; delete is for
- * typos, duplicates, and test rows.
+ * `category_name_snapshot` exists specifically for this: before it,
+ * sales-by-category reached the category by joining through the live
+ * menu_items row, so deleting an item silently moved its past revenue to
+ * "Uncategorized". Don't reintroduce that join (see
+ * `reports-service.getSalesByCategory`), and run
+ * `npm run db:backfill-order-line-categories` on any database whose order
+ * lines predate the column.
  *
- * Each guard below throws a message written for the person who clicked the
- * button — `ToastForm` shows `error.message` verbatim as the failure toast.
- */
-function orderLineCount(n: number) {
-  return n === 1 ? "1 order line" : `${n} order lines`;
-}
-
-async function countSoldOrderLines(db: Database, menuItemId: string, variantIds: string[]) {
-  const byItem = eq(orderLines.menuItemId, menuItemId);
-  const [row] = await db
-    .select({ total: count() })
-    .from(orderLines)
-    .where(
-      variantIds.length > 0 ? or(byItem, inArray(orderLines.menuItemVariantId, variantIds)) : byItem,
-    );
-  return row?.total ?? 0;
-}
-
-async function countSoldModifiers(db: Database, optionIds: string[]) {
-  if (optionIds.length === 0) return 0;
-  const [row] = await db
-    .select({ total: count() })
-    .from(orderLineModifiers)
-    .where(inArray(orderLineModifiers.modifierOptionId, optionIds));
-  return row?.total ?? 0;
-}
-
-/**
- * Ids of the items and variants that appear on at least one order line, so
- * the menu UI can show a Delete button as unavailable before it is clicked
- * rather than only failing on submit.
- */
-export async function getSoldMenuReferences(db: Database, businessId: string) {
-  const rows = await db
-    .selectDistinct({ menuItemId: orderLines.menuItemId, variantId: orderLines.menuItemVariantId })
-    .from(orderLines)
-    .innerJoin(orders, eq(orderLines.orderId, orders.id))
-    .where(eq(orders.businessId, businessId));
-
-  const soldItemIds = new Set<string>();
-  const soldVariantIds = new Set<string>();
-  for (const row of rows) {
-    if (row.menuItemId) soldItemIds.add(row.menuItemId);
-    if (row.variantId) soldVariantIds.add(row.variantId);
-  }
-  return { soldItemIds: [...soldItemIds], soldVariantIds: [...soldVariantIds] };
-}
-
-/**
- * Deletes the item and everything hanging off it — variants, their recipe
- * versions and recipe lines, and its modifier-group assignments — via the
- * schema's ON DELETE CASCADE. Refused once the item has been sold.
+ * The only checks left here are ownership ones — a caller may never touch
+ * another business's rows — not policy ones.
  */
 export async function deleteMenuItem(db: Database, actor: ActorContext, id: string) {
   return db.transaction(async (tx) => {
@@ -571,22 +523,8 @@ export async function deleteMenuItem(db: Database, actor: ActorContext, id: stri
       .limit(1);
     if (!item) throw new Error("Menu item not found");
 
-    const variants = await tx
-      .select({ id: menuItemVariants.id })
-      .from(menuItemVariants)
-      .where(eq(menuItemVariants.menuItemId, id));
-
-    const sold = await countSoldOrderLines(
-      tx,
-      id,
-      variants.map((v) => v.id),
-    );
-    if (sold > 0) {
-      throw new Error(
-        `"${item.name}" appears on ${orderLineCount(sold)} already, so deleting it would distort past sales reports. Archive it instead — it leaves the POS but keeps its sales history.`,
-      );
-    }
-
+    // Cascades to variants, their recipe versions and recipe lines, and the
+    // item's modifier-group assignments.
     await tx
       .delete(menuItems)
       .where(and(eq(menuItems.id, id), eq(menuItems.businessId, actor.businessId)));
@@ -598,17 +536,11 @@ export async function deleteMenuItem(db: Database, actor: ActorContext, id: stri
       entityType: "menu_item",
       entityId: id,
       before: item,
-      metadata: { deletedVariantCount: variants.length },
     });
     return item;
   });
 }
 
-/**
- * Refused for a variant that has been sold, and for an item's last
- * remaining variant — recipes hang off variants (see `createMenuItem`), so
- * an item with none can never be costed or sold again.
- */
 export async function deleteVariant(
   db: Database,
   actor: ActorContext,
@@ -623,27 +555,6 @@ export async function deleteVariant(
       .where(and(eq(menuItemVariants.id, variantId), eq(menuItemVariants.menuItemId, menuItemId)))
       .limit(1);
     if (!variant) throw new Error("Variant not found");
-
-    const [variantTally] = await tx
-      .select({ total: count() })
-      .from(menuItemVariants)
-      .where(eq(menuItemVariants.menuItemId, menuItemId));
-    if ((variantTally?.total ?? 0) <= 1) {
-      throw new Error(
-        "This is the only variant on this item, and every item needs at least one to hold its price and recipe. Add another variant first, or delete the whole item.",
-      );
-    }
-
-    const [soldTally] = await tx
-      .select({ total: count() })
-      .from(orderLines)
-      .where(eq(orderLines.menuItemVariantId, variantId));
-    const sold = soldTally?.total ?? 0;
-    if (sold > 0) {
-      throw new Error(
-        `"${variant.name}" appears on ${orderLineCount(sold)} already, so deleting it would distort past sales reports. Archive it instead.`,
-      );
-    }
 
     await tx.delete(menuItemVariants).where(eq(menuItemVariants.id, variantId));
 
@@ -661,9 +572,9 @@ export async function deleteVariant(
 }
 
 /**
- * Refused while any menu item still points at the category — archived ones
- * included, since those are exactly the rows a category sales report
- * reaches through. Move or delete those items first.
+ * Items in the category are not deleted with it — `menu_items.category_id`
+ * is ON DELETE SET NULL, so they survive as uncategorized. Past orders keep
+ * the category name they were sold under either way.
  */
 export async function deleteCategory(db: Database, actor: ActorContext, id: string) {
   return db.transaction(async (tx) => {
@@ -673,17 +584,6 @@ export async function deleteCategory(db: Database, actor: ActorContext, id: stri
       .where(and(eq(menuCategories.id, id), eq(menuCategories.businessId, actor.businessId)))
       .limit(1);
     if (!category) throw new Error("Category not found");
-
-    const [tally] = await tx
-      .select({ total: count() })
-      .from(menuItems)
-      .where(and(eq(menuItems.categoryId, id), eq(menuItems.businessId, actor.businessId)));
-    const itemCount = tally?.total ?? 0;
-    if (itemCount > 0) {
-      throw new Error(
-        `"${category.name}" still holds ${itemCount} menu item${itemCount === 1 ? "" : "s"} (archived ones included). Move them to another category first, or archive this one.`,
-      );
-    }
 
     await tx
       .delete(menuCategories)
@@ -702,9 +602,9 @@ export async function deleteCategory(db: Database, actor: ActorContext, id: stri
 }
 
 /**
- * Deletes the group, its options, their modifier recipe lines, and its
- * assignments to menu items (all ON DELETE CASCADE). Refused once any of
- * its options has been chosen on an order.
+ * Cascades to the group's options, their modifier recipe lines, and its
+ * assignments to menu items. Past order lines keep their own
+ * `modifier_name_snapshot` and price/COGS adjustments.
  */
 export async function deleteModifierGroup(db: Database, actor: ActorContext, id: string) {
   return db.transaction(async (tx) => {
@@ -714,21 +614,6 @@ export async function deleteModifierGroup(db: Database, actor: ActorContext, id:
       .where(and(eq(modifierGroups.id, id), eq(modifierGroups.businessId, actor.businessId)))
       .limit(1);
     if (!group) throw new Error("Modifier group not found");
-
-    const options = await tx
-      .select({ id: modifierOptions.id })
-      .from(modifierOptions)
-      .where(eq(modifierOptions.modifierGroupId, id));
-
-    const sold = await countSoldModifiers(
-      tx,
-      options.map((o) => o.id),
-    );
-    if (sold > 0) {
-      throw new Error(
-        `Options in "${group.name}" were chosen on ${orderLineCount(sold)} already, so deleting the group would distort past sales reports. Archive it instead.`,
-      );
-    }
 
     await tx
       .delete(modifierGroups)
@@ -741,13 +626,11 @@ export async function deleteModifierGroup(db: Database, actor: ActorContext, id:
       entityType: "modifier_group",
       entityId: id,
       before: group,
-      metadata: { deletedOptionCount: options.length },
     });
     return group;
   });
 }
 
-/** Refused once the option has been chosen on an order. */
 export async function deleteModifierOption(
   db: Database,
   actor: ActorContext,
@@ -762,13 +645,6 @@ export async function deleteModifierOption(
       .where(and(eq(modifierOptions.id, optionId), eq(modifierOptions.modifierGroupId, groupId)))
       .limit(1);
     if (!option) throw new Error("Modifier option not found");
-
-    const sold = await countSoldModifiers(tx, [optionId]);
-    if (sold > 0) {
-      throw new Error(
-        `"${option.name}" was chosen on ${orderLineCount(sold)} already, so deleting it would distort past sales reports. Archive it instead.`,
-      );
-    }
 
     await tx.delete(modifierOptions).where(eq(modifierOptions.id, optionId));
 

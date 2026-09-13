@@ -8,6 +8,7 @@ import { getRequestMeta } from "@/lib/http/request-meta";
 import { ingredientInputSchema } from "@/lib/validation/ingredient";
 import {
   createIngredient,
+  deleteIngredient,
   setIngredientActive,
   updateIngredient,
 } from "@/server/services/ingredient-service";
@@ -81,6 +82,25 @@ export async function setIngredientActiveAction(formData: FormData): Promise<voi
   const meta = await getRequestMeta();
   await setIngredientActive(db, { businessId: user.businessId, userId: user.id, ...meta }, id, active);
   revalidatePath("/ingredients");
+}
+
+/**
+ * Permanent delete, as opposed to the archive toggle above. Stock and cost
+ * history survives via the snapshot columns on the history tables; the
+ * ingredient does drop out of any recipe using it, which the confirm
+ * dialog warns about first.
+ */
+export async function deleteIngredientAction(formData: FormData): Promise<void> {
+  const user = await requireCurrentUser();
+  requirePermission(user.roles, "ingredients:write");
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) throw new Error("Missing ingredient id.");
+
+  const meta = await getRequestMeta();
+  await deleteIngredient(db, { businessId: user.businessId, userId: user.id, ...meta }, id);
+  revalidatePath("/ingredients");
+  revalidatePath("/inventory");
 }
 
 function flattenZodErrors(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {

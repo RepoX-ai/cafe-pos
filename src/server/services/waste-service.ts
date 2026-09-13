@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { ingredients, wasteRecords } from "@/lib/db/schema";
 import { microsToRupiah, multiplyQuantityByRate } from "@/lib/money/money";
@@ -12,8 +12,8 @@ export async function listWasteRecords(db: Database, businessId: string, limit =
     .select({
       id: wasteRecords.id,
       ingredientId: wasteRecords.ingredientId,
-      ingredientName: ingredients.name,
-      baseUnit: ingredients.baseUnit,
+      ingredientName: sql<string>`coalesce(${ingredients.name}, ${wasteRecords.ingredientNameSnapshot}, 'Deleted ingredient')`,
+      baseUnit: sql<"gram" | "millilitre" | "piece">`coalesce(${ingredients.baseUnit}, ${wasteRecords.ingredientBaseUnitSnapshot}, 'gram')`,
       quantityBaseUnits: wasteRecords.quantityBaseUnits,
       reason: wasteRecords.reason,
       estimatedCost: wasteRecords.estimatedCost,
@@ -21,7 +21,7 @@ export async function listWasteRecords(db: Database, businessId: string, limit =
       createdAt: wasteRecords.createdAt,
     })
     .from(wasteRecords)
-    .innerJoin(ingredients, eq(wasteRecords.ingredientId, ingredients.id))
+    .leftJoin(ingredients, eq(wasteRecords.ingredientId, ingredients.id))
     .where(eq(wasteRecords.businessId, businessId))
     .orderBy(desc(wasteRecords.createdAt))
     .limit(limit);
@@ -62,6 +62,8 @@ export async function createWasteRecord(db: Database, actor: ActorContext, input
       .values({
         businessId: actor.businessId,
         ingredientId: input.ingredientId,
+        ingredientNameSnapshot: locked.name,
+        ingredientBaseUnitSnapshot: locked.baseUnit,
         quantityBaseUnits: String(input.quantityBaseUnits),
         reason: input.reason,
         estimatedCost,

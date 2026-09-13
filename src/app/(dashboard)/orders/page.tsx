@@ -2,7 +2,7 @@ import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
-import { listOrders } from "@/server/services/order-service";
+import { listOrders, listOrderItemSummaries } from "@/server/services/order-service";
 import type { BadgeTone } from "@/components/ui/badge";
 import { Select } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
@@ -35,6 +35,7 @@ export default async function OrdersPage({
   const { status, search } = await searchParams;
 
   const orders = await listOrders(db, user.businessId, { status: status || undefined, search: search || undefined });
+  const itemsByOrder = await listOrderItemSummaries(db, orders.map((o) => o.id));
 
   return (
     <div className="mx-auto max-w-[1440px]">
@@ -74,6 +75,7 @@ export default async function OrdersPage({
             placed: formatDate(o.createdAt),
             orderType: o.orderType,
             tableLabel: o.tableLabel ?? "—",
+            items: itemsByOrder.get(o.id) ?? [],
             totalFormatted: formatIDR(o.total),
             status: o.status,
             statusTone: STATUS_TONE[o.status] ?? "neutral",

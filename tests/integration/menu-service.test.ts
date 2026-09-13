@@ -4,9 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
   businesses,
   ingredients,
-  menuCategories,
   menuItems,
   menuItemVariants,
+  orderLines,
   recipeLines,
   recipes,
   users,
@@ -16,15 +16,14 @@ import { getTestDb, seedTestFixture } from "./helpers";
 import {
   createCategory,
   createMenuItem,
-  createVariant,
   createVariantWithRecipe,
   deleteCategory,
   deleteMenuItem,
   deleteVariant,
-  setMenuItemActive,
   updateMenuItem,
 } from "@/server/services/menu-service";
 import { submitOrder } from "@/server/services/order-service";
+import { getSalesByCategory } from "@/server/services/reports-service";
 import type { MenuItemInput } from "@/lib/validation/menu";
 
 const db = getTestDb();
@@ -138,91 +137,123 @@ describe.skipIf(!db)("createVariantWithRecipe (integration)", () => {
   });
 });
 
-describe.skipIf(!db)("permanent deletes are refused for anything already sold (integration)", () => {
-  it("deletes an unsold item along with its variants and recipes", async () => {
+describe.skipIf(!db)("permanent deletes leave order history intact (integration)", () => {
+  it("deletes an item along with its variants and recipes", async () => {
     const { business, user, variant, menuItem } = await seedTestFixture(db!);
     const actor = { businessId: business.id, userId: user.id };
 
     await deleteMenuItem(db!, actor, menuItem.id);
 
-    const items = await db!.select().from(menuItems).where(eq(menuItems.id, menuItem.id));
-    expect(items).toHaveLength(0);
+    expect(await db!.select().from(menuItems).where(eq(menuItems.id, menuItem.id))).toHaveLength(0);
     // ON DELETE CASCADE should have taken the variant and its recipe too.
-    const leftoverVariants = await db!
-      .select()
-      .from(menuItemVariants)
-      .where(eq(menuItemVariants.id, variant.id));
-    expect(leftoverVariants).toHaveLength(0);
-    const leftoverRecipes = await db!
-      .select()
-      .from(recipes)
-      .where(eq(recipes.menuItemVariantId, variant.id));
-    expect(leftoverRecipes).toHaveLength(0);
+    expect(
+      await db!.select().from(menuItemVariants).where(eq(menuItemVariants.id, variant.id)),
+    ).toHaveLength(0);
+    expect(
+      await db!.select().from(recipes).where(eq(recipes.menuItemVariantId, variant.id)),
+    ).toHaveLength(0);
   });
 
-  it("refuses to delete an item that appears on an order, and leaves it intact", async () => {
-    const { business, user, variant, menuItem } = await seedTestFixture(db!);
+  it("deletes a sold item without changing what its past order recorded", async () => {
+    const { business, user, variant, menuItem } = await seedTestFixture(db!, {
+      openingStock: "1000",
+      costPerBaseUnit: "10",
+    });
     const actor = { businessId: business.id, userId: user.id };
+    const category = await createCategory(db!, actor, {
+      name: `Coffee ${randomUUID().slice(0, 8)}`,
+      displayOrder: 0,
+    });
+    await db!.update(menuItems).set({ categoryId: category.id }).where(eq(menuItems.id, menuItem.id));
+
+    const submitted = await submitOrder(db!, actor, {
+      idempotencyKey: `history-${randomUUID()}`,
+      orderType: "dine_in",
+      discountTotal: 0,
+      lines: [{ menuItemId: menuItem.id, menuItemVariantId: variant.id, quantity: 2, modifierOptionIds: [] }],
+    });
+    const [before] = await db!
+      .select()
+      .from(orderLines)
+      .where(eq(orderLines.orderId, submitted.order.id));
+
+    await deleteMenuItem(db!, actor, menuItem.id);
+
+    const [after] = await db!.select().from(orderLines).where(eq(orderLines.id, before.id));
+    // The link is severed, but every number and name the order recorded survives.
+    expect(after.menuItemId).toBeNull();
+    expect(after.menuItemVariantId).toBeNull();
+    expect(after.itemNameSnapshot).toBe(before.itemNameSnapshot);
+    expect(after.variantNameSnapshot).toBe(before.variantNameSnapshot);
+    expect(after.categoryNameSnapshot).toBe(category.name);
+    expect(after.unitPriceSnapshot).toBe(before.unitPriceSnapshot);
+    expect(after.lineTotal).toBe(before.lineTotal);
+    expect(after.cogsSnapshot).toBe(before.cogsSnapshot);
+    expect(after.grossProfitSnapshot).toBe(before.grossProfitSnapshot);
+  });
+
+  it("keeps sales-by-category reporting the deleted item under its original category", async () => {
+    const { business, user, variant, menuItem } = await seedTestFixture(db!, {
+      openingStock: "1000",
+      costPerBaseUnit: "10",
+    });
+    const actor = { businessId: business.id, userId: user.id };
+    const category = await createCategory(db!, actor, {
+      name: `Pastry ${randomUUID().slice(0, 8)}`,
+      displayOrder: 0,
+    });
+    await db!.update(menuItems).set({ categoryId: category.id }).where(eq(menuItems.id, menuItem.id));
+
     await submitOrder(db!, actor, {
-      idempotencyKey: `delete-guard-${randomUUID()}`,
+      idempotencyKey: `category-${randomUUID()}`,
       orderType: "dine_in",
       discountTotal: 0,
       lines: [{ menuItemId: menuItem.id, menuItemVariantId: variant.id, quantity: 1, modifierOptionIds: [] }],
     });
 
-    await expect(deleteMenuItem(db!, actor, menuItem.id)).rejects.toThrow(/Archive it instead/);
+    const range = { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) };
+    const rowFor = async () =>
+      (await getSalesByCategory(db!, business.id, range)).find((r) => r.categoryName === category.name);
 
-    const stillThere = await db!.select().from(menuItems).where(eq(menuItems.id, menuItem.id));
-    expect(stillThere).toHaveLength(1);
+    const before = await rowFor();
+    expect(before?.revenue).toBe(20_000);
+
+    // Delete both the item and the category it belonged to.
+    await deleteMenuItem(db!, actor, menuItem.id);
+    await deleteCategory(db!, actor, category.id);
+
+    const after = await rowFor();
+    expect(after?.revenue).toBe(before?.revenue);
+    expect(after?.quantitySold).toBe(before?.quantitySold);
   });
 
-  it("refuses to delete a sold variant but allows an unsold sibling", async () => {
-    const { business, user, variant, menuItem } = await seedTestFixture(db!);
-    const actor = { businessId: business.id, userId: user.id };
-    const unsold = await createVariant(db!, actor, menuItem.id, {
-      name: "Large",
-      price: 25_000,
-      active: true,
-      displayOrder: 1,
-    });
-    await submitOrder(db!, actor, {
-      idempotencyKey: `variant-guard-${randomUUID()}`,
-      orderType: "dine_in",
-      discountTotal: 0,
-      lines: [{ menuItemId: menuItem.id, menuItemVariantId: variant.id, quantity: 1, modifierOptionIds: [] }],
-    });
-
-    await expect(deleteVariant(db!, actor, menuItem.id, variant.id)).rejects.toThrow(/Archive it instead/);
-
-    await deleteVariant(db!, actor, menuItem.id, unsold.id);
-    const remaining = await db!
-      .select()
-      .from(menuItemVariants)
-      .where(eq(menuItemVariants.menuItemId, menuItem.id));
-    expect(remaining.map((v) => v.id)).toEqual([variant.id]);
-  });
-
-  it("refuses to delete an item's last remaining variant", async () => {
-    const { business, user, variant, menuItem } = await seedTestFixture(db!);
-    const actor = { businessId: business.id, userId: user.id };
-
-    await expect(deleteVariant(db!, actor, menuItem.id, variant.id)).rejects.toThrow(/only variant/);
-  });
-
-  it("refuses to delete a category that still holds an archived item", async () => {
+  it("deletes a category and leaves its items on the menu, uncategorized", async () => {
     const { business, user } = await seedBusinessAndUser(db!);
     const actor = { businessId: business.id, userId: user.id };
-    const category = await createCategory(db!, actor, { name: `Pastry ${randomUUID().slice(0, 8)}`, displayOrder: 0 });
+    const category = await createCategory(db!, actor, {
+      name: `Snack ${randomUUID().slice(0, 8)}`,
+      displayOrder: 0,
+    });
     const item = await createMenuItem(db!, actor, baseInput({ categoryId: category.id }));
-    await setMenuItemActive(db!, actor, item.id, false);
 
-    await expect(deleteCategory(db!, actor, category.id)).rejects.toThrow(/still holds 1 menu item/);
-
-    // Once nothing points at it, the same delete goes through.
-    await deleteMenuItem(db!, actor, item.id);
     await deleteCategory(db!, actor, category.id);
-    const left = await db!.select().from(menuCategories).where(eq(menuCategories.id, category.id));
-    expect(left).toHaveLength(0);
+
+    const [survivor] = await db!.select().from(menuItems).where(eq(menuItems.id, item.id));
+    expect(survivor).toBeDefined();
+    expect(survivor.categoryId).toBeNull();
+  });
+
+  it("deletes a variant, including an item's last one", async () => {
+    const { business, user, variant, menuItem } = await seedTestFixture(db!);
+    const actor = { businessId: business.id, userId: user.id };
+
+    await deleteVariant(db!, actor, menuItem.id, variant.id);
+
+    expect(
+      await db!.select().from(menuItemVariants).where(eq(menuItemVariants.menuItemId, menuItem.id)),
+    ).toHaveLength(0);
+    // The item itself stays put.
+    expect(await db!.select().from(menuItems).where(eq(menuItems.id, menuItem.id))).toHaveLength(1);
   });
 
   it("scopes deletes to the caller's business", async () => {
@@ -234,7 +265,6 @@ describe.skipIf(!db)("permanent deletes are refused for anything already sold (i
       deleteMenuItem(db!, { businessId: other.business.id, userId: other.user.id }, item.id),
     ).rejects.toThrow(/not found/i);
 
-    const stillThere = await db!.select().from(menuItems).where(eq(menuItems.id, item.id));
-    expect(stillThere).toHaveLength(1);
+    expect(await db!.select().from(menuItems).where(eq(menuItems.id, item.id))).toHaveLength(1);
   });
 });

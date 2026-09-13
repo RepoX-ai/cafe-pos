@@ -17,6 +17,8 @@
     "db:seed": "tsx scripts/seed.ts",
     "db:studio": "drizzle-kit studio",
     "db:backfill-default-variants": "tsx scripts/backfill-default-variants.ts",
+    "db:backfill-order-line-categories": "tsx scripts/backfill-order-line-categories.ts",
+    "db:backfill-ingredient-snapshots": "tsx scripts/backfill-ingredient-snapshots.ts",
     "db:seed:matsudon-menu": "tsx scripts/seed-matsudon-menu.ts",
     "db:backfill:matsudon-images": "tsx scripts/backfill-matsudon-images.ts",
     "db:create-owner": "tsx scripts/create-owner.ts"

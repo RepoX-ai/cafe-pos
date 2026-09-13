@@ -29,6 +29,7 @@ interface PreparedLine {
   menuItemVariantId: string | null;
   itemNameSnapshot: string;
   variantNameSnapshot: string | null;
+  categoryNameSnapshot: string | null;
   quantity: number;
   unitPriceSnapshot: number; // variant price + modifier adjustments
   lineTotal: number;
@@ -38,6 +39,8 @@ interface PreparedLine {
   grossProfitSnapshot: number;
   consumption: Array<{
     ingredientId: string;
+    ingredientName: string;
+    baseUnit: "gram" | "millilitre" | "piece";
     quantityBaseUnits: number; // total for this line (per-unit x quantity)
     unitCostSnapshot: string;
     totalCost: number;
@@ -125,6 +128,7 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
       // it never affects inventory/COGS regardless of tracksInventory.
       let itemName: string;
       let variantName: string | null = null;
+      let categoryName: string | null = null;
       let basePrice: number;
       let hasRecipe = false;
 
@@ -138,6 +142,7 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
         }
         itemName = variant.menuItemName;
         variantName = variant.variantName;
+        categoryName = variant.categoryName;
         basePrice = variant.variantPrice;
         hasRecipe = variant.tracksInventory;
       } else {
@@ -149,6 +154,7 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
           throw new OrderValidationError(`"${item.menuItemName}" is not currently available.`);
         }
         itemName = item.menuItemName;
+        categoryName = item.categoryName;
         basePrice = item.basePrice;
       }
 
@@ -185,7 +191,14 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
           const totalQty = d.quantityPerUnit * line.quantity;
           const totalCost = microsToRupiah(multiplyQuantityByRate(totalQty, d.costPerBaseUnit));
           lineCogsPerUnit += microsToRupiah(multiplyQuantityByRate(d.quantityPerUnit, d.costPerBaseUnit));
-          consumption.push({ ingredientId: d.ingredientId, quantityBaseUnits: totalQty, unitCostSnapshot: d.costPerBaseUnit, totalCost });
+          consumption.push({
+            ingredientId: d.ingredientId,
+            ingredientName: d.ingredientName,
+            baseUnit: d.baseUnit,
+            quantityBaseUnits: totalQty,
+            unitCostSnapshot: d.costPerBaseUnit,
+            totalCost,
+          });
 
           const existingDemand = totalDemandByIngredient.get(d.ingredientId);
           if (existingDemand) {
@@ -208,6 +221,7 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
         menuItemVariantId: line.menuItemVariantId ?? null,
         itemNameSnapshot: itemName,
         variantNameSnapshot: variantName,
+        categoryNameSnapshot: categoryName,
         quantity: line.quantity,
         unitPriceSnapshot: unitPrice,
         lineTotal,
@@ -289,6 +303,7 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
           menuItemVariantId: line.menuItemVariantId,
           itemNameSnapshot: line.itemNameSnapshot,
           variantNameSnapshot: line.variantNameSnapshot,
+          categoryNameSnapshot: line.categoryNameSnapshot,
           quantity: line.quantity,
           unitPriceSnapshot: line.unitPriceSnapshot,
           lineTotal: line.lineTotal,
@@ -334,6 +349,8 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
           orderId: order.id,
           orderLineId: orderLine.id,
           ingredientId: c.ingredientId,
+          ingredientNameSnapshot: c.ingredientName,
+          ingredientBaseUnitSnapshot: c.baseUnit,
           quantityBaseUnits: String(c.quantityBaseUnits),
           unitCostSnapshot: c.unitCostSnapshot,
           totalCost: c.totalCost,
@@ -436,6 +453,47 @@ export interface ListOrdersFilters {
   limit?: number;
 }
 
+export interface OrderItemSummary {
+  name: string;
+  quantity: number;
+}
+
+/**
+ * Item names for a list of orders, fetched in one query rather than one
+ * per row. Reads the order-line snapshots, never the current menu, so a
+ * renamed or deleted menu item still lists the way it was sold.
+ */
+export async function listOrderItemSummaries(
+  db: Database,
+  orderIds: string[],
+): Promise<Map<string, OrderItemSummary[]>> {
+  const byOrder = new Map<string, OrderItemSummary[]>();
+  if (orderIds.length === 0) return byOrder;
+
+  const rows = await db
+    .select({
+      orderId: orderLines.orderId,
+      itemName: orderLines.itemNameSnapshot,
+      variantName: orderLines.variantNameSnapshot,
+      quantity: orderLines.quantity,
+    })
+    .from(orderLines)
+    .where(inArray(orderLines.orderId, orderIds))
+    // order_lines has no position column, so sort by name to keep the
+    // summary stable between renders instead of whatever order the
+    // planner returns.
+    .orderBy(orderLines.itemNameSnapshot);
+
+  for (const row of rows) {
+    const name = row.variantName ? `${row.itemName} (${row.variantName})` : row.itemName;
+    const list = byOrder.get(row.orderId);
+    if (list) list.push({ name, quantity: row.quantity });
+    else byOrder.set(row.orderId, [{ name, quantity: row.quantity }]);
+  }
+
+  return byOrder;
+}
+
 export async function listOrders(db: Database, businessId: string, filters: ListOrdersFilters = {}) {
   const conditions = [eq(orders.businessId, businessId)];
   if (filters.status) conditions.push(eq(orders.status, filters.status as (typeof orders.$inferSelect)["status"]));
@@ -486,6 +544,10 @@ export async function cancelOrder(
       .where(eq(orderIngredientConsumption.orderId, orderId));
 
     for (const row of consumptionRows) {
+      // The ingredient may have been deleted since the order was placed.
+      // Its consumption row stays for the audit trail, but there is no
+      // stock left to hand back, so skip the reversal for it.
+      if (!row.ingredientId) continue;
       const locked = await lockIngredientForUpdate(tx, actor.businessId, row.ingredientId);
       const newQuantity = Number(locked.currentQuantityBaseUnits) + Number(row.quantityBaseUnits);
 
@@ -562,6 +624,10 @@ export async function refundOrder(db: Database, actor: ActorContext, orderId: st
       .where(eq(orderIngredientConsumption.orderId, orderId));
 
     for (const row of consumptionRows) {
+      // The ingredient may have been deleted since the order was placed.
+      // Its consumption row stays for the audit trail, but there is no
+      // stock left to hand back, so skip the reversal for it.
+      if (!row.ingredientId) continue;
       const locked = await lockIngredientForUpdate(tx, actor.businessId, row.ingredientId);
       const newQuantity = Number(locked.currentQuantityBaseUnits) + Number(row.quantityBaseUnits);
 

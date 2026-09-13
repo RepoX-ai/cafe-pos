@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, ImageOff, Pencil, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
+import { ImageOff, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
@@ -30,8 +30,9 @@ import {
 } from "./actions";
 import { createMenuItemAction } from "./actions";
 import { ImageField } from "./image-field";
-import { ToastForm } from "@/components/ui/toast-form";
-import { DeleteButton } from "@/components/ui/delete-button";
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
+import { formDataOf, useToastAction } from "@/components/ui/use-toast-action";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 export interface CategoryRow {
@@ -87,20 +88,16 @@ export function MenuClient({
   categories,
   items,
   modifierGroups,
-  soldItemIds,
   canWrite,
 }: {
   categories: CategoryRow[];
   items: MenuItemRow[];
   modifierGroups: ModifierGroupRow[];
-  /** Items that appear on at least one order line, and so can only be archived. */
-  soldItemIds: string[];
   canWrite: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("items");
-  const soldItems = useMemo(() => new Set(soldItemIds), [soldItemIds]);
-  // Archived items still count: a category sales report reaches the
-  // category through them, so the category can't go while they exist.
+  // Deleting a category leaves its items behind as uncategorized, so the
+  // confirm dialog says how many that will be.
   const itemsPerCategory = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of items) {
@@ -134,7 +131,7 @@ export function MenuClient({
       </div>
 
       {tab === "items" ? (
-        <ItemsTab items={items} categories={categories} soldItems={soldItems} canWrite={canWrite} />
+        <ItemsTab items={items} categories={categories} canWrite={canWrite} />
       ) : null}
       {tab === "categories" ? (
         <CategoriesTab categories={categories} itemsPerCategory={itemsPerCategory} canWrite={canWrite} />
@@ -151,12 +148,10 @@ export function MenuClient({
 function ItemsTab({
   items,
   categories,
-  soldItems,
   canWrite,
 }: {
   items: MenuItemRow[];
   categories: CategoryRow[];
-  soldItems: Set<string>;
   canWrite: boolean;
 }) {
   const router = useRouter();
@@ -300,53 +295,9 @@ function ItemsTab({
                     <td className="px-4 py-3">
                       <Badge tone={item.active ? "success" : "neutral"}>{item.active ? "Active" : "Archived"}</Badge>
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <Link
-                          href={`/menu/${item.id}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
-                        >
-                          <Pencil size={13} />
-                          {canWrite ? "Edit" : "View"}
-                        </Link>
-                        {canWrite ? (
-                          <ToastForm
-                            action={setMenuItemActiveAction}
-                            successMessage={item.active ? "Item archived." : "Item restored."}
-                          >
-                            <input type="hidden" name="id" value={item.id} />
-                            <input type="hidden" name="active" value={(!item.active).toString()} />
-                            <button
-                              type="submit"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                            >
-                              {item.active ? "Archive" : "Restore"}
-                            </button>
-                          </ToastForm>
-                        ) : null}
-                        {canWrite ? (
-                          <DeleteButton
-                            action={deleteMenuItemAction}
-                            fields={{ id: item.id }}
-                            disabled={soldItems.has(item.id)}
-                            disabledReason={`"${item.name}" has already been sold — archive it instead so its sales history stays intact.`}
-                            title={`Delete "${item.name}"?`}
-                            successMessage={`"${item.name}" deleted.`}
-                            description={
-                              <>
-                                This removes the item, its variants, and their recipes for good. It
-                                can&rsquo;t be undone.
-                                <br />
-                                <br />
-                                Only items that have never been sold can be deleted — anything with
-                                order history has to be archived instead, so sales reports stay
-                                accurate.
-                              </>
-                            }
-                          />
-                        ) : null}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+                        <MenuItemRowActions item={item} canWrite={canWrite} />
                       </div>
                     </td>
                   </tr>
@@ -496,32 +447,8 @@ function CategoriesTab({
                   </td>
                   {canWrite ? (
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-3">
-                        <ToastForm action={setCategoryActiveAction} successMessage={c.active ? "Category archived." : "Category restored."}>
-                          <input type="hidden" name="id" value={c.id} />
-                          <input type="hidden" name="active" value={(!c.active).toString()} />
-                          <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
-                            {c.active ? "Archive" : "Restore"}
-                          </button>
-                        </ToastForm>
-                        <DeleteButton
-                          action={deleteCategoryAction}
-                          fields={{ id: c.id }}
-                          disabled={(itemsPerCategory.get(c.id) ?? 0) > 0}
-                          disabledReason={`${itemsPerCategory.get(c.id) ?? 0} menu item(s) still sit in "${c.name}" — move them elsewhere first.`}
-                          title={`Delete "${c.name}"?`}
-                          successMessage={`"${c.name}" deleted.`}
-                          description={
-                            <>
-                              This removes the category for good. It can&rsquo;t be undone.
-                              <br />
-                              <br />
-                              Only an empty category can be deleted — move its items somewhere else
-                              first, including archived ones, so past sales stay attributed to the
-                              right category.
-                            </>
-                          }
-                        />
+                      <div className="flex items-center justify-end">
+                        <CategoryRowActions category={c} itemCount={itemsPerCategory.get(c.id) ?? 0} />
                       </div>
                     </td>
                   ) : null}
@@ -610,41 +537,7 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
                 </span>
               </div>
               {canWrite ? (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setAddingOptionTo(group.id)}
-                    className="text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
-                  >
-                    Add option
-                  </button>
-                  <ToastForm
-                    action={setModifierGroupActiveAction}
-                    successMessage={group.active ? "Modifier group archived." : "Modifier group restored."}
-                  >
-                    <input type="hidden" name="id" value={group.id} />
-                    <input type="hidden" name="active" value={(!group.active).toString()} />
-                    <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
-                      {group.active ? "Archive" : "Restore"}
-                    </button>
-                  </ToastForm>
-                  <DeleteButton
-                    action={deleteModifierGroupAction}
-                    fields={{ id: group.id }}
-                    title={`Delete "${group.name}"?`}
-                    successMessage={`"${group.name}" deleted.`}
-                    description={
-                      <>
-                        This removes the group, all of its options, and their ingredient lines for
-                        good, and detaches it from every menu item using it. It can&rsquo;t be
-                        undone.
-                        <br />
-                        <br />
-                        If any of its options has ever been chosen on an order, the delete is
-                        refused — archive the group instead.
-                      </>
-                    }
-                  />
-                </div>
+                <ModifierGroupActions group={group} onAddOption={() => setAddingOptionTo(group.id)} />
               ) : null}
             </div>
             <div className="flex flex-wrap gap-2 px-4 py-3">
@@ -666,43 +559,7 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
                       </span>
                     ) : null}
                     {canWrite ? (
-                      <>
-                        <ToastForm
-                          action={setModifierOptionActiveAction}
-                          successMessage={opt.active ? "Option archived." : "Option restored."}
-                        >
-                          <input type="hidden" name="groupId" value={group.id} />
-                          <input type="hidden" name="optionId" value={opt.id} />
-                          <input type="hidden" name="active" value={(!opt.active).toString()} />
-                          <button
-                            type="submit"
-                            title={opt.active ? `Archive "${opt.name}"` : `Restore "${opt.name}"`}
-                            aria-label={opt.active ? `Archive ${opt.name}` : `Restore ${opt.name}`}
-                            className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                          >
-                            {opt.active ? <Archive size={12} /> : <RotateCcw size={12} />}
-                          </button>
-                        </ToastForm>
-                        <DeleteButton
-                          action={deleteModifierOptionAction}
-                          fields={{ groupId: group.id, optionId: opt.id }}
-                          className="text-[var(--color-text-muted)] hover:text-[var(--color-danger)]"
-                          title={`Delete "${opt.name}"?`}
-                          successMessage={`"${opt.name}" deleted.`}
-                          description={
-                            <>
-                              This removes the option and its ingredient lines for good. It
-                              can&rsquo;t be undone.
-                              <br />
-                              <br />
-                              If it has ever been chosen on an order, the delete is refused —
-                              archive it instead.
-                            </>
-                          }
-                        >
-                          <Trash2 size={12} />
-                        </DeleteButton>
-                      </>
+                      <ModifierOptionActions groupId={group.id} option={opt} />
                     ) : null}
                   </span>
                 ))
@@ -802,5 +659,210 @@ function ModifierOptionForm({ groupId, onDone }: { groupId: string; onDone: () =
         </Button>
       </div>
     </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Row actions
+// ---------------------------------------------------------------------------
+//
+// Every per-row action across the dashboard goes behind the same "…" menu
+// (`ActionMenu`), so a row's affordance never depends on which table it is
+// in. Each of these owns its own confirm-dialog state, because a menu item
+// is a callback and the menu closes as soon as one fires.
+
+function MenuItemRowActions({ item, canWrite }: { item: MenuItemRow; canWrite: boolean }) {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+  const { run, isPending } = useToastAction();
+
+  const items: ActionMenuItem[] = [
+    { label: canWrite ? "Edit item" : "View item", onSelect: () => router.push(`/menu/${item.id}`) },
+  ];
+  if (canWrite) {
+    items.push(
+      {
+        label: item.active ? "Archive" : "Restore",
+        onSelect: () =>
+          run(
+            () => setMenuItemActiveAction(formDataOf({ id: item.id, active: (!item.active).toString() })),
+            { success: item.active ? "Item archived." : "Item restored." },
+          ),
+        disabled: isPending,
+      },
+      { label: "Delete permanently", onSelect: () => setDeleting(true), tone: "danger", disabled: isPending },
+    );
+  }
+
+  return (
+    <>
+      <ActionMenu label={`Actions for ${item.name}`} items={items} />
+      <ConfirmDeleteDialog
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        action={deleteMenuItemAction}
+        fields={{ id: item.id }}
+        title={`Delete "${item.name}"?`}
+        successMessage={`"${item.name}" deleted.`}
+        description={
+          <>
+            This removes the item, its variants, and their recipes for good. It can&rsquo;t be
+            undone.
+            <br />
+            <br />
+            Past orders are unaffected — they keep their own record of what was sold, so receipts
+            and every sales report stay exactly as they are.
+          </>
+        }
+      />
+    </>
+  );
+}
+
+function CategoryRowActions({ category, itemCount }: { category: CategoryRow; itemCount: number }) {
+  const [deleting, setDeleting] = useState(false);
+  const { run, isPending } = useToastAction();
+
+  return (
+    <>
+      <ActionMenu
+        label={`Actions for ${category.name}`}
+        items={[
+          {
+            label: category.active ? "Archive" : "Restore",
+            onSelect: () =>
+              run(
+                () =>
+                  setCategoryActiveAction(
+                    formDataOf({ id: category.id, active: (!category.active).toString() }),
+                  ),
+                { success: category.active ? "Category archived." : "Category restored." },
+              ),
+            disabled: isPending,
+          },
+          { label: "Delete permanently", onSelect: () => setDeleting(true), tone: "danger", disabled: isPending },
+        ]}
+      />
+      <ConfirmDeleteDialog
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        action={deleteCategoryAction}
+        fields={{ id: category.id }}
+        title={`Delete "${category.name}"?`}
+        successMessage={`"${category.name}" deleted.`}
+        description={
+          <>
+            This removes the category for good. It can&rsquo;t be undone.
+            {itemCount > 0 ? (
+              <>
+                {" "}
+                Its {itemCount} menu item{itemCount === 1 ? "" : "s"} stay on the menu and become
+                uncategorized.
+              </>
+            ) : null}
+            <br />
+            <br />
+            Past orders are unaffected — they keep the category they were sold under, so sales
+            reports stay exactly as they are.
+          </>
+        }
+      />
+    </>
+  );
+}
+
+function ModifierGroupActions({
+  group,
+  onAddOption,
+}: {
+  group: ModifierGroupRow;
+  onAddOption: () => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const { run, isPending } = useToastAction();
+
+  return (
+    <>
+      <ActionMenu
+        label={`Actions for ${group.name}`}
+        items={[
+          { label: "Add option", onSelect: onAddOption, disabled: isPending },
+          {
+            label: group.active ? "Archive" : "Restore",
+            onSelect: () =>
+              run(
+                () => setModifierGroupActiveAction(formDataOf({ id: group.id, active: (!group.active).toString() })),
+                { success: group.active ? "Modifier group archived." : "Modifier group restored." },
+              ),
+            disabled: isPending,
+          },
+          { label: "Delete permanently", onSelect: () => setDeleting(true), tone: "danger", disabled: isPending },
+        ]}
+      />
+      <ConfirmDeleteDialog
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        action={deleteModifierGroupAction}
+        fields={{ id: group.id }}
+        title={`Delete "${group.name}"?`}
+        successMessage={`"${group.name}" deleted.`}
+        description={
+          <>
+            This removes the group, all of its options, and their ingredient lines for good, and
+            detaches it from every menu item using it. It can&rsquo;t be undone.
+            <br />
+            <br />
+            Past orders are unaffected — they keep their own record of which modifiers were chosen
+            and what they cost.
+          </>
+        }
+      />
+    </>
+  );
+}
+
+function ModifierOptionActions({ groupId, option }: { groupId: string; option: ModifierOptionRow }) {
+  const [deleting, setDeleting] = useState(false);
+  const { run, isPending } = useToastAction();
+
+  return (
+    <>
+      <ActionMenu
+        size="sm"
+        label={`Actions for ${option.name}`}
+        items={[
+          {
+            label: option.active ? "Archive" : "Restore",
+            onSelect: () =>
+              run(
+                () =>
+                  setModifierOptionActiveAction(
+                    formDataOf({ groupId, optionId: option.id, active: (!option.active).toString() }),
+                  ),
+                { success: option.active ? "Option archived." : "Option restored." },
+              ),
+            disabled: isPending,
+          },
+          { label: "Delete permanently", onSelect: () => setDeleting(true), tone: "danger", disabled: isPending },
+        ]}
+      />
+      <ConfirmDeleteDialog
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        action={deleteModifierOptionAction}
+        fields={{ groupId, optionId: option.id }}
+        title={`Delete "${option.name}"?`}
+        successMessage={`"${option.name}" deleted.`}
+        description={
+          <>
+            This removes the option and its ingredient lines for good. It can&rsquo;t be undone.
+            <br />
+            <br />
+            Past orders are unaffected — they keep their own record of the modifiers chosen and what
+            they cost.
+          </>
+        }
+      />
+    </>
   );
 }

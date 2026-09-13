@@ -3,7 +3,7 @@
 import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState } from "react";
 import { useActionState } from "react";
-import { CalendarDays, Layers, Pencil, Plus, Receipt, Repeat, Wallet } from "lucide-react";
+import { CalendarDays, Layers, Plus, Receipt, Repeat, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateRangeForm } from "@/components/ui/date-range-form";
 import { StatCard, computeTrend } from "@/components/ui/stat-card";
@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import { DatePicker } from "@/components/ui/date-picker";
+import { ActionMenu } from "@/components/ui/action-menu";
 import { Pagination } from "@/components/ui/pagination";
 import { usePagination } from "@/components/ui/use-pagination";
 import { EXPENSE_CATEGORIES } from "@/lib/validation/expense";
@@ -222,14 +223,15 @@ export function ExpensesClient({
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{CATEGORY_LABEL[r.category] ?? r.category}</td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.payee ?? "—"}</td>
                     <td className="px-4 py-3 text-right tabular-nums">{formatIDR(r.amount)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => setDrawerState({ mode: "edit", row: r })}
-                        className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
-                        aria-label={`Edit expense on ${r.expenseDate}`}
-                      >
-                        <Pencil size={15} />
-                      </button>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end">
+                        <ActionMenu
+                          label={`Actions for the expense on ${r.expenseDate}`}
+                          items={[
+                            { label: "Edit details", onSelect: () => setDrawerState({ mode: "edit", row: r }) },
+                          ]}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))

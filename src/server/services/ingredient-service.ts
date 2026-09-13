@@ -1,6 +1,15 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
-import { ingredients } from "@/lib/db/schema";
+import {
+  ingredients,
+  menuItems,
+  menuItemVariants,
+  modifierGroups,
+  modifierOptions,
+  modifierRecipeLines,
+  recipeLines,
+  recipes,
+} from "@/lib/db/schema";
 import type { IngredientInput } from "@/lib/validation/ingredient";
 import { recordAuditLog } from "./audit";
 
@@ -150,4 +159,105 @@ export async function setIngredientActive(
   });
 
   return row;
+}
+
+/**
+ * Counts the recipes an ingredient is still part of, so the confirm dialog
+ * can say how many menu items get cheaper to make before anyone commits.
+ */
+export async function countRecipeUsage(db: Database, businessId: string, id: string) {
+  const [itemRecipes] = await db
+    .select({ total: count() })
+    .from(recipeLines)
+    .innerJoin(recipes, eq(recipeLines.recipeId, recipes.id))
+    .innerJoin(menuItemVariants, eq(recipes.menuItemVariantId, menuItemVariants.id))
+    .innerJoin(menuItems, eq(menuItemVariants.menuItemId, menuItems.id))
+    .where(and(eq(recipeLines.ingredientId, id), eq(menuItems.businessId, businessId)));
+
+  const [modifierRecipes] = await db
+    .select({ total: count() })
+    .from(modifierRecipeLines)
+    .innerJoin(modifierOptions, eq(modifierRecipeLines.modifierOptionId, modifierOptions.id))
+    .innerJoin(modifierGroups, eq(modifierOptions.modifierGroupId, modifierGroups.id))
+    .where(and(eq(modifierRecipeLines.ingredientId, id), eq(modifierGroups.businessId, businessId)));
+
+  return { recipeLines: itemRecipes?.total ?? 0, modifierLines: modifierRecipes?.total ?? 0 };
+}
+
+/**
+ * Deletes the ingredient outright — the owner's call, not gated on whether
+ * it has been used.
+ *
+ * Stock and cost history survives: `inventory_movements`,
+ * `order_ingredient_consumption`, `purchase_lines`, `waste_records` and
+ * `stock_count_lines` each keep their own `ingredient_name_snapshot` and
+ * unit, and their FK is ON DELETE SET NULL — so the ledger, the COGS audit
+ * trail and past purchase/waste records all still read correctly, and no
+ * order's totals move (order COGS is its own integer column).
+ *
+ * What does change going forward: the ingredient drops out of every recipe
+ * that used it (ON DELETE CASCADE on `recipe_lines` /
+ * `modifier_recipe_lines`), so those menu items cost that much less to make
+ * from now on. `countRecipeUsage` is what the UI warns with beforehand.
+ */
+export async function deleteIngredient(db: Database, actor: ActorContext, id: string) {
+  return db.transaction(async (tx) => {
+    const [ingredient] = await tx
+      .select()
+      .from(ingredients)
+      .where(and(eq(ingredients.id, id), eq(ingredients.businessId, actor.businessId)))
+      .limit(1);
+    if (!ingredient) throw new Error("Ingredient not found");
+
+    const usage = await countRecipeUsage(tx, actor.businessId, id);
+
+    await tx
+      .delete(ingredients)
+      .where(and(eq(ingredients.id, id), eq(ingredients.businessId, actor.businessId)));
+
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "ingredient.deleted",
+      entityType: "ingredient",
+      entityId: id,
+      before: ingredient,
+      metadata: { removedFromRecipeLines: usage.recipeLines, removedFromModifierLines: usage.modifierLines },
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+
+    return ingredient;
+  });
+}
+
+/**
+ * How many recipe lines each ingredient still appears in, across item
+ * recipes and modifier recipes, keyed by ingredient id. The ingredients
+ * list uses it to warn — before the delete, not after — how many recipes
+ * the ingredient is about to drop out of.
+ */
+export async function getRecipeUsageByIngredient(db: Database, businessId: string) {
+  const itemRows = await db
+    .select({ ingredientId: recipeLines.ingredientId, total: count() })
+    .from(recipeLines)
+    .innerJoin(recipes, eq(recipeLines.recipeId, recipes.id))
+    .innerJoin(menuItemVariants, eq(recipes.menuItemVariantId, menuItemVariants.id))
+    .innerJoin(menuItems, eq(menuItemVariants.menuItemId, menuItems.id))
+    .where(eq(menuItems.businessId, businessId))
+    .groupBy(recipeLines.ingredientId);
+
+  const modifierRows = await db
+    .select({ ingredientId: modifierRecipeLines.ingredientId, total: count() })
+    .from(modifierRecipeLines)
+    .innerJoin(modifierOptions, eq(modifierRecipeLines.modifierOptionId, modifierOptions.id))
+    .innerJoin(modifierGroups, eq(modifierOptions.modifierGroupId, modifierGroups.id))
+    .where(eq(modifierGroups.businessId, businessId))
+    .groupBy(modifierRecipeLines.ingredientId);
+
+  const usage: Record<string, number> = {};
+  for (const row of [...itemRows, ...modifierRows]) {
+    usage[row.ingredientId] = (usage[row.ingredientId] ?? 0) + row.total;
+  }
+  return usage;
 }

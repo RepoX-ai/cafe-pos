@@ -27,7 +27,8 @@ interface IngredientRow {
 
 interface MovementRow {
   id: string;
-  ingredientId: string;
+  /** Null once the ingredient has been deleted; the name below is then the snapshot. */
+  ingredientId: string | null;
   ingredientName: string;
   baseUnit: BaseUnit;
   movementType: string;

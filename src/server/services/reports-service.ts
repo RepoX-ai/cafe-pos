@@ -3,8 +3,6 @@ import type { Database } from "@/lib/db/client";
 import {
   expenses,
   inventoryMovements,
-  menuCategories,
-  menuItems,
   orderLines,
   orders,
   printJobs,
@@ -127,16 +125,14 @@ export async function getSalesByMenuItem(db: Database, businessId: string, range
 export async function getSalesByCategory(db: Database, businessId: string, range: DateRange) {
   return db
     .select({
-      categoryName: sql<string>`coalesce(${menuCategories.name}, 'Uncategorized')`,
+      categoryName: sql<string>`coalesce(${orderLines.categoryNameSnapshot}, 'Uncategorized')`,
       revenue: sql<number>`coalesce(sum(${orderLines.lineTotal}), 0)::int`,
       quantitySold: sql<number>`coalesce(sum(${orderLines.quantity}), 0)::int`,
     })
     .from(orderLines)
     .innerJoin(orders, eq(orderLines.orderId, orders.id))
-    .leftJoin(menuItems, eq(orderLines.menuItemId, menuItems.id))
-    .leftJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
     .where(and(orderDateFilter(businessId, range), inArray(orders.status, ACTIVE_ORDER_STATUSES)))
-    .groupBy(menuCategories.name)
+    .groupBy(orderLines.categoryNameSnapshot)
     .orderBy(desc(sql`2`));
 }
 

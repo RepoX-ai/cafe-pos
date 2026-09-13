@@ -24,7 +24,11 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   const currentUser = isDev ? await getCurrentUser() : null;
 
   return (
-    <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
+    // suppressHydrationWarning: next-themes' inline script writes the theme
+    // class and `color-scheme` onto <html> before React hydrates, so React
+    // always sees a mismatch on this element. It only suppresses this one
+    // element's own attributes, not anything nested.
+    <html lang="en" className={`${geistSans.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
         <ToastProvider>
           {children}

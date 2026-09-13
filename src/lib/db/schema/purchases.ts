@@ -9,7 +9,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { businesses, locations } from "./core";
-import { purchaseStatusEnum } from "./enums";
+import { baseUnitEnum, purchaseStatusEnum } from "./enums";
 import { ingredients } from "./ingredients";
 import { suppliers } from "./suppliers";
 import { users } from "./auth";
@@ -38,9 +38,11 @@ export const purchaseLines = pgTable("purchase_lines", {
   purchaseId: uuid("purchase_id")
     .notNull()
     .references(() => purchases.id, { onDelete: "cascade" }),
-  ingredientId: uuid("ingredient_id")
-    .notNull()
-    .references(() => ingredients.id, { onDelete: "restrict" }),
+  ingredientId: uuid("ingredient_id").references(() => ingredients.id, {
+    onDelete: "set null",
+  }),
+  ingredientNameSnapshot: text("ingredient_name_snapshot"),
+  ingredientBaseUnitSnapshot: baseUnitEnum("ingredient_base_unit_snapshot"),
   // As entered by staff, in whatever unit the supplier sells in.
   quantityPurchased: numeric("quantity_purchased", { precision: 16, scale: 4 }).notNull(),
   purchaseUnit: text("purchase_unit").notNull(), // e.g. "kg", "litre", "box"

@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
-import { listOrders } from "@/server/services/order-service";
+import { listOrders, listOrderItemSummaries } from "@/server/services/order-service";
 import type { BadgeTone } from "@/components/ui/badge";
 import { Select } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
@@ -49,6 +49,7 @@ export default async function PosOrderHistoryPage({
   const { status, search } = await searchParams;
 
   const orders = await listOrders(db, user.businessId, { status: status || undefined, search: search || undefined });
+  const itemsByOrder = await listOrderItemSummaries(db, orders.map((o) => o.id));
 
   return (
     <div className="force-light-theme min-h-screen bg-[var(--color-page-bg)] px-6 py-6">
@@ -93,6 +94,7 @@ export default async function PosOrderHistoryPage({
               placed: formatDate(o.createdAt),
               orderType: o.orderType,
               tableLabel: o.tableLabel ?? "—",
+              items: itemsByOrder.get(o.id) ?? [],
               totalFormatted: formatIDR(o.total),
               status: o.status,
               statusTone: STATUS_TONE[o.status] ?? "neutral",

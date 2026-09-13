@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   ingredients,
+  menuCategories,
   menuItemModifierGroups,
   menuItemVariants,
   menuItems,
@@ -114,8 +115,10 @@ export async function getMenuItemForOrder(db: Database, businessId: string, menu
       menuItemName: menuItems.name,
       menuItemActive: menuItems.active,
       basePrice: menuItems.basePrice,
+      categoryName: menuCategories.name,
     })
     .from(menuItems)
+    .leftJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
     .where(and(eq(menuItems.id, menuItemId), eq(menuItems.businessId, businessId)))
     .limit(1);
   return row ?? null;
@@ -133,9 +136,11 @@ export async function getVariantWithItem(db: Database, businessId: string, varia
       menuItemName: menuItems.name,
       menuItemActive: menuItems.active,
       tracksInventory: menuItems.tracksInventory,
+      categoryName: menuCategories.name,
     })
     .from(menuItemVariants)
     .innerJoin(menuItems, eq(menuItemVariants.menuItemId, menuItems.id))
+    .leftJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
     .where(and(eq(menuItemVariants.id, variantId), eq(menuItems.businessId, businessId)))
     .limit(1);
   return row ?? null;

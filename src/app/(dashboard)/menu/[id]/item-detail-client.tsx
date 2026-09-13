@@ -5,7 +5,7 @@ import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChefHat, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
@@ -17,6 +17,7 @@ import {
   deleteMenuItemAction,
   deleteVariantAction,
   setItemModifierGroupsAction,
+  setMenuItemActiveAction,
   setVariantActiveAction,
   updateMenuItemAction,
   updateVariantAction,
@@ -24,8 +25,9 @@ import {
 } from "../actions";
 import { ImageField } from "../image-field";
 import { newRecipeLineKey, RecipeLinesTable, type IngredientOption, type RecipeLineDraft } from "../recipe-lines-table";
-import { ToastForm } from "@/components/ui/toast-form";
-import { DeleteButton } from "@/components/ui/delete-button";
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
+import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
+import { formDataOf, useToastAction } from "@/components/ui/use-toast-action";
 import { useToast } from "@/components/ui/toast";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
 import { unstable_rethrow } from "next/navigation";
@@ -68,8 +70,6 @@ export function ItemDetailClient({
   categories,
   modifierGroups,
   ingredients,
-  soldVariantIds,
-  itemHasBeenSold,
   canWrite,
   canWriteRecipe,
 }: {
@@ -79,16 +79,11 @@ export function ItemDetailClient({
   categories: Category[];
   modifierGroups: ModifierGroup[];
   ingredients: IngredientOption[];
-  /** Variants that appear on at least one order line, and so can only be archived. */
-  soldVariantIds: string[];
-  itemHasBeenSold: boolean;
   canWrite: boolean;
   canWriteRecipe: boolean;
 }) {
-  const router = useRouter();
   const [addingVariant, setAddingVariant] = useState(false);
   const [editingVariant, setEditingVariant] = useState<Variant | null>(null);
-  const soldVariants = new Set(soldVariantIds);
 
   return (
     <div className="flex flex-col gap-8">
@@ -101,30 +96,9 @@ export function ItemDetailClient({
           <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{item.name}</h1>
           <Badge tone={item.active ? "success" : "neutral"}>{item.active ? "Active" : "Archived"}</Badge>
           {canWrite ? (
-            <DeleteButton
-              action={deleteMenuItemAction}
-              fields={{ id: item.id }}
-              disabled={itemHasBeenSold}
-              disabledReason={`"${item.name}" has already been sold — archive it instead so its sales history stays intact.`}
-              title={`Delete "${item.name}"?`}
-              successMessage={`"${item.name}" deleted.`}
-              onDeleted={() => router.push("/menu")}
-              className="ml-auto inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-danger)] disabled:cursor-not-allowed disabled:text-[var(--color-text-muted)] disabled:hover:text-[var(--color-text-muted)]"
-              description={
-                <>
-                  This removes the item, its {variants.length} variant
-                  {variants.length === 1 ? "" : "s"}, and their recipes for good. It can&rsquo;t be
-                  undone.
-                  <br />
-                  <br />
-                  Only items that have never been sold can be deleted — anything with order history
-                  has to be archived instead, so sales reports stay accurate.
-                </>
-              }
-            >
-              <Trash2 size={14} />
-              Delete item
-            </DeleteButton>
+            <div className="ml-auto">
+              <ItemHeaderActions item={item} variantCount={variants.length} />
+            </div>
           ) : null}
         </div>
       </div>
@@ -158,61 +132,14 @@ export function ItemDetailClient({
                   <span className="tabular-nums text-sm text-[var(--color-text-secondary)]">{formatIDR(v.price)}</span>
                   <Badge tone={v.active ? "success" : "neutral"}>{v.active ? "Active" : "Archived"}</Badge>
                 </div>
-                <div className="flex items-center gap-3">
-                  <Link
-                    href={`/menu/${item.id}/recipe?variant=${v.id}`}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
-                  >
-                    <ChefHat size={14} />
-                    Recipe
-                  </Link>
-                  {canWrite ? (
-                    <button
-                      type="button"
-                      onClick={() => setEditingVariant(v)}
-                      className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      <Pencil size={14} />
-                      Edit
-                    </button>
-                  ) : null}
-                  {canWrite ? (
-                    <ToastForm
-                      action={setVariantActiveAction}
-                      successMessage={v.active ? "Variant archived." : "Variant restored."}
-                    >
-                      <input type="hidden" name="menuItemId" value={item.id} />
-                      <input type="hidden" name="variantId" value={v.id} />
-                      <input type="hidden" name="active" value={(!v.active).toString()} />
-                      <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
-                        {v.active ? "Archive" : "Restore"}
-                      </button>
-                    </ToastForm>
-                  ) : null}
-                  {canWrite ? (
-                    <DeleteButton
-                      action={deleteVariantAction}
-                      fields={{ menuItemId: item.id, variantId: v.id }}
-                      disabled={soldVariants.has(v.id) || variants.length <= 1}
-                      disabledReason={
-                        soldVariants.has(v.id)
-                          ? `"${v.name}" has already been sold — archive it instead.`
-                          : "An item needs at least one variant to hold its price and recipe."
-                      }
-                      title={`Delete "${v.name}"?`}
-                      successMessage={`"${v.name}" deleted.`}
-                      description={
-                        <>
-                          This removes the variant and its recipe for good. It can&rsquo;t be
-                          undone.
-                          <br />
-                          <br />
-                          Only variants that have never been sold can be deleted — anything with
-                          order history has to be archived instead.
-                        </>
-                      }
-                    />
-                  ) : null}
+                <div className="flex items-center justify-end">
+                  <VariantRowActions
+                    menuItemId={item.id}
+                    variant={v}
+                    variantCount={variants.length}
+                    canWrite={canWrite}
+                    onEdit={() => setEditingVariant(v)}
+                  />
                 </div>
               </div>
             ))}
@@ -572,5 +499,136 @@ function ModifierGroupAssignment({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Per-variant actions behind the shared "…" menu, matching every other row
+ * in the dashboard. Recipe lives in here too rather than as a separate
+ * link, so a row's actions are always in one predictable place.
+ */
+function VariantRowActions({
+  menuItemId,
+  variant,
+  variantCount,
+  canWrite,
+  onEdit,
+}: {
+  menuItemId: string;
+  variant: Variant;
+  variantCount: number;
+  canWrite: boolean;
+  onEdit: () => void;
+}) {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+  const { run, isPending } = useToastAction();
+
+  const items: ActionMenuItem[] = [
+    {
+      label: "Recipe",
+      onSelect: () => router.push(`/menu/${menuItemId}/recipe?variant=${variant.id}`),
+    },
+  ];
+  if (canWrite) {
+    items.push(
+      { label: "Edit variant", onSelect: onEdit, disabled: isPending },
+      {
+        label: variant.active ? "Archive" : "Restore",
+        onSelect: () =>
+          run(
+            () =>
+              setVariantActiveAction(
+                formDataOf({
+                  menuItemId,
+                  variantId: variant.id,
+                  active: (!variant.active).toString(),
+                }),
+              ),
+            { success: variant.active ? "Variant archived." : "Variant restored." },
+          ),
+        disabled: isPending,
+      },
+      { label: "Delete permanently", onSelect: () => setDeleting(true), tone: "danger", disabled: isPending },
+    );
+  }
+
+  return (
+    <>
+      <ActionMenu label={`Actions for ${variant.name}`} items={items} />
+      <ConfirmDeleteDialog
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        action={deleteVariantAction}
+        fields={{ menuItemId, variantId: variant.id }}
+        title={`Delete "${variant.name}"?`}
+        successMessage={`"${variant.name}" deleted.`}
+        description={
+          <>
+            This removes the variant and its recipe for good. It can&rsquo;t be undone.
+            {variantCount === 1 ? (
+              <>
+                {" "}
+                It is this item&rsquo;s only variant, so the item will have no price or recipe until
+                you add another.
+              </>
+            ) : null}
+            <br />
+            <br />
+            Past orders are unaffected — they keep their own record of what was sold.
+          </>
+        }
+      />
+    </>
+  );
+}
+
+/**
+ * The item's own actions, in the same "…" menu the list row uses for the
+ * same item — so the two places you can act on a menu item offer the same
+ * things in the same shape.
+ */
+function ItemHeaderActions({ item, variantCount }: { item: Item; variantCount: number }) {
+  const router = useRouter();
+  const [deleting, setDeleting] = useState(false);
+  const { run, isPending } = useToastAction();
+
+  return (
+    <>
+      <ActionMenu
+        label={`Actions for ${item.name}`}
+        items={[
+          {
+            label: item.active ? "Archive" : "Restore",
+            onSelect: () =>
+              run(
+                () => setMenuItemActiveAction(formDataOf({ id: item.id, active: (!item.active).toString() })),
+                { success: item.active ? "Item archived." : "Item restored." },
+              ),
+            disabled: isPending,
+          },
+          { label: "Delete permanently", onSelect: () => setDeleting(true), tone: "danger", disabled: isPending },
+        ]}
+      />
+      <ConfirmDeleteDialog
+        open={deleting}
+        onClose={() => setDeleting(false)}
+        action={deleteMenuItemAction}
+        fields={{ id: item.id }}
+        title={`Delete "${item.name}"?`}
+        successMessage={`"${item.name}" deleted.`}
+        onDeleted={() => router.push("/menu")}
+        description={
+          <>
+            This removes the item, its {variantCount} variant
+            {variantCount === 1 ? "" : "s"}, and their recipes for good. It can&rsquo;t be undone.
+            <br />
+            <br />
+            Past orders are unaffected — they keep their own record of what was sold, so receipts
+            and every sales report stay exactly as they are.
+          </>
+        }
+      />
+    </>
   );
 }

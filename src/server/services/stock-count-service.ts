@@ -37,6 +37,8 @@ export async function createAndSubmitStockCount(
       await tx.insert(stockCountLines).values({
         stockCountId: count.id,
         ingredientId: line.ingredientId,
+        ingredientNameSnapshot: locked.name,
+        ingredientBaseUnitSnapshot: locked.baseUnit,
         systemQuantity: String(systemQuantity),
         countedQuantity: String(line.countedQuantity),
         differenceQuantity: String(difference),

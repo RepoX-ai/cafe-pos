@@ -15,6 +15,20 @@
       "when": 1789196298283,
       "tag": "0001_flashy_gateway",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789301661342,
+      "tag": "0002_gorgeous_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789302323299,
+      "tag": "0003_deep_human_torch",
+      "breakpoints": true
     }
   ]
 }

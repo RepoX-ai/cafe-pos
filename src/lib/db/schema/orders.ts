@@ -9,7 +9,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { businesses, locations } from "./core";
-import { orderStatusEnum, orderTypeEnum } from "./enums";
+import { baseUnitEnum, orderStatusEnum, orderTypeEnum } from "./enums";
 import { ingredients } from "./ingredients";
 import { menuItems, menuItemVariants, modifierOptions } from "./menu";
 import { inventoryMovements } from "./inventory";
@@ -77,6 +77,12 @@ export const orderLines = pgTable("order_lines", {
   }),
   itemNameSnapshot: text("item_name_snapshot").notNull(),
   variantNameSnapshot: text("variant_name_snapshot"),
+  // Snapshot, not a join, for the same reason as the name and price above:
+  // menu items can be deleted outright, and `menu_item_id` is ON DELETE SET
+  // NULL. Without this column the sales-by-category report would silently
+  // re-attribute a deleted item's past revenue to "Uncategorized".
+  // Null means the item genuinely had no category when it was sold.
+  categoryNameSnapshot: text("category_name_snapshot"),
   quantity: integer("quantity").notNull(),
   unitPriceSnapshot: integer("unit_price_snapshot").notNull(),
   lineTotal: integer("line_total").notNull(),
@@ -112,9 +118,14 @@ export const orderIngredientConsumption = pgTable("order_ingredient_consumption"
   orderLineId: uuid("order_line_id")
     .notNull()
     .references(() => orderLines.id, { onDelete: "cascade" }),
-  ingredientId: uuid("ingredient_id")
-    .notNull()
-    .references(() => ingredients.id, { onDelete: "restrict" }),
+  ingredientId: uuid("ingredient_id").references(() => ingredients.id, {
+    onDelete: "set null",
+  }),
+  // Snapshot columns, not a join: an ingredient can be deleted outright and
+  // `ingredient_id` then goes NULL, so the row has to be able to say what it
+  // was about on its own.
+  ingredientNameSnapshot: text("ingredient_name_snapshot"),
+  ingredientBaseUnitSnapshot: baseUnitEnum("ingredient_base_unit_snapshot"),
   quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
   unitCostSnapshot: numeric("unit_cost_snapshot", { precision: 16, scale: 6 }).notNull(),
   totalCost: integer("total_cost").notNull(),

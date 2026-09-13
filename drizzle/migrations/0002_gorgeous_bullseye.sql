@@ -1,0 +1,1 @@
+ALTER TABLE "order_lines" ADD COLUMN "category_name_snapshot" text;
