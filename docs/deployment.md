@@ -32,17 +32,21 @@ Compose for the whole stack, or Node + any local/managed Postgres.
    which is fine here — nothing in the codebase calls Drizzle's
    `.prepare()` — but keep it in mind before adding one.
 4. Run migrations once against the staging database before the first
-   deploy serves traffic, using the **direct** connection (port 5432),
-   not the pooler — DDL and transaction pooling don't mix:
+   deploy serves traffic. Use the **session pooler** (port 5432 on the
+   `...pooler.supabase.com` host) — *not* the transaction pooler, because
+   DDL and transaction pooling don't mix, and *not* the direct
+   `db.<ref>.supabase.co` host, which resolves to IPv6 only unless the
+   project has the IPv4 add-on and will simply time out from most home
+   connections. Session mode behaves like a direct connection:
    ```bash
-   DATABASE_URL=<direct-url> npm run db:migrate
+   DATABASE_URL=<session-pooler-url> npm run db:migrate
    ```
 5. Create the account you'll log in with. A freshly migrated database has
    no users, and `npm run db:seed` refuses to run with
    `NODE_ENV=production` (it creates accounts behind a password that is
    public in this repo's history):
    ```bash
-   DATABASE_URL=<direct-url> npm run db:create-owner
+   DATABASE_URL=<session-pooler-url> npm run db:create-owner
    ```
 6. Deploy, then check `/api/health` — it returns
    `{"status":"ok","database":"connected"}` only if the app can actually
