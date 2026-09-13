@@ -3,8 +3,10 @@
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import { updateSettingsAction, type SettingsActionState } from "./actions";
+import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 export function SettingsForm({
   business,
@@ -25,6 +27,7 @@ export function SettingsForm({
     undefined,
   );
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Settings saved.");
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
@@ -113,12 +116,6 @@ export function SettingsForm({
           {errorState.error}
         </p>
       ) : null}
-      {state?.ok ? (
-        <p role="status" className="rounded-[var(--radius-sm)] bg-[var(--color-success-bg)] px-3 py-2 text-sm text-[var(--color-success)]">
-          Settings saved.
-        </p>
-      ) : null}
-
       <div className="flex justify-end">
         <Button type="submit" disabled={isPending}>
           {isPending ? "Saving…" : "Save settings"}

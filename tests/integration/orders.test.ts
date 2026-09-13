@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { ingredients } from "@/lib/db/schema";
+import { ingredients, menuItems } from "@/lib/db/schema";
 import { getTestDb, seedTestFixture } from "./helpers";
 import { submitOrder, cancelOrder, getOrderById } from "@/server/services/order-service";
 import { InsufficientStockError } from "@/server/services/inventory-service";
@@ -61,7 +61,8 @@ describe.skipIf(!db)("order submission (integration)", () => {
   });
 
   it("sells an item with no variants directly off its base price, with no COGS", async () => {
-    const { business, user, menuItem } = await seedTestFixture(db!);
+    const { business, user } = await seedTestFixture(db!);
+    const [menuItem] = await db!.insert(menuItems).values({ businessId: business.id, name: "Untracked snack", basePrice: 15000, tracksInventory: false }).returning();
 
     const result = await submitOrder(
       db!,

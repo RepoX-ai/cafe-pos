@@ -1,4 +1,4 @@
-import type { PrinterConnectionResult, PrinterProvider, PrinterStatus, PrintJobPayload, PrintResult } from "./printer-provider";
+import type { PrinterConnectionResult, PrinterProvider, PrinterStatus, PrintResult } from "./printer-provider";
 
 /**
  * Always "succeeds" — for automated tests and local development before a
@@ -13,7 +13,7 @@ export class MockPrinterProvider implements PrinterProvider {
     return { connected: true, message: "Mock printer — always connected." };
   }
 
-  async print(_payload: PrintJobPayload): Promise<PrintResult> {
+  async print(): Promise<PrintResult> {
     return { success: true };
   }
 

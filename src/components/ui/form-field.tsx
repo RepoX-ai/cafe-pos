@@ -29,12 +29,6 @@ export function Field({
   );
 }
 
-export const inputClassName =
-  "h-10 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text-primary)] outline-none transition-colors focus:border-[var(--color-accent-primary)]";
-
-export const textareaClassName =
-  "min-h-20 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none transition-colors focus:border-[var(--color-accent-primary)]";
-
 const triggerClassName =
   "flex h-10 w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] pl-3 pr-2.5 text-sm text-[var(--color-text-primary)] outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -102,16 +96,14 @@ export function Select({ id, name, value, defaultValue, onChange, disabled, clas
 
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
-  const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
+  const [portalRoot, setPortalRoot] = useState<Element | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const listboxId = useId();
   const optionId = (index: number) => `${listboxId}-option-${index}`;
-
-  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!open) return;
@@ -124,21 +116,35 @@ export function Select({ id, name, value, defaultValue, onChange, disabled, clas
     // Scroll events don't bubble, so this only catches them via the
     // capture phase — closing on any ancestor scroll avoids the listbox
     // drifting away from its (now `fixed`, not scroll-following) trigger.
-    function handleScroll() {
+    function handleScroll(e: Event) {
+      if (e.target instanceof Node && listboxRef.current?.contains(e.target)) return;
       setOpen(false);
     }
     document.addEventListener("mousedown", handlePointerDown);
     window.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", closeOnResize);
+    function closeOnResize() { setOpen(false); }
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
       window.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", closeOnResize);
     };
   }, [open]);
 
   function openList() {
     if (disabled) return;
+    setPortalRoot(triggerRef.current?.closest("dialog, .force-light-theme") ?? document.body);
     const rect = triggerRef.current?.getBoundingClientRect();
-    if (rect) setPosition({ top: rect.bottom + 6, left: rect.left, width: rect.width });
+    if (rect) {
+      const below = window.innerHeight - rect.bottom - 14;
+      const above = rect.top - 14;
+      const upward = below < Math.min(256, options.length * 32 + 8) && above > below;
+      const maxHeight = Math.max(32, Math.min(256, upward ? above : below));
+      const height = Math.min(maxHeight, options.length * 32 + 8);
+      const width = Math.min(rect.width, window.innerWidth - 16);
+      setPosition({ top: upward ? rect.top - height - 6 : rect.bottom + 6,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)), width, maxHeight });
+    }
     setHighlighted(selectedIndex >= 0 ? selectedIndex : 0);
     setOpen(true);
   }
@@ -150,7 +156,7 @@ export function Select({ id, name, value, defaultValue, onChange, disabled, clas
 
   function commit(index: number) {
     const option = options[index];
-    if (!option || option.disabled) return;
+    if (disabled || !option || option.disabled) return;
     if (!isControlled) setInternalValue(option.value);
     onChange?.(option.value);
     setOpen(false);
@@ -203,7 +209,7 @@ export function Select({ id, name, value, defaultValue, onChange, disabled, clas
 
   return (
     <div ref={rootRef} className={`relative ${className ?? ""}`}>
-      {name ? <input type="hidden" name={name} value={selected} /> : null}
+      {name ? <input type="hidden" name={name} value={selected} disabled={disabled} /> : null}
       <button
         ref={triggerRef}
         id={id}
@@ -226,15 +232,15 @@ export function Select({ id, name, value, defaultValue, onChange, disabled, clas
         />
       </button>
 
-      {mounted && position
+      {open && !disabled && portalRoot && position
         ? createPortal(
             <div
               ref={listboxRef}
               id={listboxId}
               role="listbox"
               aria-hidden={!open}
-              style={{ top: position.top, left: position.left, width: position.width }}
-              className={`fixed z-50 max-h-64 min-w-max origin-top overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg transition-[opacity,transform] duration-150 ${
+              style={{ top: position.top, left: position.left, width: position.width, maxHeight: position.maxHeight }}
+              className={`fixed z-50  origin-top overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg transition-[opacity,transform] duration-150 ${
                 open ? "pointer-events-auto scale-100 opacity-100" : "pointer-events-none scale-95 opacity-0"
               }`}
             >
@@ -261,7 +267,7 @@ export function Select({ id, name, value, defaultValue, onChange, disabled, clas
                 </button>
               ))}
             </div>,
-            document.body,
+            portalRoot,
           )
         : null}
     </div>

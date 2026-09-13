@@ -6,6 +6,7 @@ import { calculateRecipeCost } from "@/lib/recipes/cost";
 import { formatIDR, grossMarginPercentage } from "@/lib/money/money";
 import { newRecipeLineKey as newKey, RecipeLinesTable, type IngredientOption, type RecipeLineDraft as Line } from "../../recipe-lines-table";
 import { saveRecipeAction } from "./actions";
+import { useToast } from "@/components/ui/toast";
 
 export function RecipeEditor({
   menuItemId,
@@ -31,6 +32,7 @@ export function RecipeEditor({
   );
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
+  const showToast = useToast();
 
   const ingredientById = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients]);
 
@@ -76,7 +78,13 @@ export function RecipeEditor({
             notes: l.notes,
           })),
       });
-      setMessage(result.ok ? { ok: true, text: "Recipe saved." } : { ok: false, text: result.error });
+      if (result.ok) {
+        showToast("success", "Recipe saved.");
+        setMessage(null);
+      } else {
+        setMessage({ ok: false, text: result.error });
+        showToast("error", result.error);
+      }
     });
   }
 

@@ -21,14 +21,7 @@ export default async function InventoryPage() {
 
   return (
     <div className="mx-auto max-w-[1440px]">
-      <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Inventory</h1>
-      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-        Stock levels, the movement ledger, adjustments, and stock counts.
-      </p>
-
-      <div className="mt-8">
-        <InventoryClient ingredients={ingredients} movements={movements} canAdjust={canAdjust} />
-      </div>
+      <InventoryClient ingredients={ingredients} movements={movements} canAdjust={canAdjust} />
     </div>
   );
 }

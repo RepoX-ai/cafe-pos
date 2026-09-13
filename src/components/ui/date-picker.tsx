@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { todayInBusinessTimezone } from "@/lib/dates/dates";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
-import { inputClassName } from "@/components/ui/form-field";
+import { inputClassName } from "@/components/ui/form-styles";
 
 // Monday-first weekday header (id-ID convention).
 const WEEKDAY_LABELS = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"];
@@ -59,7 +60,7 @@ export function DatePicker({
   const selected = isControlled ? value : internalValue;
 
   const [open, setOpen] = useState(false);
-  const [viewDate, setViewDate] = useState(() => toDateOnly(selected || toValue(new Date())));
+  const [viewDate, setViewDate] = useState(() => toDateOnly(selected || todayInBusinessTimezone()));
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -79,7 +80,7 @@ export function DatePicker({
   }, [open]);
 
   function openPicker() {
-    setViewDate(toDateOnly(selected || toValue(new Date())));
+    setViewDate(toDateOnly(selected || todayInBusinessTimezone()));
     setOpen(true);
   }
 
@@ -94,7 +95,7 @@ export function DatePicker({
   const month = viewDate.getUTCMonth();
   const totalDays = daysInMonth(year, month);
   const leading = mondayFirstIndex(new Date(Date.UTC(year, month, 1)).getUTCDay());
-  const todayValue = toValue(new Date());
+  const todayValue = todayInBusinessTimezone();
 
   const cells: { date: Date; inMonth: boolean }[] = [];
   for (let i = leading; i > 0; i--) {

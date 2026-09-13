@@ -1,19 +1,27 @@
 "use client";
 
+import { formatIDR } from "@/lib/money/money";
 import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, Search } from "lucide-react";
+import { Archive, ImageOff, Pencil, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, inputClassName, Select } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName } from "@/components/ui/form-styles";
+import { Pagination } from "@/components/ui/pagination";
+import { usePagination } from "@/components/ui/use-pagination";
 import {
   createCategoryAction,
   createModifierGroupAction,
   createModifierOptionAction,
+  deleteCategoryAction,
+  deleteMenuItemAction,
+  deleteModifierGroupAction,
+  deleteModifierOptionAction,
   setCategoryActiveAction,
   setMenuItemActiveAction,
   setModifierGroupActiveAction,
@@ -22,6 +30,9 @@ import {
 } from "./actions";
 import { createMenuItemAction } from "./actions";
 import { ImageField } from "./image-field";
+import { ToastForm } from "@/components/ui/toast-form";
+import { DeleteButton } from "@/components/ui/delete-button";
+import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 export interface CategoryRow {
   id: string;
@@ -44,6 +55,7 @@ export interface MenuItemRow {
   description: string | null;
   categoryId: string | null;
   categoryName: string | null;
+  imageUrl: string | null;
   basePrice: number;
   active: boolean;
   tracksInventory: boolean;
@@ -69,24 +81,33 @@ export interface ModifierGroupRow {
   options: ModifierOptionRow[];
 }
 
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
-
 type Tab = "items" | "categories" | "modifiers";
 
 export function MenuClient({
   categories,
   items,
   modifierGroups,
+  soldItemIds,
   canWrite,
 }: {
   categories: CategoryRow[];
   items: MenuItemRow[];
   modifierGroups: ModifierGroupRow[];
+  /** Items that appear on at least one order line, and so can only be archived. */
+  soldItemIds: string[];
   canWrite: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("items");
+  const soldItems = useMemo(() => new Set(soldItemIds), [soldItemIds]);
+  // Archived items still count: a category sales report reaches the
+  // category through them, so the category can't go while they exist.
+  const itemsPerCategory = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      if (item.categoryId) counts.set(item.categoryId, (counts.get(item.categoryId) ?? 0) + 1);
+    }
+    return counts;
+  }, [items]);
 
   return (
     <div>
@@ -112,8 +133,12 @@ export function MenuClient({
         ))}
       </div>
 
-      {tab === "items" ? <ItemsTab items={items} categories={categories} canWrite={canWrite} /> : null}
-      {tab === "categories" ? <CategoriesTab categories={categories} canWrite={canWrite} /> : null}
+      {tab === "items" ? (
+        <ItemsTab items={items} categories={categories} soldItems={soldItems} canWrite={canWrite} />
+      ) : null}
+      {tab === "categories" ? (
+        <CategoriesTab categories={categories} itemsPerCategory={itemsPerCategory} canWrite={canWrite} />
+      ) : null}
       {tab === "modifiers" ? <ModifiersTab groups={modifierGroups} canWrite={canWrite} /> : null}
     </div>
   );
@@ -126,10 +151,12 @@ export function MenuClient({
 function ItemsTab({
   items,
   categories,
+  soldItems,
   canWrite,
 }: {
   items: MenuItemRow[];
   categories: CategoryRow[];
+  soldItems: Set<string>;
   canWrite: boolean;
 }) {
   const router = useRouter();
@@ -154,6 +181,13 @@ function ItemsTab({
       return true;
     });
   }, [items, query, categoryFilter, statusFilter]);
+
+  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(filteredItems, 20);
+
+  useEffect(() => {
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, categoryFilter, statusFilter]);
 
   return (
     <div>
@@ -204,10 +238,12 @@ function ItemsTab({
         ) : null}
       </div>
 
-      <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+              <th className="px-4 py-3" />
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Category</th>
               <th className="px-4 py-3">Variants</th>
@@ -217,14 +253,14 @@ function ItemsTab({
             </tr>
           </thead>
           <tbody>
-            {filteredItems.length === 0 ? (
+            {pageItems.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                <td colSpan={7} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                   {items.length === 0 ? "No menu items yet." : "No items match your search or filters."}
                 </td>
               </tr>
             ) : (
-              filteredItems.map((item) => {
+              pageItems.map((item) => {
                 // Price now lives on the variant(s), not basePrice (which only
                 // ever seeded the first one at creation) — same range display
                 // the POS grid uses, so this list doesn't go stale the moment
@@ -238,6 +274,9 @@ function ItemsTab({
                     onClick={() => router.push(`/menu/${item.id}`)}
                     className="cursor-pointer border-b border-[var(--color-border)] last:border-0 hover:bg-[var(--color-page-bg)]"
                   >
+                    <td className="px-4 py-3">
+                      <ItemThumbnail imageUrl={item.imageUrl} name={item.name} />
+                    </td>
                     <td className="px-4 py-3">
                       <Link
                         href={`/menu/${item.id}`}
@@ -272,7 +311,10 @@ function ItemsTab({
                           {canWrite ? "Edit" : "View"}
                         </Link>
                         {canWrite ? (
-                          <form action={setMenuItemActiveAction}>
+                          <ToastForm
+                            action={setMenuItemActiveAction}
+                            successMessage={item.active ? "Item archived." : "Item restored."}
+                          >
                             <input type="hidden" name="id" value={item.id} />
                             <input type="hidden" name="active" value={(!item.active).toString()} />
                             <button
@@ -282,7 +324,28 @@ function ItemsTab({
                             >
                               {item.active ? "Archive" : "Restore"}
                             </button>
-                          </form>
+                          </ToastForm>
+                        ) : null}
+                        {canWrite ? (
+                          <DeleteButton
+                            action={deleteMenuItemAction}
+                            fields={{ id: item.id }}
+                            disabled={soldItems.has(item.id)}
+                            disabledReason={`"${item.name}" has already been sold — archive it instead so its sales history stays intact.`}
+                            title={`Delete "${item.name}"?`}
+                            successMessage={`"${item.name}" deleted.`}
+                            description={
+                              <>
+                                This removes the item, its variants, and their recipes for good. It
+                                can&rsquo;t be undone.
+                                <br />
+                                <br />
+                                Only items that have never been sold can be deleted — anything with
+                                order history has to be archived instead, so sales reports stay
+                                accurate.
+                              </>
+                            }
+                          />
                         ) : null}
                       </div>
                     </td>
@@ -292,6 +355,8 @@ function ItemsTab({
             )}
           </tbody>
         </table>
+        </div>
+        <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
       </div>
 
       <Modal open={creating} onClose={() => setCreating(false)} title="New menu item">
@@ -301,9 +366,36 @@ function ItemsTab({
   );
 }
 
+function ItemThumbnail({ imageUrl, name }: { imageUrl: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!imageUrl || failed) {
+    return (
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-page-bg)]">
+        <ImageOff size={14} className="text-[var(--color-text-muted)]" />
+      </div>
+    );
+  }
+
+  return (
+    // Same reasoning as the POS thumbnail: product photos are cashier-pasted
+    // external URLs, not a fixed set of remote hosts next/image can allowlist.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={imageUrl}
+      alt={name}
+      className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)] object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function NewItemForm({ categories, onDone }: { categories: CategoryRow[]; onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createMenuItemAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  // Success isn't observed here — createMenuItemAction redirects to the new
+  // item's page, which is itself the success signal. Failures still toast.
+  useActionResultToast(state, "Item created.");
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -355,7 +447,15 @@ function NewItemForm({ categories, onDone }: { categories: CategoryRow[]; onDone
 // Categories
 // ---------------------------------------------------------------------------
 
-function CategoriesTab({ categories, canWrite }: { categories: CategoryRow[]; canWrite: boolean }) {
+function CategoriesTab({
+  categories,
+  itemsPerCategory,
+  canWrite,
+}: {
+  categories: CategoryRow[];
+  itemsPerCategory: Map<string, number>;
+  canWrite: boolean;
+}) {
   const [creating, setCreating] = useState(false);
 
   return (
@@ -395,14 +495,34 @@ function CategoriesTab({ categories, canWrite }: { categories: CategoryRow[]; ca
                     <Badge tone={c.active ? "success" : "neutral"}>{c.active ? "Active" : "Archived"}</Badge>
                   </td>
                   {canWrite ? (
-                    <td className="px-4 py-3 text-right">
-                      <form action={setCategoryActiveAction}>
-                        <input type="hidden" name="id" value={c.id} />
-                        <input type="hidden" name="active" value={(!c.active).toString()} />
-                        <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
-                          {c.active ? "Archive" : "Restore"}
-                        </button>
-                      </form>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-3">
+                        <ToastForm action={setCategoryActiveAction} successMessage={c.active ? "Category archived." : "Category restored."}>
+                          <input type="hidden" name="id" value={c.id} />
+                          <input type="hidden" name="active" value={(!c.active).toString()} />
+                          <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
+                            {c.active ? "Archive" : "Restore"}
+                          </button>
+                        </ToastForm>
+                        <DeleteButton
+                          action={deleteCategoryAction}
+                          fields={{ id: c.id }}
+                          disabled={(itemsPerCategory.get(c.id) ?? 0) > 0}
+                          disabledReason={`${itemsPerCategory.get(c.id) ?? 0} menu item(s) still sit in "${c.name}" — move them elsewhere first.`}
+                          title={`Delete "${c.name}"?`}
+                          successMessage={`"${c.name}" deleted.`}
+                          description={
+                            <>
+                              This removes the category for good. It can&rsquo;t be undone.
+                              <br />
+                              <br />
+                              Only an empty category can be deleted — move its items somewhere else
+                              first, including archived ones, so past sales stay attributed to the
+                              right category.
+                            </>
+                          }
+                        />
+                      </div>
                     </td>
                   ) : null}
                 </tr>
@@ -422,6 +542,7 @@ function CategoriesTab({ categories, canWrite }: { categories: CategoryRow[]; ca
 function CategoryForm({ onDone }: { onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createCategoryAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Category created.");
 
   useEffect(() => {
     if (state?.ok) onDone();
@@ -496,13 +617,33 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
                   >
                     Add option
                   </button>
-                  <form action={setModifierGroupActiveAction}>
+                  <ToastForm
+                    action={setModifierGroupActiveAction}
+                    successMessage={group.active ? "Modifier group archived." : "Modifier group restored."}
+                  >
                     <input type="hidden" name="id" value={group.id} />
                     <input type="hidden" name="active" value={(!group.active).toString()} />
                     <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
                       {group.active ? "Archive" : "Restore"}
                     </button>
-                  </form>
+                  </ToastForm>
+                  <DeleteButton
+                    action={deleteModifierGroupAction}
+                    fields={{ id: group.id }}
+                    title={`Delete "${group.name}"?`}
+                    successMessage={`"${group.name}" deleted.`}
+                    description={
+                      <>
+                        This removes the group, all of its options, and their ingredient lines for
+                        good, and detaches it from every menu item using it. It can&rsquo;t be
+                        undone.
+                        <br />
+                        <br />
+                        If any of its options has ever been chosen on an order, the delete is
+                        refused — archive the group instead.
+                      </>
+                    }
+                  />
                 </div>
               ) : null}
             </div>
@@ -525,14 +666,43 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
                       </span>
                     ) : null}
                     {canWrite ? (
-                      <form action={setModifierOptionActiveAction}>
-                        <input type="hidden" name="groupId" value={group.id} />
-                        <input type="hidden" name="optionId" value={opt.id} />
-                        <input type="hidden" name="active" value={(!opt.active).toString()} />
-                        <button type="submit" className="text-[var(--color-text-muted)] hover:text-[var(--color-danger)]">
-                          ×
-                        </button>
-                      </form>
+                      <>
+                        <ToastForm
+                          action={setModifierOptionActiveAction}
+                          successMessage={opt.active ? "Option archived." : "Option restored."}
+                        >
+                          <input type="hidden" name="groupId" value={group.id} />
+                          <input type="hidden" name="optionId" value={opt.id} />
+                          <input type="hidden" name="active" value={(!opt.active).toString()} />
+                          <button
+                            type="submit"
+                            title={opt.active ? `Archive "${opt.name}"` : `Restore "${opt.name}"`}
+                            aria-label={opt.active ? `Archive ${opt.name}` : `Restore ${opt.name}`}
+                            className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                          >
+                            {opt.active ? <Archive size={12} /> : <RotateCcw size={12} />}
+                          </button>
+                        </ToastForm>
+                        <DeleteButton
+                          action={deleteModifierOptionAction}
+                          fields={{ groupId: group.id, optionId: opt.id }}
+                          className="text-[var(--color-text-muted)] hover:text-[var(--color-danger)]"
+                          title={`Delete "${opt.name}"?`}
+                          successMessage={`"${opt.name}" deleted.`}
+                          description={
+                            <>
+                              This removes the option and its ingredient lines for good. It
+                              can&rsquo;t be undone.
+                              <br />
+                              <br />
+                              If it has ever been chosen on an order, the delete is refused —
+                              archive it instead.
+                            </>
+                          }
+                        >
+                          <Trash2 size={12} />
+                        </DeleteButton>
+                      </>
                     ) : null}
                   </span>
                 ))
@@ -558,6 +728,7 @@ function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWri
 function ModifierGroupForm({ onDone }: { onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createModifierGroupAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Modifier group created.");
 
   useEffect(() => {
     if (state?.ok) onDone();
@@ -601,6 +772,7 @@ function ModifierGroupForm({ onDone }: { onDone: () => void }) {
 function ModifierOptionForm({ groupId, onDone }: { groupId: string; onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createModifierOptionAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Option added.");
 
   useEffect(() => {
     if (state?.ok) onDone();

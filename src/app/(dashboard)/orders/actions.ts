@@ -1,5 +1,6 @@
 "use server";
 
+import type { PrintJobPayload } from "@/printing/printer-provider";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
@@ -35,7 +36,7 @@ export async function cancelOrderAction(input: unknown): Promise<CancelOrderResu
   return { ok: true };
 }
 
-export type PrintActionResult = { ok: true; status: string } | { ok: false; error: string };
+export type PrintActionResult = { ok: true; status: string; payload?: PrintJobPayload } | { ok: false; error: string };
 
 export async function retryPrintJobAction(printJobId: string, orderId: string): Promise<PrintActionResult> {
   const user = await requireCurrentUser();
@@ -43,7 +44,7 @@ export async function retryPrintJobAction(printJobId: string, orderId: string): 
 
   const result = await retryPrintJob(db, { businessId: user.businessId, userId: user.id }, printJobId);
   revalidatePath(`/orders/${orderId}`);
-  return { ok: true, status: result.status };
+  return { ok: true, status: result.status, payload: result.payload };
 }
 
 export async function reprintOrderAction(orderId: string): Promise<PrintActionResult> {
@@ -52,7 +53,7 @@ export async function reprintOrderAction(orderId: string): Promise<PrintActionRe
 
   const result = await createReprintJob(db, { businessId: user.businessId, userId: user.id }, orderId);
   revalidatePath(`/orders/${orderId}`);
-  return { ok: true, status: result.status };
+  return { ok: true, status: result.status, payload: result.payload };
 }
 
 export async function refundOrderAction(input: unknown): Promise<CancelOrderResult> {

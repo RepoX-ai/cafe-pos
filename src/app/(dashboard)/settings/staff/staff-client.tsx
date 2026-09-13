@@ -6,11 +6,13 @@ import { ArrowLeft, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
-import { Field, inputClassName, Select } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName } from "@/components/ui/form-styles";
 import { ROLE_NAMES } from "@/lib/validation/staff";
 import { ROLE_LABELS } from "@/lib/permissions/role-labels";
 import type { RoleName } from "@/lib/permissions/permissions";
 import { changeStaffRoleAction, createStaffAction, resetStaffPasswordAction, setStaffActiveAction } from "./actions";
+import { useToast } from "@/components/ui/toast";
 
 interface StaffRow {
   id: string;
@@ -111,6 +113,7 @@ function StaffRowItem({
   const [role, setRole] = useState<RoleName>(staff.roles[0] ?? "cashier");
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const showToast = useToast();
 
   const isSuperAdmin = staff.roles.includes("super_admin");
 
@@ -119,8 +122,13 @@ function StaffRowItem({
     setError(null);
     const result = await resetStaffPasswordAction(staff.id);
     setIsPending(false);
-    if (result.ok) onShowTempPassword(result.tempPassword);
-    else setError(result.error);
+    if (result.ok) {
+      showToast("success", "Password reset.");
+      onShowTempPassword(result.tempPassword);
+    } else {
+      setError(result.error);
+      showToast("error", result.error);
+    }
   }
 
   async function handleRoleChange(newRole: RoleName) {
@@ -129,7 +137,11 @@ function StaffRowItem({
     setError(null);
     const result = await changeStaffRoleAction(staff.id, newRole);
     setIsPending(false);
-    if (!result.ok) setError(result.error);
+    if (result.ok) showToast("success", "Role updated.");
+    else {
+      setError(result.error);
+      showToast("error", result.error);
+    }
   }
 
   async function toggleActive() {
@@ -137,7 +149,11 @@ function StaffRowItem({
     setError(null);
     const result = await setStaffActiveAction(staff.id, !staff.active);
     setIsPending(false);
-    if (!result.ok) setError(result.error);
+    if (result.ok) showToast("success", staff.active ? "Staff deactivated." : "Staff reactivated.");
+    else {
+      setError(result.error);
+      showToast("error", result.error);
+    }
   }
 
   return (
@@ -200,6 +216,7 @@ function CreateStaffForm({ onDone }: { onDone: (result: { email: string; passwor
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const showToast = useToast();
 
   async function submit() {
     setIsPending(true);
@@ -208,10 +225,12 @@ function CreateStaffForm({ onDone }: { onDone: (result: { email: string; passwor
     const result = await createStaffAction({ name, email, role });
     setIsPending(false);
     if (result.ok) {
+      showToast("success", "Staff account created.");
       onDone({ email, password: result.tempPassword });
     } else {
       setError(result.error);
       setFieldErrors(result.fieldErrors ?? {});
+      showToast("error", result.error);
     }
   }
 

@@ -71,6 +71,7 @@ data only — never run the seed script against a production database.
 | `npm run db:generate` | Generate a new migration from schema changes |
 | `npm run db:migrate` | Apply migrations to `DATABASE_URL` |
 | `npm run db:seed` | Insert development seed data (idempotent) |
+| `npm run db:create-owner` | Create the first business + owner account on a fresh/production database |
 | `npm run db:studio` | Drizzle Studio (browse the database) |
 
 ## Architecture notes
@@ -192,7 +193,11 @@ a client module.
 - **Local**: Docker Compose (above), or Node + any Postgres.
 - **Staging**: Vercel (app) + any managed Postgres (Supabase, Neon, RDS,
   ...) — set `DATABASE_URL` and the rest of `.env.example` as project env
-  vars, then run `npm run db:migrate` once against the staging database.
+  vars, then run `npm run db:migrate` once against the staging database,
+  followed by `npm run db:create-owner` to create the account you'll log
+  in with. `npm run db:seed` is **not** an option here: it refuses to run
+  with `NODE_ENV=production`, because it creates accounts behind a
+  password that is public in this repo's history.
 - **Production**: this repo has no Vercel-only or Supabase-Edge-only
   dependencies, so it deploys the same way to a Linux VPS — either via
   Docker (`docker compose up --build -d` behind an Nginx reverse proxy

@@ -6,13 +6,18 @@ export const categoryInputSchema = z.object({
 });
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
 
+function isHttpUrl(value: string): boolean {
+  try { return ["http:", "https:"].includes(new URL(value).protocol); }
+  catch { return false; }
+}
+
 // Either an absolute URL (pasted by the cashier) or a site-relative path
 // under /uploads/menu/ or a bundled Matsudon menu-board photo.
 const menuImageUrlSchema = z
   .string()
   .trim()
   .max(2000)
-  .refine((v) => /^https?:\/\//i.test(v) || v.startsWith("/uploads/") || /^\/images\/menu\/matsudon\/[a-z0-9-]+\.webp$/.test(v), "Must be a valid URL")
+  .refine((v) => isHttpUrl(v) || /^\/(?:uploads|media)\/menu\/[a-zA-Z0-9-]+\.(?:jpg|jpeg|png|webp)$/.test(v) || /^\/images\/menu\/matsudon\/[a-z0-9-]+\.webp$/.test(v), "Must be a valid URL")
   .optional()
   .or(z.literal(""));
 

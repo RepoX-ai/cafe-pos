@@ -20,14 +20,17 @@ import {
   createVariantWithRecipe,
   createModifierGroup,
   createModifierOption,
-  createVariant,
+  deleteCategory,
+  deleteMenuItem,
+  deleteModifierGroup,
+  deleteModifierOption,
+  deleteVariant,
   setCategoryActive,
   setItemModifierGroups,
   setMenuItemActive,
   setModifierGroupActive,
   setModifierOptionActive,
   setVariantActive,
-  updateCategory,
   updateMenuItem,
   updateVariant,
 } from "@/server/services/menu-service";
@@ -83,24 +86,23 @@ export async function createCategoryAction(_prev: FormActionState, formData: For
   return { ok: true };
 }
 
-export async function updateCategoryAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
-  const { user, actor: ctx } = await actor();
-  requirePermission(user.roles, "menu:write");
-  const id = String(formData.get("id") ?? "");
-  const parsed = categoryInputSchema.safeParse({
-    name: formData.get("name"),
-    displayOrder: formData.get("displayOrder") || 0,
-  });
-  if (!parsed.success) return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
-  await updateCategory(db, ctx, id, parsed.data);
-  revalidatePath("/menu");
-  return { ok: true };
-}
-
 export async function setCategoryActiveAction(formData: FormData): Promise<void> {
   const { user, actor: ctx } = await actor();
   requirePermission(user.roles, "menu:write");
   await setCategoryActive(db, ctx, String(formData.get("id")), formData.get("active") === "true");
+  revalidatePath("/menu");
+}
+
+/**
+ * Permanent delete, as opposed to the archive toggle above. The service
+ * layer decides whether it is allowed (nothing that has been sold, or that
+ * still has menu items pointing at it, can go) and throws a message meant
+ * to be read by the person who clicked — `ToastForm` shows it as-is.
+ */
+export async function deleteCategoryAction(formData: FormData): Promise<void> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+  await deleteCategory(db, ctx, String(formData.get("id")));
   revalidatePath("/menu");
 }
 
@@ -164,22 +166,16 @@ export async function setMenuItemActiveAction(formData: FormData): Promise<void>
   revalidatePath(`/menu/${id}`);
 }
 
-// --- Variants --------------------------------------------------------------------
-
-export async function createVariantAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
+/**
+ * Deletes the item along with its variants and their recipes. Refused by
+ * the service once the item has been sold — archive is the path for
+ * anything with order history.
+ */
+export async function deleteMenuItemAction(formData: FormData): Promise<void> {
   const { user, actor: ctx } = await actor();
   requirePermission(user.roles, "menu:write");
-  const menuItemId = String(formData.get("menuItemId") ?? "");
-  const parsed = variantInputSchema.safeParse({
-    name: formData.get("name"),
-    price: formData.get("price"),
-    active: formData.get("active") === "on" || formData.get("active") === null,
-    displayOrder: formData.get("displayOrder") || 0,
-  });
-  if (!parsed.success) return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
-  await createVariant(db, ctx, menuItemId, parsed.data);
-  revalidatePath(`/menu/${menuItemId}`);
-  return { ok: true };
+  await deleteMenuItem(db, ctx, String(formData.get("id")));
+  revalidatePath("/menu");
 }
 
 export type CreateVariantWithRecipeResult =
@@ -188,7 +184,7 @@ export type CreateVariantWithRecipeResult =
 
 /**
  * Adds a variant and its recipe in one step, instead of the two separate
- * trips (add variant, then visit /recipe) createVariantAction requires.
+ * trips to add a variant and then visit its recipe page.
  * `recipeLines` may be an empty array — same as adding a variant with no
  * recipe yet.
  */
@@ -261,6 +257,15 @@ export async function setVariantActiveAction(formData: FormData): Promise<void> 
   revalidatePath(`/menu/${menuItemId}`);
 }
 
+export async function deleteVariantAction(formData: FormData): Promise<void> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+  const menuItemId = String(formData.get("menuItemId"));
+  await deleteVariant(db, ctx, menuItemId, String(formData.get("variantId")));
+  revalidatePath(`/menu/${menuItemId}`);
+  revalidatePath("/menu");
+}
+
 // --- Modifier groups + options -----------------------------------------------------
 
 export async function createModifierGroupAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
@@ -311,6 +316,20 @@ export async function setModifierOptionActiveAction(formData: FormData): Promise
     String(formData.get("optionId")),
     formData.get("active") === "true",
   );
+  revalidatePath("/menu");
+}
+
+export async function deleteModifierGroupAction(formData: FormData): Promise<void> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+  await deleteModifierGroup(db, ctx, String(formData.get("id")));
+  revalidatePath("/menu");
+}
+
+export async function deleteModifierOptionAction(formData: FormData): Promise<void> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "menu:write");
+  await deleteModifierOption(db, ctx, String(formData.get("groupId")), String(formData.get("optionId")));
   revalidatePath("/menu");
 }
 

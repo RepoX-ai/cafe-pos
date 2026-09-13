@@ -1,16 +1,21 @@
 "use client";
 
+import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ChefHat, Pencil, Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, ChefHat, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Field, inputClassName, Select, textareaClassName } from "@/components/ui/form-field";
+import { Field, Select } from "@/components/ui/form-field";
+import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import {
   createVariantWithRecipeAction,
+  deleteMenuItemAction,
+  deleteVariantAction,
   setItemModifierGroupsAction,
   setVariantActiveAction,
   updateMenuItemAction,
@@ -19,6 +24,11 @@ import {
 } from "../actions";
 import { ImageField } from "../image-field";
 import { newRecipeLineKey, RecipeLinesTable, type IngredientOption, type RecipeLineDraft } from "../recipe-lines-table";
+import { ToastForm } from "@/components/ui/toast-form";
+import { DeleteButton } from "@/components/ui/delete-button";
+import { useToast } from "@/components/ui/toast";
+import { useActionResultToast } from "@/components/ui/use-action-toast";
+import { unstable_rethrow } from "next/navigation";
 
 interface Item {
   id: string;
@@ -51,10 +61,6 @@ interface ModifierGroup {
   active: boolean;
 }
 
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
-
 export function ItemDetailClient({
   item,
   variants,
@@ -62,6 +68,8 @@ export function ItemDetailClient({
   categories,
   modifierGroups,
   ingredients,
+  soldVariantIds,
+  itemHasBeenSold,
   canWrite,
   canWriteRecipe,
 }: {
@@ -71,11 +79,16 @@ export function ItemDetailClient({
   categories: Category[];
   modifierGroups: ModifierGroup[];
   ingredients: IngredientOption[];
+  /** Variants that appear on at least one order line, and so can only be archived. */
+  soldVariantIds: string[];
+  itemHasBeenSold: boolean;
   canWrite: boolean;
   canWriteRecipe: boolean;
 }) {
+  const router = useRouter();
   const [addingVariant, setAddingVariant] = useState(false);
   const [editingVariant, setEditingVariant] = useState<Variant | null>(null);
+  const soldVariants = new Set(soldVariantIds);
 
   return (
     <div className="flex flex-col gap-8">
@@ -84,9 +97,35 @@ export function ItemDetailClient({
           <ArrowLeft size={14} />
           Back to menu
         </Link>
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{item.name}</h1>
           <Badge tone={item.active ? "success" : "neutral"}>{item.active ? "Active" : "Archived"}</Badge>
+          {canWrite ? (
+            <DeleteButton
+              action={deleteMenuItemAction}
+              fields={{ id: item.id }}
+              disabled={itemHasBeenSold}
+              disabledReason={`"${item.name}" has already been sold — archive it instead so its sales history stays intact.`}
+              title={`Delete "${item.name}"?`}
+              successMessage={`"${item.name}" deleted.`}
+              onDeleted={() => router.push("/menu")}
+              className="ml-auto inline-flex items-center gap-1.5 text-sm font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-danger)] disabled:cursor-not-allowed disabled:text-[var(--color-text-muted)] disabled:hover:text-[var(--color-text-muted)]"
+              description={
+                <>
+                  This removes the item, its {variants.length} variant
+                  {variants.length === 1 ? "" : "s"}, and their recipes for good. It can&rsquo;t be
+                  undone.
+                  <br />
+                  <br />
+                  Only items that have never been sold can be deleted — anything with order history
+                  has to be archived instead, so sales reports stay accurate.
+                </>
+              }
+            >
+              <Trash2 size={14} />
+              Delete item
+            </DeleteButton>
+          ) : null}
         </div>
       </div>
 
@@ -138,14 +177,41 @@ export function ItemDetailClient({
                     </button>
                   ) : null}
                   {canWrite ? (
-                    <form action={setVariantActiveAction}>
+                    <ToastForm
+                      action={setVariantActiveAction}
+                      successMessage={v.active ? "Variant archived." : "Variant restored."}
+                    >
                       <input type="hidden" name="menuItemId" value={item.id} />
                       <input type="hidden" name="variantId" value={v.id} />
                       <input type="hidden" name="active" value={(!v.active).toString()} />
                       <button type="submit" className="text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
                         {v.active ? "Archive" : "Restore"}
                       </button>
-                    </form>
+                    </ToastForm>
+                  ) : null}
+                  {canWrite ? (
+                    <DeleteButton
+                      action={deleteVariantAction}
+                      fields={{ menuItemId: item.id, variantId: v.id }}
+                      disabled={soldVariants.has(v.id) || variants.length <= 1}
+                      disabledReason={
+                        soldVariants.has(v.id)
+                          ? `"${v.name}" has already been sold — archive it instead.`
+                          : "An item needs at least one variant to hold its price and recipe."
+                      }
+                      title={`Delete "${v.name}"?`}
+                      successMessage={`"${v.name}" deleted.`}
+                      description={
+                        <>
+                          This removes the variant and its recipe for good. It can&rsquo;t be
+                          undone.
+                          <br />
+                          <br />
+                          Only variants that have never been sold can be deleted — anything with
+                          order history has to be archived instead.
+                        </>
+                      }
+                    />
                   ) : null}
                 </div>
               </div>
@@ -167,7 +233,12 @@ export function ItemDetailClient({
         />
       </section>
 
-      <Modal open={addingVariant} onClose={() => setAddingVariant(false)} title="Add variant">
+      <Modal
+        open={addingVariant}
+        onClose={() => setAddingVariant(false)}
+        title="Add variant"
+        maxWidthClassName="max-w-[640px]"
+      >
         <VariantForm
           menuItemId={item.id}
           ingredients={ingredients}
@@ -192,6 +263,7 @@ export function ItemDetailClient({
 function ItemDetailsForm({ item, categories, canWrite }: { item: Item; categories: Category[]; canWrite: boolean }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(updateMenuItemAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Item saved.");
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -264,6 +336,7 @@ function VariantForm({
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isPending, startTransition] = useTransition();
+  const showToast = useToast();
 
   function updateLine(key: string, patch: Partial<RecipeLineDraft>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -293,10 +366,12 @@ function VariantForm({
           })),
       );
       if (result.ok) {
+        showToast("success", "Variant added.");
         onDone();
       } else {
         setError(result.error);
         setFieldErrors(result.fieldErrors ?? {});
+        showToast("error", result.error);
       }
     });
   }
@@ -328,6 +403,10 @@ function VariantForm({
       {canWriteRecipe ? (
         <div>
           <p className="mb-2 text-sm font-medium text-[var(--color-text-primary)]">Recipe (optional)</p>
+          <p className="mb-2 text-xs text-[var(--color-text-muted)]">
+            Waste % inflates how much is actually drawn from stock beyond the stated quantity — for prep loss like
+            spillage, trimming, or evaporation. Leave it at 0 if there&apos;s nothing worth accounting for.
+          </p>
           <RecipeLinesTable
             lines={lines}
             ingredients={ingredients}
@@ -370,6 +449,7 @@ function EditVariantForm({
 }) {
   const [state, formAction, isPending] = useActionState<FormActionState, FormData>(updateVariantAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
+  useActionResultToast(state, "Variant saved.");
 
   useEffect(() => {
     if (state?.ok) onDone();
@@ -427,6 +507,7 @@ function ModifierGroupAssignment({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set(assignedIds));
   const [saving, setSaving] = useState(false);
+  const showToast = useToast();
   const dirty =
     selected.size !== assignedIds.length || assignedIds.some((id) => !selected.has(id));
 
@@ -475,8 +556,15 @@ function ModifierGroupAssignment({
             disabled={!dirty || saving}
             onClick={async () => {
               setSaving(true);
-              await setItemModifierGroupsAction(menuItemId, Array.from(selected));
-              setSaving(false);
+              try {
+                await setItemModifierGroupsAction(menuItemId, Array.from(selected));
+                showToast("success", "Modifier groups saved.");
+              } catch (error) {
+                unstable_rethrow(error);
+                showToast("error", error instanceof Error ? error.message : "Couldn't save modifier groups.");
+              } finally {
+                setSaving(false);
+              }
             }}
           >
             {saving ? "Saving…" : "Save assignment"}

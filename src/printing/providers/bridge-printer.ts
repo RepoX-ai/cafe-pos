@@ -1,4 +1,4 @@
-import type { PrinterConnectionResult, PrinterProvider, PrinterStatus, PrintJobPayload, PrintResult } from "../printer-provider";
+import type { PrinterConnectionResult, PrinterProvider, PrinterStatus, PrintResult } from "../printer-provider";
 
 /**
  * Placeholder for a real hardware adapter (local print bridge / network
@@ -21,7 +21,7 @@ export class BridgePrinterProvider implements PrinterProvider {
     };
   }
 
-  async print(_payload: PrintJobPayload): Promise<PrintResult> {
+  async print(): Promise<PrintResult> {
     return { success: false, error: "Hardware print bridge is not configured yet." };
   }
 

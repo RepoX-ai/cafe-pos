@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { cartDraftSchema, cartLineSignature } from "@/lib/pos/cart";
+import { submitOrderInputSchema, type SubmitOrderInput } from "@/lib/validation/order";
+import { BrowserReceipt } from "@/components/browser-receipt";
+import type { PrintJobPayload } from "@/printing/printer-provider";
 import Link from "next/link";
 import { History, ImageOff, Search, Trash2, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,14 +13,11 @@ import { Select } from "@/components/ui/form-field";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
 import type { TaxConfig } from "@/lib/settings/tax";
 import { calculateServiceCharge, calculateTax } from "@/lib/settings/tax";
-import { sumRupiah } from "@/lib/money/money";
+import { formatIDR, sumRupiah } from "@/lib/money/money";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { submitOrderAction } from "./actions";
 import { ItemModal, type ConfiguredLine } from "./item-modal";
-
-function formatIDR(n: number) {
-  return `Rp${n.toLocaleString("id-ID")}`;
-}
+import { useToast } from "@/components/ui/toast";
 
 interface CartLine extends ConfiguredLine {
   key: string;
@@ -38,6 +39,7 @@ const CARD_BANK_LABELS: Record<(typeof CARD_BANKS)[number], string> = {
 };
 
 export function PosClient({
+  draftScope,
   userName,
   categories,
   items,
@@ -45,6 +47,7 @@ export function PosClient({
   serviceChargePercent,
   canViewOrderHistory,
 }: {
+  draftScope: string;
   userName: string;
   categories: PosCategory[];
   items: PosMenuItem[];
@@ -52,6 +55,12 @@ export function PosClient({
   serviceChargePercent: number | null;
   canViewOrderHistory: boolean;
 }) {
+  const draftKey = `${DRAFT_KEY}:${draftScope}`;
+  const pendingKey = `${draftKey}:pending`;
+  const submitting = useRef(false);
+  const showToast = useToast();
+  const [pending, setPending] = useState<SubmitOrderInput | null>(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | "all">("all");
   const [search, setSearch] = useState("");
   const [configuring, setConfiguring] = useState<PosMenuItem | null>(null);
@@ -66,7 +75,7 @@ export function PosClient({
   const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ orderNumber: string; total: number; printStatus: string } | null>(null);
+  const [confirmation, setConfirmation] = useState<{ orderNumber: string; total: number; printStatus: string; receipt?: PrintJobPayload } | null>(null);
   const [isOnline, setIsOnline] = useState(true);
 
   // Draft persistence (PRD §13: keep the unsaved cart in local storage).
@@ -75,11 +84,21 @@ export function PosClient({
   // below is guarding against false-positiving on.
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(DRAFT_KEY);
+      const savedPending = localStorage.getItem(pendingKey);
+      if (savedPending) {
+        const parsed = submitOrderInputSchema.safeParse(JSON.parse(savedPending));
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate the persisted external store once
+        if (parsed.success) setPending(parsed.data);
+      }
+      const raw = localStorage.getItem(draftKey);
       if (raw) {
-        const draft = JSON.parse(raw);
-        // eslint-disable-next-line react-hooks/set-state-in-effect
+        const parsedDraft = cartDraftSchema.safeParse(JSON.parse(raw));
+        if (!parsedDraft.success) throw new Error("Invalid saved draft");
+        const draft = parsedDraft.data;
         if (Array.isArray(draft.cart)) setCart(draft.cart);
+        if (typeof draft.idempotencyKey === "string") setIdempotencyKey(draft.idempotencyKey);
+        if (PAYMENT_METHODS.includes(draft.paymentMethod)) setPaymentMethod(draft.paymentMethod);
+        setCardBank(draft.cardBank);
         if (draft.orderType) setOrderType(draft.orderType);
         if (draft.tableLabel) setTableLabel(draft.tableLabel);
         if (typeof draft.discountTotal === "number") setDiscountTotal(draft.discountTotal);
@@ -87,15 +106,17 @@ export function PosClient({
     } catch {
       // ignore — start with an empty cart
     }
-  }, []);
+    setDraftLoaded(true);
+  }, [draftKey, pendingKey]);
 
   useEffect(() => {
+    if (!draftLoaded) return;
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ cart, orderType, tableLabel, discountTotal }));
+      localStorage.setItem(draftKey, JSON.stringify({ cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank }));
     } catch {
       // storage unavailable (private mode, quota) — cart still works in-memory
     }
-  }, [cart, orderType, tableLabel, discountTotal]);
+  }, [cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, draftLoaded, draftKey]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -131,9 +152,9 @@ export function PosClient({
   function addToCart(line: ConfiguredLine) {
     setCart((prev) => {
       // Merge into an identical existing line (same item/variant/modifiers/note).
-      const signature = JSON.stringify([line.variantId, [...line.modifierOptionIds].sort(), line.notes ?? ""]);
+      const signature = cartLineSignature(line);
       const existingIndex = prev.findIndex(
-        (l) => JSON.stringify([l.variantId, [...l.modifierOptionIds].sort(), l.notes ?? ""]) === signature,
+        (l) => cartLineSignature(l) === signature,
       );
       if (existingIndex >= 0) {
         const next = [...prev];
@@ -190,19 +211,19 @@ export function PosClient({
     setConfirmation(null);
     setSubmitError(null);
     try {
-      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(draftKey);
     } catch {
       // ignore
     }
   }
 
   async function handleSubmit() {
-    if (cart.length === 0 || isSubmitting) return;
-    if (paymentMethod === "card" && !cardBank) return;
+    if ((!pending && cart.length === 0) || submitting.current || !draftLoaded || !isOnline) return;
+    if (!pending && paymentMethod === "card" && !cardBank) return;
     setIsSubmitting(true);
     setSubmitError(null);
 
-    const result = await submitOrderAction({
+    const request = pending ?? {
       idempotencyKey,
       orderType,
       tableLabel: tableLabel || undefined,
@@ -215,30 +236,45 @@ export function PosClient({
         modifierOptionIds: l.modifierOptionIds,
         notes: l.notes,
       })),
-    });
+    };
 
-    setIsSubmitting(false);
-
-    if (result.ok) {
-      setConfirmation({ orderNumber: result.orderNumber, total: result.total, printStatus: result.printStatus });
-      setCart([]);
-      setTableLabel("");
-      setDiscountTotal(0);
-      setIdempotencyKey(newIdempotencyKey());
-      try {
-        localStorage.removeItem(DRAFT_KEY);
-      } catch {
-        // ignore
+    submitting.current = true;
+    try {
+      // Persist the exact request before sending. A lost response must retry this key and payload.
+      localStorage.setItem(pendingKey, JSON.stringify(request));
+      setPending(request);
+      const result = await submitOrderAction(request);
+      localStorage.removeItem(pendingKey);
+      setPending(null);
+      if (result.ok) {
+        setConfirmation({ orderNumber: result.orderNumber, total: result.total, printStatus: result.printStatus, receipt: result.receipt });
+        setCart([]);
+        setTableLabel("");
+        setDiscountTotal(0);
+        setIdempotencyKey(newIdempotencyKey());
+        try {
+          localStorage.removeItem(draftKey);
+        } catch {
+          // ignore
+        }
+      } else {
+        setSubmitError(result.error);
+        showToast("error", result.error);
       }
-    } else {
-      setSubmitError(result.error);
+    } catch {
+      const text = "Could not confirm the order. Retry the saved submission before starting another order. Browser storage must be available.";
+      setSubmitError(text);
+      showToast("error", text);
+    } finally {
+      submitting.current = false;
+      setIsSubmitting(false);
     }
   }
 
   if (confirmation) {
     return (
       <div className="force-light-theme flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--color-page-bg)] px-6 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#E7F8EF]">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--color-success-bg)]">
           <span className="text-3xl">✓</span>
         </div>
         <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Order submitted</h1>
@@ -255,6 +291,7 @@ export function PosClient({
             The order was saved. An admin can retry printing from the order&apos;s detail page.
           </p>
         ) : null}
+        {confirmation.receipt ? <BrowserReceipt payload={confirmation.receipt} /> : null}
         <Button size="lg" onClick={resetOrder} className="mt-4">
           New order
         </Button>
@@ -268,7 +305,7 @@ export function PosClient({
         <div className="flex items-center gap-3">
           <span className="text-sm font-semibold text-[var(--color-text-primary)]">CaféOps POS</span>
           {!isOnline ? (
-            <span className="flex items-center gap-1.5 rounded-full bg-[#FEF3F2] px-2.5 py-1 text-xs font-medium text-[var(--color-danger)]">
+            <span className="flex items-center gap-1.5 rounded-full bg-[var(--color-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--color-danger)]">
               <WifiOff size={12} />
               Offline — orders can&apos;t be submitted
             </span>
@@ -293,7 +330,8 @@ export function PosClient({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      {pending ? <div role="alert" className="p-4">A submission needs confirmation. <Button disabled={isSubmitting || !isOnline} onClick={handleSubmit}>Retry saved order</Button>{submitError ? <p>{submitError}</p> : null}</div> : null}
+      <div inert={!!pending || isSubmitting || !draftLoaded} className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-3">
             <div className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2">
@@ -511,7 +549,7 @@ export function PosClient({
             </div>
 
             {submitError ? (
-              <p role="alert" className="mt-3 rounded-[var(--radius-sm)] bg-[#FEF3F2] px-3 py-2 text-sm text-[var(--color-danger)]">
+              <p role="alert" className="mt-3 rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
                 {submitError}
               </p>
             ) : null}

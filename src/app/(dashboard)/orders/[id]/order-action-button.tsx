@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cancelOrderAction, refundOrderAction, type CancelOrderResult } from "../actions";
+import { useToast } from "@/components/ui/toast";
 
 export function OrderActionButton({
   orderId,
@@ -15,6 +16,7 @@ export function OrderActionButton({
   const [reason, setReason] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const showToast = useToast();
 
   const action: (input: unknown) => Promise<CancelOrderResult> = kind === "cancel" ? cancelOrderAction : refundOrderAction;
   const label = kind === "cancel" ? "Cancel order" : "Refund order";
@@ -34,8 +36,10 @@ export function OrderActionButton({
     setIsPending(false);
     if (!result.ok) {
       setError(result.error);
+      showToast("error", result.error);
       return;
     }
+    showToast("success", kind === "cancel" ? "Order cancelled." : "Order refunded.");
     setOpen(false);
   }
 

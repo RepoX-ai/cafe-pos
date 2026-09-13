@@ -1,9 +1,12 @@
 "use client";
 
+import { BrowserReceipt } from "@/components/browser-receipt";
+import type { PrintJobPayload } from "@/printing/printer-provider";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { retryPrintJobAction, reprintOrderAction } from "../actions";
+import { useToast } from "@/components/ui/toast";
 
 interface PrintJobRow {
   id: string;
@@ -24,22 +27,40 @@ export function PrintJobsPanel({
   canManagePrinter: boolean;
   canReprint: boolean;
 }) {
+  const [receipt, setReceipt] = useState<PrintJobPayload | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [isReprinting, setIsReprinting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const showToast = useToast();
 
   async function retry(jobId: string) {
     setPendingId(jobId);
-    const result = await retryPrintJobAction(jobId, orderId);
-    setPendingId(null);
-    setMessage(result.ok ? `Retry result: ${result.status}` : result.error);
+    try {
+      const result = await retryPrintJobAction(jobId, orderId);
+      if (result.ok && result.payload) setReceipt(result.payload);
+      const text = result.ok ? `Retry result: ${result.status}` : result.error;
+      setMessage(text);
+      showToast(result.ok ? "success" : "error", text);
+    } catch {
+      const text = "Could not confirm the print request. Refresh to check its status.";
+      setMessage(text);
+      showToast("error", text);
+    } finally { setPendingId(null); }
   }
 
   async function reprint() {
     setIsReprinting(true);
-    const result = await reprintOrderAction(orderId);
-    setIsReprinting(false);
-    setMessage(result.ok ? `Reprint result: ${result.status}` : result.error);
+    try {
+      const result = await reprintOrderAction(orderId);
+      if (result.ok && result.payload) setReceipt(result.payload);
+      const text = result.ok ? `Reprint result: ${result.status}` : result.error;
+      setMessage(text);
+      showToast(result.ok ? "success" : "error", text);
+    } catch {
+      const text = "Could not confirm the print request. Refresh to check its status.";
+      setMessage(text);
+      showToast("error", text);
+    } finally { setIsReprinting(false); }
   }
 
   return (
@@ -56,7 +77,7 @@ export function PrintJobsPanel({
             <div className="flex items-center gap-2">
               <span className="text-xs text-[var(--color-text-muted)]">attempt {p.attemptCount}</span>
               <Badge tone={p.status === "PRINTED" ? "success" : p.status === "FAILED" ? "danger" : "accent"}>{p.status}</Badge>
-              {canManagePrinter && p.status === "FAILED" ? (
+              {canManagePrinter && (p.status === "FAILED" || p.status === "QUEUED") ? (
                 <Button size="sm" variant="secondary" onClick={() => retry(p.id)} disabled={pendingId === p.id}>
                   {pendingId === p.id ? "Retrying…" : "Retry"}
                 </Button>
@@ -74,6 +95,7 @@ export function PrintJobsPanel({
         </div>
       ) : null}
 
+      {receipt ? <BrowserReceipt payload={receipt} /> : null}
       {message ? <p className="text-xs text-[var(--color-text-secondary)]">{message}</p> : null}
     </div>
   );

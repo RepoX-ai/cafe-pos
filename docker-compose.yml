@@ -37,10 +37,15 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:-dev-only-not-for-production}
       APP_URL: http://localhost:3000
       BUSINESS_TIMEZONE: Asia/Jakarta
-      PRINT_PROVIDER: mock
+      PRINT_PROVIDER: ${PRINT_PROVIDER:-mock}
+      STORAGE_PROVIDER: local
+      MENU_IMAGE_DIR: /app/var/uploads/menu
       NODE_ENV: production
+    volumes:
+      - cafe_pos_menu_images:/app/var/uploads/menu
     ports:
       - "3000:3000"
 
 volumes:
   cafe_pos_db_data:
+  cafe_pos_menu_images:

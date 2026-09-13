@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Download } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
@@ -18,6 +19,7 @@ import {
   getSalesByMenuItem,
   getSalesByPaymentMethod,
 } from "@/server/services/reports-service";
+import { ReportTable } from "./report-table";
 
 export const metadata: Metadata = {
   title: "Reports — CaféOps",
@@ -67,7 +69,7 @@ export default async function ReportsPage({
           <label htmlFor="type" className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">
             Report
           </label>
-          <Select id="type" name="type" defaultValue={type}>
+          <Select id="type" name="type" defaultValue={type} className="w-[240px]">
             {REPORT_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
@@ -133,7 +135,15 @@ async function renderReportTable(businessId: string, type: string, range: { from
       return (
         <ReportTable
           columns={["Order #", "Status", "Total", "Reason", "Placed at"]}
-          rows={rows.map((r) => [r.orderNumber, r.status, formatIDR(r.total), r.cancellationReason ?? r.refundReason ?? "—", formatBusinessDateTime(r.createdAt)])}
+          rows={rows.map((r) => [
+            <Link key={r.id} href={`/orders/${r.id}`} className="font-medium text-[var(--color-accent-primary)] hover:underline">
+              {r.orderNumber}
+            </Link>,
+            r.status,
+            formatIDR(r.total),
+            r.cancellationReason ?? r.refundReason ?? "—",
+            formatBusinessDateTime(r.createdAt),
+          ])}
         />
       );
     }
@@ -193,41 +203,4 @@ async function renderReportTable(businessId: string, type: string, range: { from
       );
     }
   }
-}
-
-function ReportTable({ columns, rows }: { columns: string[]; rows: Array<Array<string | number>> }) {
-  return (
-    <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <table className="w-full min-w-[700px] border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-            {columns.map((c) => (
-              <th key={c} className="px-4 py-3">
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={columns.length} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
-                No data for this range.
-              </td>
-            </tr>
-          ) : (
-            rows.map((row, i) => (
-              <tr key={i} className="border-b border-[var(--color-border)] last:border-0">
-                {row.map((cell, j) => (
-                  <td key={j} className={`px-4 py-3 ${j > 0 ? "tabular-nums text-[var(--color-text-secondary)]" : "text-[var(--color-text-primary)]"}`}>
-                    {cell}
-                  </td>
-                ))}
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
 }

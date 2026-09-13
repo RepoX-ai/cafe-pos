@@ -19,7 +19,7 @@
   --color-surface: #ffffff;
   --color-text-primary: #141517;
   --color-text-secondary: #6a6e78;
-  --color-text-muted: #9297a0;
+  --color-text-muted: #6a6e78;
   --color-border: #e6e7e9;
   --color-selected-surface: #f1f2f4;
   /* "Emblem rust" — the one brand accent. Muted/warm on purpose: a stark
@@ -58,12 +58,12 @@
   --color-surface: #0f1011;
   --color-text-primary: #f7f8f8;
   --color-text-secondary: #8a8f98;
-  --color-text-muted: #6b6f78;
+  --color-text-muted: #8a8f98;
   --color-border: #23252a;
   --color-selected-surface: #1a1c1f;
   --color-accent-primary: #c56a3e;
   --color-accent-secondary: #d78a5c;
-  --color-accent-contrast: #ffffff;
+  --color-accent-contrast: #08090a;
   --color-success: #75e0a7;
   --color-warning: #fec84b;
   --color-danger: #f04438;
@@ -77,7 +77,7 @@
   --color-surface: #ffffff;
   --color-text-primary: #141517;
   --color-text-secondary: #6a6e78;
-  --color-text-muted: #9297a0;
+  --color-text-muted: #6a6e78;
   --color-border: #e6e7e9;
   --color-selected-surface: #f1f2f4;
   --color-accent-primary: #a5502b;

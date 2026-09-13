@@ -1,19 +1,9 @@
-import { desc, eq } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { stockCountLines, stockCounts } from "@/lib/db/schema";
 import type { StockCountInput } from "@/lib/validation/stock-count";
 import { recordAuditLog } from "./audit";
 import { insertMovementAndApplyStock, lockIngredientForUpdate } from "./inventory-service";
 import type { ActorContext } from "./ingredient-service";
-
-export async function listStockCounts(db: Database, businessId: string, limit = 50) {
-  return db
-    .select()
-    .from(stockCounts)
-    .where(eq(stockCounts.businessId, businessId))
-    .orderBy(desc(stockCounts.createdAt))
-    .limit(limit);
-}
 
 /**
  * Counts submit in one step here (the UI shows the system-vs-counted

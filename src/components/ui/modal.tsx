@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { Dialog } from "./dialog";
 import { X } from "lucide-react";
 
 interface ModalProps {
@@ -9,29 +9,22 @@ interface ModalProps {
   description?: string;
   onClose: () => void;
   children: React.ReactNode;
+  /**
+   * Tailwind max-width class, e.g. "max-w-[480px]" (default) or
+   * "max-w-[640px]" for content that needs more room (a table with several
+   * columns). Must be a literal string at the call site — Tailwind only
+   * generates arbitrary-value classes it can see verbatim in source, so
+   * this can't be built from an interpolated variable.
+   */
+  maxWidthClassName?: string;
 }
 
 /** Centered dialog used for create/edit forms across the admin dashboard. */
-export function Modal({ open, title, description, onClose, children }: ModalProps) {
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
+export function Modal({ open, title, description, onClose, children, maxWidthClassName = "max-w-[480px]" }: ModalProps) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/30" />
+    <Dialog open={open} label={title} onClose={onClose} className={maxWidthClassName}>
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="relative flex max-h-[85vh] w-full max-w-[480px] flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg"
+        className={`relative flex max-h-[85vh] w-full ${maxWidthClassName} flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg`}
       >
         <div className="flex items-start justify-between border-b border-[var(--color-border)] px-6 py-4">
           <div>
@@ -50,6 +43,6 @@ export function Modal({ open, title, description, onClose, children }: ModalProp
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
       </div>
-    </div>
+    </Dialog>
   );
 }
