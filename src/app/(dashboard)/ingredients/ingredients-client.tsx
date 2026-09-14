@@ -32,6 +32,7 @@ export interface IngredientRow {
   baseUnit: BaseUnit;
   currentQuantityBaseUnits: string;
   reorderLevelBaseUnits: string | null;
+  targetStockBaseUnits: string | null;
   averageCostPerBaseUnit: string;
   active: boolean;
   notes: string | null;
@@ -277,6 +278,7 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
             type="number"
             min={0}
             step="any"
+            defaultValue={existing?.targetStockBaseUnits ? Number(existing.targetStockBaseUnits) : ""}
             className={inputClassName}
           />
         </Field>

@@ -15,6 +15,7 @@ import type { TaxConfig } from "@/lib/settings/tax";
 import { calculateServiceCharge, calculateTax } from "@/lib/settings/tax";
 import { formatIDR, sumRupiah } from "@/lib/money/money";
 import { logoutAction } from "@/app/(auth)/login/actions";
+import { BrandLogo } from "@/components/brand-logo";
 import { submitOrderAction } from "./actions";
 import { ItemModal, type ConfiguredLine } from "./item-modal";
 import { useToast } from "@/components/ui/toast";
@@ -303,7 +304,7 @@ export function PosClient({
     <div className="force-light-theme flex h-screen flex-col bg-[var(--color-page-bg)]">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold text-[var(--color-text-primary)]">CaféOps POS</span>
+          <BrandLogo className="h-9" />
           {!isOnline ? (
             <span className="flex items-center gap-1.5 rounded-full bg-[var(--color-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--color-danger)]">
               <WifiOff size={12} />

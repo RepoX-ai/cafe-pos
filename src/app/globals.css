@@ -51,6 +51,11 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
+
+  /* The Matsudon logo ships as one black-on-transparent PNG. Rather than
+     maintain a second white file, dark surfaces invert the single asset —
+     it is pure black, so invert(1) yields pure white. */
+  --brand-logo-filter: none;
 }
 
 .dark {
@@ -70,6 +75,7 @@
   --color-success-bg: rgba(23, 178, 106, 0.12);
   --color-warning-bg: rgba(247, 144, 9, 0.12);
   --color-danger-bg: rgba(240, 68, 56, 0.12);
+  --brand-logo-filter: invert(1);
 }
 
 .dark .force-light-theme {
@@ -89,6 +95,7 @@
   --color-success-bg: #ecfdf3;
   --color-warning-bg: #fffaeb;
   --color-danger-bg: #fef3f2;
+  --brand-logo-filter: none;
 }
 
 @theme inline {

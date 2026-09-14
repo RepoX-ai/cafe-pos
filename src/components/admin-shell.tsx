@@ -14,7 +14,6 @@ import {
   Receipt,
   BarChart3,
   Settings,
-  Store,
   LogOut,
   ClipboardList,
   ShoppingBag,
@@ -25,6 +24,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { logoutAction } from "@/app/(auth)/login/actions";
+import { BrandLogo } from "@/components/brand-logo";
 import { NAV_GROUP_ORDER, type NavItem } from "@/lib/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -149,11 +149,8 @@ export function AdminShell({
           >
             {!collapsed ? (
               <>
-                <div className="flex min-w-0 items-center gap-2">
-                  <Store size={18} className="shrink-0 text-[var(--color-accent-primary)]" />
-                  <span className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
-                    {businessName}
-                  </span>
+                <div className="flex min-w-0 items-center">
+                  <BrandLogo className="h-8" alt={businessName} />
                 </div>
                 <button
                   onClick={toggleCollapsed}

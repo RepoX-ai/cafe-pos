@@ -14,3 +14,13 @@ export const ingredientInputSchema = z.object({
 });
 
 export type IngredientInput = z.infer<typeof ingredientInputSchema>;
+
+/**
+ * Editing never accepts a base unit. Every stored quantity, recipe line and
+ * cost rate for the ingredient is expressed in that unit, so changing it
+ * would silently reinterpret all of them (gram → piece turns 500 g into 500
+ * pieces). The server keeps the stored unit rather than trusting the form.
+ */
+export const ingredientUpdateSchema = ingredientInputSchema.omit({ baseUnit: true });
+
+export type IngredientUpdateInput = z.infer<typeof ingredientUpdateSchema>;

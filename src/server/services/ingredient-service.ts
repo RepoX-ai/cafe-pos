@@ -10,7 +10,7 @@ import {
   recipeLines,
   recipes,
 } from "@/lib/db/schema";
-import type { IngredientInput } from "@/lib/validation/ingredient";
+import type { IngredientInput, IngredientUpdateInput } from "@/lib/validation/ingredient";
 import { recordAuditLog } from "./audit";
 
 export async function listIngredients(db: Database, businessId: string, opts: { includeArchived?: boolean } = {}) {
@@ -90,7 +90,7 @@ export async function updateIngredient(
   db: Database,
   actor: ActorContext,
   id: string,
-  input: IngredientInput,
+  input: IngredientUpdateInput,
 ) {
   const before = await getIngredientById(db, actor.businessId, id);
   if (!before) throw new Error("Ingredient not found");
@@ -101,7 +101,6 @@ export async function updateIngredient(
       name: input.name,
       sku: input.sku || null,
       category: input.category || null,
-      baseUnit: input.baseUnit,
       reorderLevelBaseUnits:
         input.reorderLevelBaseUnits !== undefined ? String(input.reorderLevelBaseUnits) : null,
       targetStockBaseUnits:

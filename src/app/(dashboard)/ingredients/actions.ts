@@ -5,7 +5,7 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { getRequestMeta } from "@/lib/http/request-meta";
-import { ingredientInputSchema } from "@/lib/validation/ingredient";
+import { ingredientInputSchema, ingredientUpdateSchema } from "@/lib/validation/ingredient";
 import {
   createIngredient,
   deleteIngredient,
@@ -18,8 +18,8 @@ export type IngredientFormState =
   | { ok: false; error: string; fieldErrors?: Record<string, string> }
   | undefined;
 
-function parseIngredientForm(formData: FormData) {
-  const raw = {
+function readIngredientForm(formData: FormData) {
+  return {
     name: formData.get("name"),
     sku: formData.get("sku"),
     category: formData.get("category"),
@@ -29,7 +29,6 @@ function parseIngredientForm(formData: FormData) {
     startingCostPerBaseUnit: formData.get("startingCostPerBaseUnit") || undefined,
     notes: formData.get("notes"),
   };
-  return ingredientInputSchema.safeParse(raw);
 }
 
 export async function createIngredientAction(
@@ -39,7 +38,7 @@ export async function createIngredientAction(
   const user = await requireCurrentUser();
   requirePermission(user.roles, "ingredients:write");
 
-  const parsed = parseIngredientForm(formData);
+  const parsed = ingredientInputSchema.safeParse(readIngredientForm(formData));
   if (!parsed.success) {
     return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
   }
@@ -60,7 +59,9 @@ export async function updateIngredientAction(
   const id = String(formData.get("id") ?? "");
   if (!id) return { ok: false, error: "Missing ingredient id." };
 
-  const parsed = parseIngredientForm(formData);
+  // The base-unit select is disabled on edit, and browsers omit disabled
+  // fields from FormData — so baseUnit is absent here by design, not an error.
+  const parsed = ingredientUpdateSchema.safeParse(readIngredientForm(formData));
   if (!parsed.success) {
     return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
   }
