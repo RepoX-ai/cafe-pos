@@ -4,10 +4,9 @@ import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { listOrders, listOrderItemSummaries } from "@/server/services/order-service";
 import type { BadgeTone } from "@/components/ui/badge";
-import { Select } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
-import { Button } from "@/components/ui/button";
 import { OrdersTable } from "@/components/orders-table";
+import { OrderStatusFilter } from "./order-status-filter";
 
 export const metadata: Metadata = {
   title: "Orders — CaféOps",
@@ -53,18 +52,8 @@ export default async function OrdersPage({
           <label htmlFor="status" className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">
             Status
           </label>
-          <Select id="status" name="status" defaultValue={status ?? ""}>
-            <option value="">All statuses</option>
-            {["SUBMITTED", "PRINT_PENDING", "PRINTED", "COMPLETED", "CANCELLED", "REFUNDED"].map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </Select>
+          <OrderStatusFilter status={status ?? ""} />
         </div>
-        <Button type="submit" variant="secondary">
-          Filter
-        </Button>
       </form>
 
       <div className="mt-6 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
