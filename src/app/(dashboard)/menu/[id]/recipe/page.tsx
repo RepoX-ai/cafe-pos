@@ -75,7 +75,13 @@ export default async function RecipePage({
       ) : null}
 
       <div className="mt-6">
+        {/* Keyed by variant: the tabs above only change `?variant=`, so without
+            a key React keeps this editor mounted across variants — and its
+            lines live in state seeded once from `initialLines`. It would keep
+            showing the previous variant's ingredients while `variantId` had
+            already moved on, so Save would write them onto the wrong variant. */}
         <RecipeEditor
+          key={selectedVariant.id}
           menuItemId={id}
           variantId={selectedVariant.id}
           variantName={selectedVariant.name}
