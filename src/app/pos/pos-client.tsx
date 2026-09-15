@@ -24,8 +24,10 @@ import {
   CARD_BANK_LABELS,
   cartLineTotal,
   PAYMENT_METHODS,
+  resolveCashReceived,
   type CardBank,
   type CartLine,
+  type CashTenderMode,
   type OrderType,
   type PaymentMethod,
 } from "./pos-order-options";
@@ -67,9 +69,10 @@ export function PosClient({
   const [tableLabel, setTableLabel] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [cardBank, setCardBank] = useState<CardBank | null>(null);
-  // Cash the customer handed over. Required on cash sales; null until the
-  // cashier types it, which is what blocks submission.
-  const [cashReceived, setCashReceived] = useState<number | null>(null);
+  // How the cash was tendered, and the typed amount behind "Lainnya". The
+  // tendered figure itself is derived from these plus the total, below.
+  const [cashMode, setCashMode] = useState<CashTenderMode | null>(null);
+  const [customCash, setCustomCash] = useState<number | null>(null);
   const paymentMethodLabel =
     paymentMethod === "card" && cardBank ? `card (${CARD_BANK_LABELS[cardBank]})` : paymentMethod;
   const [discountTotal, setDiscountTotal] = useState(0);
@@ -109,7 +112,8 @@ export function PosClient({
         if (typeof draft.idempotencyKey === "string") setIdempotencyKey(draft.idempotencyKey);
         if (PAYMENT_METHODS.includes(draft.paymentMethod)) setPaymentMethod(draft.paymentMethod);
         setCardBank(draft.cardBank);
-        setCashReceived(draft.cashReceived);
+        setCashMode(draft.cashMode);
+        setCustomCash(draft.customCash);
         if (draft.orderType) setOrderType(draft.orderType);
         if (draft.tableLabel) setTableLabel(draft.tableLabel);
         if (typeof draft.discountTotal === "number") setDiscountTotal(draft.discountTotal);
@@ -123,11 +127,11 @@ export function PosClient({
   useEffect(() => {
     if (!draftLoaded) return;
     try {
-      localStorage.setItem(draftKey, JSON.stringify({ cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, cashReceived }));
+      localStorage.setItem(draftKey, JSON.stringify({ cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, cashMode, customCash }));
     } catch {
       // storage unavailable (private mode, quota) — cart still works in-memory
     }
-  }, [cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, cashReceived, draftLoaded, draftKey]);
+  }, [cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, cashMode, customCash, draftLoaded, draftKey]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -155,6 +159,7 @@ export function PosClient({
   const taxTotal = calculateTax(netSales, tax);
   const serviceChargeTotal = calculateServiceCharge(netSales, serviceChargePercent);
   const total = netSales + taxTotal + serviceChargeTotal;
+  const cashReceived = paymentMethod === "cash" ? resolveCashReceived(cashMode, customCash, total) : null;
 
   function addToCart(line: ConfiguredLine) {
     setCart((prev) => {
@@ -214,7 +219,8 @@ export function PosClient({
     setCart([]);
     setTableLabel("");
     setDiscountTotal(0);
-    setCashReceived(null);
+    setCashMode(null);
+    setCustomCash(null);
     setIdempotencyKey(newIdempotencyKey());
     setConfirmation(null);
     setSubmitError(null);
@@ -272,7 +278,8 @@ export function PosClient({
         setCart([]);
         setTableLabel("");
         setDiscountTotal(0);
-        setCashReceived(null);
+        setCashMode(null);
+        setCustomCash(null);
         setIdempotencyKey(newIdempotencyKey());
         try {
           localStorage.removeItem(draftKey);
@@ -368,7 +375,10 @@ export function PosClient({
           cardBank={cardBank}
           setCardBank={setCardBank}
           cashReceived={cashReceived}
-          setCashReceived={setCashReceived}
+          cashMode={cashMode}
+          setCashMode={setCashMode}
+          customCash={customCash}
+          setCustomCash={setCustomCash}
           discountTotal={discountTotal}
           setDiscountTotal={setDiscountTotal}
           subtotal={subtotal}

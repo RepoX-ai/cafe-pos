@@ -8,10 +8,14 @@ import { formatIDR } from "@/lib/money/money";
 import {
   CARD_BANK_LABELS,
   CARD_BANKS,
+  CASH_TENDER_LABELS,
+  CASH_TENDER_MODES,
   cartLineTotal,
+  cashTenderPreset,
   PAYMENT_METHODS,
   type CardBank,
   type CartLine,
+  type CashTenderMode,
   type OrderType,
   type PaymentMethod,
 } from "./pos-order-options";
@@ -32,7 +36,10 @@ export function PosCartPanel({
   cardBank,
   setCardBank,
   cashReceived,
-  setCashReceived,
+  cashMode,
+  setCashMode,
+  customCash,
+  setCustomCash,
   discountTotal,
   setDiscountTotal,
   subtotal,
@@ -56,7 +63,10 @@ export function PosCartPanel({
   cardBank: CardBank | null;
   setCardBank: (value: CardBank | null) => void;
   cashReceived: number | null;
-  setCashReceived: (value: number | null) => void;
+  cashMode: CashTenderMode | null;
+  setCashMode: (value: CashTenderMode | null) => void;
+  customCash: number | null;
+  setCustomCash: (value: number | null) => void;
   discountTotal: number;
   setDiscountTotal: (value: number) => void;
   subtotal: number;
@@ -79,8 +89,17 @@ export function PosCartPanel({
   const cashError = isUnderTendered
     ? `Cash received is ${formatIDR(-changeDue!)} short of the total.`
     : isCashMissing
-      ? "Enter the cash received to submit this order."
+      ? cashMode === "custom"
+        ? "Enter the cash received to submit this order."
+        : "Pick how the customer paid to submit this order."
       : null;
+
+  function selectCashMode(mode: CashTenderMode) {
+    setCashMode(mode);
+    // Leaving "Lainnya" drops the typed amount so returning to it starts
+    // clean rather than re-showing a figure the cashier moved away from.
+    if (mode !== "custom") setCustomCash(null);
+  }
 
   return (
     <aside className="flex w-[380px] shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -160,7 +179,10 @@ export function PosCartPanel({
               const next = v as (typeof PAYMENT_METHODS)[number];
               setPaymentMethod(next);
               if (next !== "card") setCardBank(null);
-              if (next !== "cash") setCashReceived(null);
+              if (next !== "cash") {
+                setCashMode(null);
+                setCustomCash(null);
+              }
             }}
           >
             {PAYMENT_METHODS.map((m) => (
@@ -194,30 +216,67 @@ export function PosCartPanel({
         ) : null}
 
         {isCash ? (
-          <div className="mb-3 flex items-center justify-between">
-            <label htmlFor="cash-received" className="text-sm text-[var(--color-text-secondary)]">
-              Cash received (Rp)
+          <div className="mb-3">
+            <span id="cash-tender-label" className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">
+              Cash received
               <span aria-hidden="true" className="ml-0.5 text-[var(--color-danger)]">*</span>
-            </label>
-            <input
-              id="cash-received"
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={1000}
-              required
-              autoFocus={cart.length > 0}
-              value={cashReceived ?? ""}
-              onChange={(e) => {
-                const raw = e.target.value.trim();
-                setCashReceived(raw === "" ? null : Math.max(0, Math.round(Number(raw) || 0)));
-              }}
-              aria-invalid={isUnderTendered}
-              aria-describedby={cashError ? "cash-received-error" : undefined}
-              className={`h-10 w-32 rounded-[var(--radius-sm)] border px-2 text-right text-base tabular-nums outline-none focus:border-[var(--color-accent-primary)] ${
-                isUnderTendered ? "border-[var(--color-danger)]" : "border-[var(--color-border)]"
-              }`}
-            />
+            </span>
+            <div role="group" aria-labelledby="cash-tender-label" className="flex gap-1 rounded-[var(--radius-sm)] bg-[var(--color-page-bg)] p-0.5">
+              {CASH_TENDER_MODES.map((mode) => {
+                const preset = cashTenderPreset(mode);
+                // A note smaller than the bill can't settle it — don't offer
+                // a tap that could only ever produce a shortfall.
+                const tooSmall = preset !== null && preset < total;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    disabled={tooSmall}
+                    aria-pressed={cashMode === mode}
+                    onClick={() => selectCashMode(mode)}
+                    className={`flex-1 rounded-[calc(var(--radius-sm)-2px)] px-1 py-2.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${
+                      cashMode === mode
+                        ? "bg-[var(--color-surface)] text-[var(--color-text-primary)] shadow-sm"
+                        : "text-[var(--color-text-muted)]"
+                    }`}
+                  >
+                    {CASH_TENDER_LABELS[mode]}
+                  </button>
+                );
+              })}
+            </div>
+
+            {cashMode === "custom" ? (
+              <div className="mt-2 flex items-center justify-between">
+                <label htmlFor="cash-received" className="text-sm text-[var(--color-text-secondary)]">
+                  Jumlah (Rp)
+                </label>
+                <input
+                  id="cash-received"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1000}
+                  required
+                  autoFocus
+                  value={customCash ?? ""}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    setCustomCash(raw === "" ? null : Math.max(0, Math.round(Number(raw) || 0)));
+                  }}
+                  aria-invalid={isUnderTendered}
+                  aria-describedby={cashError ? "cash-received-error" : undefined}
+                  className={`h-8 w-28 rounded-[var(--radius-sm)] border px-2 text-right text-sm tabular-nums outline-none focus:border-[var(--color-accent-primary)] ${
+                    isUnderTendered ? "border-[var(--color-danger)]" : "border-[var(--color-border)]"
+                  }`}
+                />
+              </div>
+            ) : cashReceived !== null ? (
+              <p className="mt-2 flex items-center justify-between text-sm text-[var(--color-text-secondary)]">
+                <span>Tendered</span>
+                <span className="tabular-nums text-[var(--color-text-primary)]">{formatIDR(cashReceived)}</span>
+              </p>
+            ) : null}
           </div>
         ) : null}
 
