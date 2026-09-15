@@ -31,6 +31,8 @@ export function PosCartPanel({
   setPaymentMethod,
   cardBank,
   setCardBank,
+  cashReceived,
+  setCashReceived,
   discountTotal,
   setDiscountTotal,
   subtotal,
@@ -53,6 +55,8 @@ export function PosCartPanel({
   setPaymentMethod: (value: PaymentMethod) => void;
   cardBank: CardBank | null;
   setCardBank: (value: CardBank | null) => void;
+  cashReceived: number | null;
+  setCashReceived: (value: number | null) => void;
   discountTotal: number;
   setDiscountTotal: (value: number) => void;
   subtotal: number;
@@ -66,6 +70,18 @@ export function PosCartPanel({
   isOnline: boolean;
   handleSubmit: () => void;
 }) {
+  // On a cash sale the tendered amount is required — an order can't be
+  // submitted until it's entered. Null is "not entered yet", never zero.
+  const isCash = paymentMethod === "cash";
+  const changeDue = isCash && cashReceived !== null ? cashReceived - total : null;
+  const isUnderTendered = changeDue !== null && changeDue < 0;
+  const isCashMissing = isCash && cashReceived === null;
+  const cashError = isUnderTendered
+    ? `Cash received is ${formatIDR(-changeDue!)} short of the total.`
+    : isCashMissing
+      ? "Enter the cash received to submit this order."
+      : null;
+
   return (
     <aside className="flex w-[380px] shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
@@ -144,6 +160,7 @@ export function PosCartPanel({
               const next = v as (typeof PAYMENT_METHODS)[number];
               setPaymentMethod(next);
               if (next !== "card") setCardBank(null);
+              if (next !== "cash") setCashReceived(null);
             }}
           >
             {PAYMENT_METHODS.map((m) => (
@@ -176,6 +193,34 @@ export function PosCartPanel({
           </div>
         ) : null}
 
+        {isCash ? (
+          <div className="mb-3 flex items-center justify-between">
+            <label htmlFor="cash-received" className="text-sm text-[var(--color-text-secondary)]">
+              Cash received (Rp)
+              <span aria-hidden="true" className="ml-0.5 text-[var(--color-danger)]">*</span>
+            </label>
+            <input
+              id="cash-received"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              step={1000}
+              required
+              autoFocus={cart.length > 0}
+              value={cashReceived ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value.trim();
+                setCashReceived(raw === "" ? null : Math.max(0, Math.round(Number(raw) || 0)));
+              }}
+              aria-invalid={isUnderTendered}
+              aria-describedby={cashError ? "cash-received-error" : undefined}
+              className={`h-10 w-32 rounded-[var(--radius-sm)] border px-2 text-right text-base tabular-nums outline-none focus:border-[var(--color-accent-primary)] ${
+                isUnderTendered ? "border-[var(--color-danger)]" : "border-[var(--color-border)]"
+              }`}
+            />
+          </div>
+        ) : null}
+
         <div className="mb-3 flex items-center justify-between">
           <label htmlFor="discount" className="text-sm text-[var(--color-text-secondary)]">
             Discount (Rp)
@@ -199,7 +244,29 @@ export function PosCartPanel({
             <span className="text-base font-semibold text-[var(--color-text-primary)]">Total</span>
             <span className="text-xl font-semibold tabular-nums text-[var(--color-text-primary)]">{formatIDR(total)}</span>
           </div>
+          {changeDue !== null ? (
+            <div className="mt-1.5 flex items-center justify-between border-t border-[var(--color-border)] pt-1.5">
+              <span className="text-base font-semibold text-[var(--color-text-primary)]">Change</span>
+              <span
+                className={`text-xl font-semibold tabular-nums ${
+                  isUnderTendered ? "text-[var(--color-danger)]" : "text-[var(--color-success)]"
+                }`}
+              >
+                {isUnderTendered ? `-${formatIDR(-changeDue)}` : formatIDR(changeDue)}
+              </span>
+            </div>
+          ) : null}
         </div>
+
+        {cashError && cart.length > 0 ? (
+          <p
+            id="cash-received-error"
+            role={isUnderTendered ? "alert" : undefined}
+            className={`mt-2 text-xs ${isUnderTendered ? "text-[var(--color-danger)]" : "text-[var(--color-text-muted)]"}`}
+          >
+            {cashError}
+          </p>
+        ) : null}
 
         {submitError ? (
           <p role="alert" className="mt-3 rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
@@ -210,7 +277,7 @@ export function PosCartPanel({
         <Button
           size="lg"
           className="mt-3 w-full"
-          disabled={cart.length === 0 || isSubmitting || !isOnline || (paymentMethod === "card" && !cardBank)}
+          disabled={cart.length === 0 || isSubmitting || !isOnline || (paymentMethod === "card" && !cardBank) || isUnderTendered || isCashMissing}
           onClick={handleSubmit}
         >
           {isSubmitting ? "Submitting…" : `Submit order · ${formatIDR(total)}`}

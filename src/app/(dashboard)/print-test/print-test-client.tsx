@@ -9,6 +9,7 @@ import {
   canRememberDevices,
   getRememberedPrinters,
   isWebBluetoothAvailable,
+  onPrinterDisconnected,
   openPrinter,
   requestPrinter,
   type PrinterDevice,
@@ -50,6 +51,9 @@ export function PrintTestClient() {
   const [endpoints, setEndpoints] = useState<PrinterEndpoint[]>([]);
   const [endpointUuid, setEndpointUuid] = useState("");
   const [writeMode, setWriteMode] = useState<WriteMode>("auto");
+  // Both destabilise the RPP02N firmware — diagnostics only, never defaults.
+  const [discoverAll, setDiscoverAll] = useState(false);
+  const [enableNotifications, setEnableNotifications] = useState(false);
   const lastDevice = useRef<PrinterDevice | null>(null);
   /** Mirrors lastDevice for render-time checks — refs can't be read while rendering. */
   const [hasDevice, setHasDevice] = useState(false);
@@ -69,6 +73,8 @@ export function PrintTestClient() {
     const opened = await openPrinter(device, {
       characteristicUuid: endpointUuid || undefined,
       mode: writeMode,
+      discoverAll,
+      enableNotifications,
     });
     link.current = opened;
     lastDevice.current = device;
@@ -85,15 +91,15 @@ export function PrintTestClient() {
       append(`  ${endpoint.serviceUuid} / ${endpoint.characteristicUuid} (${modes})`);
     }
     append(`Using ${opened.serviceUuid} / ${opened.characteristicUuid} (${opened.mode})`, "ok");
-    device.addEventListener("gattserverdisconnected", () => {
-      link.current = null;
-      setConnected(null);
-      append("Printer disconnected (sleep, out of range, or powered off).", "error");
-    });
-    const notifying = await opened.onNotify((bytes) => {
-      append(`Printer says: ${Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join(" ")}`);
-    });
-    append(`Status notifications: ${notifying ? "listening" : "unavailable on this unit"}`);
+    // Keep the link object: the printer sleeps constantly, and the next
+    // write reconnects on its own.
+    onPrinterDisconnected(device, () => append("Printer went to sleep — the next print will wake it.", "info"));
+    if (enableNotifications) {
+      const notifying = await opened.onNotify((bytes) => {
+        append(`Printer says: ${Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join(" ")}`);
+      });
+      append(`Status notifications: ${notifying ? "listening" : "unavailable on this unit"}`);
+    }
   }
 
   async function run(label: string, action: () => Promise<void>) {
@@ -230,6 +236,18 @@ export function PrintTestClient() {
           <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
             <input type="checkbox" checked={acceptAll} onChange={(event) => setAcceptAll(event.target.checked)} />
             Show all BLE devices in the chooser
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+            <input type="checkbox" checked={discoverAll} onChange={(event) => setDiscoverAll(event.target.checked)} />
+            Discover all services (can drop the link)
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+            <input
+              type="checkbox"
+              checked={enableNotifications}
+              onChange={(event) => setEnableNotifications(event.target.checked)}
+            />
+            Listen for status (can drop the link)
           </label>
         </div>
 

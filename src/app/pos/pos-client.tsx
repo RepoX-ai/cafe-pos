@@ -67,6 +67,9 @@ export function PosClient({
   const [tableLabel, setTableLabel] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [cardBank, setCardBank] = useState<CardBank | null>(null);
+  // Cash the customer handed over. Required on cash sales; null until the
+  // cashier types it, which is what blocks submission.
+  const [cashReceived, setCashReceived] = useState<number | null>(null);
   const paymentMethodLabel =
     paymentMethod === "card" && cardBank ? `card (${CARD_BANK_LABELS[cardBank]})` : paymentMethod;
   const [discountTotal, setDiscountTotal] = useState(0);
@@ -76,6 +79,8 @@ export function PosClient({
   const [confirmation, setConfirmation] = useState<{
     orderNumber: string;
     total: number;
+    cashReceived: number | null;
+    changeDue: number | null;
     printStatus: string;
     receipt?: PrintJobPayload;
     devicePrintJobId?: string;
@@ -104,6 +109,7 @@ export function PosClient({
         if (typeof draft.idempotencyKey === "string") setIdempotencyKey(draft.idempotencyKey);
         if (PAYMENT_METHODS.includes(draft.paymentMethod)) setPaymentMethod(draft.paymentMethod);
         setCardBank(draft.cardBank);
+        setCashReceived(draft.cashReceived);
         if (draft.orderType) setOrderType(draft.orderType);
         if (draft.tableLabel) setTableLabel(draft.tableLabel);
         if (typeof draft.discountTotal === "number") setDiscountTotal(draft.discountTotal);
@@ -117,11 +123,11 @@ export function PosClient({
   useEffect(() => {
     if (!draftLoaded) return;
     try {
-      localStorage.setItem(draftKey, JSON.stringify({ cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank }));
+      localStorage.setItem(draftKey, JSON.stringify({ cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, cashReceived }));
     } catch {
       // storage unavailable (private mode, quota) — cart still works in-memory
     }
-  }, [cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, draftLoaded, draftKey]);
+  }, [cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, cashReceived, draftLoaded, draftKey]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -208,6 +214,7 @@ export function PosClient({
     setCart([]);
     setTableLabel("");
     setDiscountTotal(0);
+    setCashReceived(null);
     setIdempotencyKey(newIdempotencyKey());
     setConfirmation(null);
     setSubmitError(null);
@@ -221,6 +228,10 @@ export function PosClient({
   async function handleSubmit() {
     if ((!pending && cart.length === 0) || submitting.current || !draftLoaded || !isOnline) return;
     if (!pending && paymentMethod === "card" && !cardBank) return;
+    // Cash sales must record what the customer handed over. The server
+    // rejects an under-tender too; stopping here keeps the cashier from
+    // burning the idempotency key on a doomed submission.
+    if (!pending && paymentMethod === "cash" && (cashReceived === null || cashReceived < total)) return;
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -230,6 +241,7 @@ export function PosClient({
       tableLabel: tableLabel || undefined,
       paymentMethodLabel,
       discountTotal,
+      cashReceived: paymentMethod === "cash" && cashReceived !== null ? cashReceived : undefined,
       lines: cart.map((l) => ({
         menuItemId: l.menuItemId,
         menuItemVariantId: l.variantId,
@@ -251,6 +263,8 @@ export function PosClient({
         setConfirmation({
           orderNumber: result.orderNumber,
           total: result.total,
+          cashReceived: result.cashReceived,
+          changeDue: result.changeDue,
           printStatus: result.printStatus,
           receipt: result.receipt,
           devicePrintJobId: result.devicePrintJobId,
@@ -258,6 +272,7 @@ export function PosClient({
         setCart([]);
         setTableLabel("");
         setDiscountTotal(0);
+        setCashReceived(null);
         setIdempotencyKey(newIdempotencyKey());
         try {
           localStorage.removeItem(draftKey);
@@ -310,6 +325,7 @@ export function PosClient({
           >
             <Printer size={12} />
             {printer.isConnected ? (printer.deviceName ?? "Printer ready") : "Connect printer"}
+            {printer.isAsleep ? " (asleep)" : ""}
           </button>
           {canViewOrderHistory ? (
             <Link
@@ -351,6 +367,8 @@ export function PosClient({
           setPaymentMethod={setPaymentMethod}
           cardBank={cardBank}
           setCardBank={setCardBank}
+          cashReceived={cashReceived}
+          setCashReceived={setCashReceived}
           discountTotal={discountTotal}
           setDiscountTotal={setDiscountTotal}
           subtotal={subtotal}

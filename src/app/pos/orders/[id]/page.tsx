@@ -102,6 +102,8 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
           <Metric label="Tax" value={formatIDR(order.taxTotal)} />
           <Metric label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
           <Metric label="Total" value={formatIDR(order.total)} />
+          {order.cashReceived !== null ? <Metric label="Cash received" value={formatIDR(order.cashReceived)} /> : null}
+          {order.changeDue !== null ? <Metric label="Change" value={formatIDR(order.changeDue)} /> : null}
         </section>
       </div>
     </div>

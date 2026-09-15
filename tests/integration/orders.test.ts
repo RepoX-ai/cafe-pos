@@ -38,6 +38,53 @@ describe.skipIf(!db)("order submission (integration)", () => {
     expect(detail?.printJobs[0].status).toBe("QUEUED");
   });
 
+  it("derives the change from the order total and stores both sides of a cash tender", async () => {
+    const { business, user, variant, menuItem } = await seedTestFixture(db!);
+
+    const result = await submitOrder(db!, { businessId: business.id, userId: user.id }, {
+      idempotencyKey: "cash-key-1",
+      orderType: "dine_in",
+      discountTotal: 0,
+      cashReceived: 50_000,
+      lines: [{ menuItemId: menuItem.id, menuItemVariantId: variant.id, quantity: 1, modifierOptionIds: [] }],
+    });
+
+    expect(result.order.cashReceived).toBe(50_000);
+    expect(result.order.changeDue).toBe(50_000 - result.order.total);
+
+    const [job] = (await getOrderById(db!, business.id, result.order.id))!.printJobs;
+    expect(job.payloadSnapshot).toMatchObject({ cashReceived: 50_000, changeDue: 50_000 - result.order.total });
+  });
+
+  it("leaves cash and change null on a non-cash order", async () => {
+    const { business, user, variant, menuItem } = await seedTestFixture(db!);
+
+    const result = await submitOrder(db!, { businessId: business.id, userId: user.id }, {
+      idempotencyKey: "cash-key-2",
+      orderType: "dine_in",
+      paymentMethodLabel: "qris",
+      discountTotal: 0,
+      lines: [{ menuItemId: menuItem.id, menuItemVariantId: variant.id, quantity: 1, modifierOptionIds: [] }],
+    });
+
+    expect(result.order.cashReceived).toBeNull();
+    expect(result.order.changeDue).toBeNull();
+  });
+
+  it("rejects a cash tender smaller than the order total", async () => {
+    const { business, user, variant, menuItem } = await seedTestFixture(db!);
+
+    await expect(
+      submitOrder(db!, { businessId: business.id, userId: user.id }, {
+        idempotencyKey: "cash-key-3",
+        orderType: "dine_in",
+        discountTotal: 0,
+        cashReceived: 1,
+        lines: [{ menuItemId: menuItem.id, menuItemVariantId: variant.id, quantity: 1, modifierOptionIds: [] }],
+      }),
+    ).rejects.toThrow(/less than the order total/);
+  });
+
   it("returns the same order on a duplicate idempotency key instead of creating a second one", async () => {
     const { business, user, variant, menuItem } = await seedTestFixture(db!);
     const key = "dup-key";

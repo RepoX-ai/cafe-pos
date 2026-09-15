@@ -11,6 +11,8 @@ import type { PosPrinter } from "./use-bluetooth-printer";
 type Confirmation = {
   orderNumber: string;
   total: number;
+  cashReceived: number | null;
+  changeDue: number | null;
   printStatus: string;
   receipt?: PrintJobPayload;
   devicePrintJobId?: string;
@@ -76,6 +78,16 @@ export function PosOrderConfirmation({
       <p className="text-lg text-[var(--color-text-secondary)]">{confirmation.orderNumber}</p>
       <p className="text-3xl font-semibold tabular-nums text-[var(--color-text-primary)]">{formatIDR(confirmation.total)}</p>
 
+      {confirmation.changeDue !== null ? (
+        <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-8 py-4">
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            Cash received <span className="font-medium tabular-nums text-[var(--color-text-primary)]">{formatIDR(confirmation.cashReceived ?? 0)}</span>
+          </p>
+          <p className="mt-2 text-sm text-[var(--color-text-secondary)]">Change</p>
+          <p className="text-4xl font-semibold tabular-nums text-[var(--color-success)]">{formatIDR(confirmation.changeDue)}</p>
+        </div>
+      ) : null}
+
       {isDeviceJob ? (
         <>
           <p className="text-sm text-[var(--color-text-secondary)]">
@@ -92,6 +104,16 @@ export function PosOrderConfirmation({
               {state === "printing" ? "printing…" : state === "printed" ? "printed" : state === "failed" ? "not printed" : "waiting for printer"}
             </span>
           </p>
+          {printer.isSimulated && state === "printed" && printer.lastSimulatedReceipt ? (
+            <details className="max-w-[360px] text-left">
+              <summary className="cursor-pointer text-xs text-[var(--color-text-secondary)]">
+                Simulated paper output
+              </summary>
+              <pre className="mt-2 overflow-x-auto whitespace-pre rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-mono text-xs text-[var(--color-text-primary)]">
+                {printer.lastSimulatedReceipt}
+              </pre>
+            </details>
+          ) : null}
           {state !== "printing" && state !== "printed" ? (
             <div className="flex flex-col items-center gap-2">
               {error ? <p className="max-w-xs text-xs text-[var(--color-danger)]">{error}</p> : null}

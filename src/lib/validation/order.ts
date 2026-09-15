@@ -37,6 +37,11 @@ export const submitOrderInputSchema = z.object({
   tableLabel: z.string().trim().max(100).optional(),
   paymentMethodLabel: z.string().trim().max(50).optional(),
   discountTotal: z.number().int().min(0).max(ORDER_LIMITS.maxRupiah).default(0),
+  // What the customer handed over on a cash sale, where the POS requires
+  // it. Absent on non-cash orders, so it stays optional at this layer; the
+  // change is derived server-side from the order total, never sent by the
+  // client.
+  cashReceived: z.number().int().min(0).max(ORDER_LIMITS.maxRupiah).optional(),
   notes: z.string().trim().max(1000).optional(),
   lines: z
     .array(orderLineInputSchema)

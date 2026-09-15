@@ -25,6 +25,8 @@ export type PrintJobPayload = {
   discount?: number;
   tax?: number;
   total?: number;
+  cashReceived?: number;
+  changeDue?: number;
   footer?: string;
 };
 

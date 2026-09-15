@@ -29,7 +29,7 @@ export function BrowserReceipt({ payload }: { payload: PrintJobPayload }) {
       if (item.note) line(item.note);
       if (item.lineTotal !== undefined) line(formatIDR(item.lineTotal));
     }
-    for (const [label, value] of [["Subtotal", payload.subtotal], ["Discount", payload.discount], ["Tax", payload.tax], ["Total", payload.total]] as const) {
+    for (const [label, value] of [["Subtotal", payload.subtotal], ["Discount", payload.discount], ["Tax", payload.tax], ["Total", payload.total], ["Cash", payload.cashReceived], ["Change", payload.changeDue]] as const) {
       if (value !== undefined) line(`${label}: ${formatIDR(value)}`);
     }
     if (payload.footer) line(payload.footer);

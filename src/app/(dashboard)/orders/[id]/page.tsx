@@ -108,6 +108,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         <Metric label="Tax" value={formatIDR(order.taxTotal)} />
         <Metric label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
         <Metric label="Total" value={formatIDR(order.total)} />
+        {order.cashReceived !== null ? <Metric label="Cash received" value={formatIDR(order.cashReceived)} /> : null}
+        {order.changeDue !== null ? <Metric label="Change" value={formatIDR(order.changeDue)} /> : null}
         <Metric label="COGS" value={formatIDR(order.cogsTotal)} />
         <Metric label="Gross profit" value={formatIDR(order.grossProfit)} />
         <Metric label="Gross margin" value={order.grossMarginPercentage !== null ? `${Number(order.grossMarginPercentage).toFixed(1)}%` : "—"} />

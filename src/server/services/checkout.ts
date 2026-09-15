@@ -15,6 +15,9 @@ export type SubmitOrderResult =
       orderId: string;
       orderNumber: string;
       total: number;
+      /** Null on non-cash orders; set whenever a cash tender was recorded. */
+      cashReceived: number | null;
+      changeDue: number | null;
       idempotent: boolean;
       printStatus: string;
       receipt?: PrintJobPayload;
@@ -82,6 +85,8 @@ export async function submitOrderForUser(
       orderId: order.id,
       orderNumber: order.orderNumber,
       total: order.total,
+      cashReceived: order.cashReceived,
+      changeDue: order.changeDue,
       idempotent,
       printStatus,
       receipt,

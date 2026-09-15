@@ -44,6 +44,12 @@ export const orders = pgTable(
     // Stored as an exact decimal percentage (e.g. 62.35), not a money value.
     grossMarginPercentage: numeric("gross_margin_percentage", { precision: 6, scale: 2 }),
     paymentMethodLabel: text("payment_method_label"),
+    // Cash tendered by the customer and the change handed back, both whole
+    // Rupiah snapshots. Null on non-cash orders, and on cash orders taken
+    // before the POS started requiring the amount — null means "not
+    // recorded", never "zero".
+    cashReceived: integer("cash_received"),
+    changeDue: integer("change_due"),
     notes: text("notes"),
     // Idempotency key supplied by the client for the submit-order action.
     // Unique per business so a retried submission returns the same order

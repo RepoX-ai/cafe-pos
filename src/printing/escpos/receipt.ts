@@ -126,6 +126,18 @@ function buildBlocks(payload: PrintJobPayload, options: ReceiptOptions = {}): Bl
         blocks.push({ kind: "line", text, align: "left", bold: true, tall: true });
       }
     }
+    // Cash tendered and change, when the cashier recorded them. Printed
+    // below the total so the customer can check the change against paper.
+    const tender: Array<[string, number | undefined]> = [
+      ["CASH", payload.cashReceived],
+      ["CHANGE", payload.changeDue],
+    ];
+    for (const [label, value] of tender) {
+      if (value === undefined) continue;
+      for (const text of row(label, formatIDR(value), columns)) {
+        blocks.push({ kind: "line", text, align: "left", bold: label === "CHANGE" });
+      }
+    }
     push(divider);
     if (payload.footer) push(payload.footer, "center");
   }

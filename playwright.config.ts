@@ -22,10 +22,14 @@ export default defineConfig({
       use: { ...devices["iPad (gen 7) landscape"] },
     },
   ],
-  webServer: {
-    command: "npm run dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-  },
+  // APP_URL points the tests at a server you started yourself (handy when a
+  // dev server is already running, since Next refuses a second one).
+  webServer: process.env.APP_URL
+    ? undefined
+    : {
+        command: "npm run dev",
+        url: "http://localhost:3000",
+        reuseExistingServer: !process.env.CI,
+        timeout: 60_000,
+      },
 });

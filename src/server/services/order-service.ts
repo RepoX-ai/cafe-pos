@@ -321,6 +321,16 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
       throw new OrderValidationError("This order is too large to record. Split it into smaller orders.");
     }
 
+    // Change is derived here, from the total this transaction just computed
+    // — never from a client-supplied figure. Under-tender is rejected
+    // rather than clamped, so a mistyped amount can't be recorded as a
+    // paid order with an understated change.
+    const cashReceived = input.cashReceived ?? null;
+    if (cashReceived !== null && cashReceived < total) {
+      throw new OrderValidationError("Cash received is less than the order total.");
+    }
+    const changeDue = cashReceived === null ? null : cashReceived - total;
+
     const orderNumber = `${business.orderNumberPrefix}-${String(await allocateOrderNumber(tx, actor.businessId, resyncCounter)).padStart(5, "0")}`;
 
     const [order] = await tx
@@ -340,6 +350,8 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
         grossProfit,
         grossMarginPercentage: grossMarginPercentage !== null ? String(grossMarginPercentage) : null,
         paymentMethodLabel: input.paymentMethodLabel || null,
+        cashReceived,
+        changeDue,
         notes: input.notes || null,
         idempotencyKey: input.idempotencyKey,
         createdBy: actor.userId,
@@ -456,6 +468,8 @@ function buildPrintPayload(
     discount: order.discountTotal,
     tax: order.taxTotal,
     total: order.total,
+    cashReceived: order.cashReceived ?? undefined,
+    changeDue: order.changeDue ?? undefined,
   };
 }
 

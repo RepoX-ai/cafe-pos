@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderReceipt, renderReceiptText } from "@/printing/escpos/receipt";
 import { toPrintableAscii } from "@/printing/escpos/commands";
 import type { PrintJobPayload } from "@/printing/printer-provider";
+import { createSimulatedPrinter, decodeEscPos } from "@/printing/ble/simulated-printer";
 
 const payload: PrintJobPayload = {
   orderId: "o1",
@@ -33,6 +34,28 @@ describe("ESC/POS receipt layout", () => {
     const total = lines(renderReceiptText(payload)).find((line) => line.startsWith("TOTAL"));
     expect(total).toBe("TOTAL" + "Rp58.830".padStart(27, " "));
     expect(total).toHaveLength(32);
+  });
+
+  it("prints the cash tendered and the change below the total", () => {
+    const text = renderReceiptText({ ...payload, cashReceived: 100000, changeDue: 41170 });
+    const printed = lines(text);
+    const cash = printed.find((line) => line.startsWith("CASH"));
+    const change = printed.find((line) => line.startsWith("CHANGE"));
+    expect(cash).toBe("CASH" + "Rp100.000".padStart(28, " "));
+    expect(change).toBe("CHANGE" + "Rp41.170".padStart(26, " "));
+    expect(printed.indexOf(change!)).toBeGreaterThan(printed.findIndex((line) => line.startsWith("TOTAL")));
+  });
+
+  it("omits the cash and change lines when the tender was not recorded", () => {
+    const text = renderReceiptText(payload);
+    expect(text).not.toContain("CASH");
+    expect(text).not.toContain("CHANGE");
+  });
+
+  it("keeps cash and change off a kitchen ticket", () => {
+    const text = renderReceiptText({ ...payload, cashReceived: 100000, changeDue: 41170 }, { destination: "KITCHEN_TICKET" });
+    expect(text).not.toContain("CASH");
+    expect(text).not.toContain("CHANGE");
   });
 
   it("shows a discount as a negative amount", () => {
@@ -104,5 +127,28 @@ describe("ESC/POS byte output", () => {
     const bytes = renderReceipt(accented);
     for (const byte of bytes) expect(byte).toBeLessThanOrEqual(0x7f);
     expect(toPrintableAscii("Café Crème 日本")).toBe("Cafe Creme ??");
+  });
+});
+
+describe("simulated printer", () => {
+  it("decodes the byte stream back to the text the paper would show", () => {
+    // Round-trip: what the simulator shows locally must match the layout
+    // the formatter promises, or local testing proves nothing.
+    const decoded = decodeEscPos(renderReceipt(payload));
+    const expected = renderReceiptText(payload);
+    expect(decoded.trimEnd()).toBe(expected.trimEnd());
+  });
+
+  it("keeps the paper feed at the end", () => {
+    const decoded = decodeEscPos(renderReceipt(payload));
+    expect(decoded.endsWith("\n\n\n\n")).toBe(true);
+  });
+
+  it("records each receipt it is given", async () => {
+    const printer = createSimulatedPrinter();
+    await printer.write(renderReceipt(payload));
+    await printer.write(renderReceipt({ ...payload, orderNumber: "ORD-00043" }));
+    expect(printer.history()).toHaveLength(2);
+    expect(printer.history()[1]).toContain("ORD-00043");
   });
 });
