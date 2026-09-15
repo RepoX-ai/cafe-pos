@@ -3,41 +3,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cartDraftSchema, cartLineSignature } from "@/lib/pos/cart";
 import { submitOrderInputSchema, type SubmitOrderInput } from "@/lib/validation/order";
-import { BrowserReceipt } from "@/components/browser-receipt";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 import Link from "next/link";
-import { History, ImageOff, Search, Trash2, WifiOff } from "lucide-react";
+import { History, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { QuantityStepper } from "@/components/ui/quantity-stepper";
-import { Select } from "@/components/ui/form-field";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
 import type { TaxConfig } from "@/lib/settings/tax";
 import { calculateServiceCharge, calculateTax } from "@/lib/settings/tax";
-import { formatIDR, sumRupiah } from "@/lib/money/money";
+import { sumRupiah } from "@/lib/money/money";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { BrandLogo } from "@/components/brand-logo";
 import { submitOrderAction } from "./actions";
 import { ItemModal, type ConfiguredLine } from "./item-modal";
 import { useToast } from "@/components/ui/toast";
-
-interface CartLine extends ConfiguredLine {
-  key: string;
-}
+import { PosCartPanel } from "./pos-cart-panel";
+import { PosMenuPanel } from "./pos-menu-panel";
+import { PosOrderConfirmation } from "./pos-order-confirmation";
+import {
+  CARD_BANK_LABELS,
+  cartLineTotal,
+  PAYMENT_METHODS,
+  type CardBank,
+  type CartLine,
+  type OrderType,
+  type PaymentMethod,
+} from "./pos-order-options";
 
 const DRAFT_KEY = "cafepos.pos.draft.v1";
 
 function newIdempotencyKey() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `key-${Date.now()}-${Math.random()}`;
 }
-
-type OrderType = "dine_in" | "takeaway" | "other";
-const PAYMENT_METHODS = ["cash", "card", "qris", "other"] as const;
-const CARD_BANKS = ["bca", "mandiri", "bri"] as const;
-const CARD_BANK_LABELS: Record<(typeof CARD_BANKS)[number], string> = {
-  bca: "BCA",
-  mandiri: "Mandiri",
-  bri: "BRI",
-};
 
 export function PosClient({
   draftScope,
@@ -68,8 +64,8 @@ export function PosClient({
   const [cart, setCart] = useState<CartLine[]>([]);
   const [orderType, setOrderType] = useState<OrderType>("dine_in");
   const [tableLabel, setTableLabel] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>("cash");
-  const [cardBank, setCardBank] = useState<(typeof CARD_BANKS)[number] | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
+  const [cardBank, setCardBank] = useState<CardBank | null>(null);
   const paymentMethodLabel =
     paymentMethod === "card" && cardBank ? `card (${CARD_BANK_LABELS[cardBank]})` : paymentMethod;
   const [discountTotal, setDiscountTotal] = useState(0);
@@ -140,11 +136,7 @@ export function PosClient({
     });
   }, [items, activeCategory, search]);
 
-  function lineTotal(line: CartLine) {
-    return (line.unitBasePrice + line.modifierAdjustmentTotal) * line.quantity;
-  }
-
-  const subtotal = sumRupiah(cart.map(lineTotal));
+  const subtotal = sumRupiah(cart.map(cartLineTotal));
   const netSales = Math.max(0, subtotal - discountTotal);
   const taxTotal = calculateTax(netSales, tax);
   const serviceChargeTotal = calculateServiceCharge(netSales, serviceChargePercent);
@@ -273,31 +265,7 @@ export function PosClient({
   }
 
   if (confirmation) {
-    return (
-      <div className="force-light-theme flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--color-page-bg)] px-6 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--color-success-bg)]">
-          <span className="text-3xl">✓</span>
-        </div>
-        <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Order submitted</h1>
-        <p className="text-lg text-[var(--color-text-secondary)]">{confirmation.orderNumber}</p>
-        <p className="text-3xl font-semibold tabular-nums text-[var(--color-text-primary)]">{formatIDR(confirmation.total)}</p>
-        <p className="text-sm text-[var(--color-text-secondary)]">
-          Print status:{" "}
-          <span className={confirmation.printStatus === "FAILED" ? "font-medium text-[var(--color-danger)]" : "font-medium text-[var(--color-success)]"}>
-            {confirmation.printStatus === "FAILED" ? "Failed — needs attention" : confirmation.printStatus.toLowerCase()}
-          </span>
-        </p>
-        {confirmation.printStatus === "FAILED" ? (
-          <p className="max-w-xs text-xs text-[var(--color-text-muted)]">
-            The order was saved. An admin can retry printing from the order&apos;s detail page.
-          </p>
-        ) : null}
-        {confirmation.receipt ? <BrowserReceipt payload={confirmation.receipt} /> : null}
-        <Button size="lg" onClick={resetOrder} className="mt-4">
-          New order
-        </Button>
-      </div>
-    );
+    return <PosOrderConfirmation confirmation={confirmation} resetOrder={resetOrder} />;
   }
 
   return (
@@ -333,276 +301,44 @@ export function PosClient({
 
       {pending ? <div role="alert" className="p-4">A submission needs confirmation. <Button disabled={isSubmitting || !isOnline} onClick={handleSubmit}>Retry saved order</Button>{submitError ? <p>{submitError}</p> : null}</div> : null}
       <div inert={!!pending || isSubmitting || !draftLoaded} className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-3">
-            <div className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2">
-              <Search size={16} className="text-[var(--color-text-muted)]" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search menu"
-                className="w-40 text-sm outline-none"
-              />
-            </div>
-            <div className="flex gap-2 overflow-x-auto">
-              <button
-                onClick={() => setActiveCategory("all")}
-                className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium ${
-                  activeCategory === "all"
-                    ? "border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"
-                    : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
-                }`}
-              >
-                All
-              </button>
-              {categories.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setActiveCategory(c.id)}
-                  className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium ${
-                    activeCategory === c.id
-                      ? "border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"
-                      : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
-                  }`}
-                >
-                  {c.name}
-                </button>
-              ))}
-            </div>
-          </div>
+        <PosMenuPanel
+          categories={categories}
+          filteredItems={filteredItems}
+          search={search}
+          setSearch={setSearch}
+          activeCategory={activeCategory}
+          setActiveCategory={setActiveCategory}
+          handleItemTap={handleItemTap}
+        />
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-6">
-            {filteredItems.length === 0 ? (
-              <p className="mt-10 text-center text-sm text-[var(--color-text-secondary)]">No menu items match.</p>
-            ) : (
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                {filteredItems.map((item) => {
-                  const prices = item.variants.length > 0 ? item.variants.map((v) => v.price) : [item.basePrice];
-                  const minPrice = Math.min(...prices);
-                  const maxPrice = Math.max(...prices);
-                  const singleVariantOutOfStock =
-                    item.variants.length === 1 && !item.variants[0].inStock;
-                  const unavailable = item.outOfStock || singleVariantOutOfStock;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => handleItemTap(item)}
-                      disabled={unavailable}
-                      aria-disabled={unavailable}
-                      className={`relative flex flex-col items-start gap-2 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-left transition-colors ${
-                        unavailable
-                          ? "cursor-not-allowed opacity-50"
-                          : "hover:border-[var(--color-accent-primary)] active:bg-[var(--color-selected-surface)]"
-                      }`}
-                    >
-                      <ItemThumbnail item={item} />
-                      {unavailable ? (
-                        <span className="absolute right-2 top-2 rounded-full bg-[var(--color-danger)] px-2 py-0.5 text-xs font-medium text-white">
-                          Out of stock
-                        </span>
-                      ) : null}
-                      <div className="flex flex-col gap-0.5 px-4 pb-4">
-                        <span className="text-sm font-semibold text-[var(--color-text-primary)]">{item.name}</span>
-                        <span className="tabular-nums text-sm text-[var(--color-text-secondary)]">
-                          {minPrice === maxPrice ? formatIDR(minPrice) : `${formatIDR(minPrice)}–${formatIDR(maxPrice)}`}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <aside className="flex w-[380px] shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
-          <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
-            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Current order</h2>
-            <div className="flex gap-1 rounded-[var(--radius-sm)] bg-[var(--color-page-bg)] p-0.5">
-              {(["dine_in", "takeaway"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setOrderType(t)}
-                  className={`rounded-[calc(var(--radius-sm)-2px)] px-2.5 py-1 text-xs font-medium ${
-                    orderType === t ? "bg-[var(--color-surface)] text-[var(--color-text-primary)] shadow-sm" : "text-[var(--color-text-muted)]"
-                  }`}
-                >
-                  {t === "dine_in" ? "Dine-in" : "Takeaway"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
-            {cart.length === 0 ? (
-              <p className="mt-8 text-center text-sm text-[var(--color-text-secondary)]">Cart is empty. Tap a menu item to add it.</p>
-            ) : (
-              <ul className="flex flex-col gap-3">
-                {cart.map((line) => (
-                  <li key={line.key} className="border-b border-[var(--color-border)] pb-3 last:border-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">
-                          {line.menuItemName}
-                          {line.variantName ? (
-                            <span className="text-[var(--color-text-secondary)]"> · {line.variantName}</span>
-                          ) : null}
-                        </p>
-                        {line.modifierNames.length > 0 ? (
-                          <p className="truncate text-xs text-[var(--color-text-muted)]">{line.modifierNames.join(", ")}</p>
-                        ) : null}
-                        {line.notes ? <p className="truncate text-xs italic text-[var(--color-text-muted)]">&quot;{line.notes}&quot;</p> : null}
-                      </div>
-                      <span className="shrink-0 tabular-nums text-sm font-medium text-[var(--color-text-primary)]">
-                        {formatIDR(lineTotal(line))}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 flex items-center gap-2">
-                      <QuantityStepper
-                        size="sm"
-                        value={line.quantity}
-                        onDecrease={() => updateQuantity(line.key, -1)}
-                        onIncrease={() => updateQuantity(line.key, 1)}
-                      />
-                      <button
-                        onClick={() => removeLine(line.key)}
-                        className="ml-auto rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]"
-                        aria-label="Remove line"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="shrink-0 border-t border-[var(--color-border)] px-5 py-4">
-            <div className="mb-3 grid grid-cols-2 gap-2">
-              <input
-                value={tableLabel}
-                onChange={(e) => setTableLabel(e.target.value)}
-                placeholder="Table / customer"
-                className="h-10 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2.5 text-sm outline-none focus:border-[var(--color-accent-primary)]"
-              />
-              <Select
-                value={paymentMethod}
-                onChange={(v) => {
-                  const next = v as (typeof PAYMENT_METHODS)[number];
-                  setPaymentMethod(next);
-                  if (next !== "card") setCardBank(null);
-                }}
-              >
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>
-                    {m[0].toUpperCase() + m.slice(1)}
-                  </option>
-                ))}
-              </Select>
-            </div>
-
-            {paymentMethod === "card" ? (
-              <div className="mb-3">
-                <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Which bank?</span>
-                <div className="flex gap-1 rounded-[var(--radius-sm)] bg-[var(--color-page-bg)] p-0.5">
-                  {CARD_BANKS.map((bank) => (
-                    <button
-                      key={bank}
-                      type="button"
-                      onClick={() => setCardBank(bank)}
-                      className={`flex-1 rounded-[calc(var(--radius-sm)-2px)] px-2.5 py-1.5 text-xs font-medium ${
-                        cardBank === bank
-                          ? "bg-[var(--color-surface)] text-[var(--color-text-primary)] shadow-sm"
-                          : "text-[var(--color-text-muted)]"
-                      }`}
-                    >
-                      {CARD_BANK_LABELS[bank]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="mb-3 flex items-center justify-between">
-              <label htmlFor="discount" className="text-sm text-[var(--color-text-secondary)]">
-                Discount (Rp)
-              </label>
-              <input
-                id="discount"
-                type="number"
-                min={0}
-                value={discountTotal || ""}
-                onChange={(e) => setDiscountTotal(Number(e.target.value) || 0)}
-                className="h-8 w-28 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2 text-right text-sm outline-none"
-              />
-            </div>
-
-            <div className="flex flex-col gap-1 text-sm">
-              <Row label="Subtotal" value={formatIDR(subtotal)} />
-              {discountTotal > 0 ? <Row label="Discount" value={`-${formatIDR(discountTotal)}`} /> : null}
-              {taxTotal > 0 ? <Row label="Tax" value={formatIDR(taxTotal)} /> : null}
-              {serviceChargeTotal > 0 ? <Row label="Service charge" value={formatIDR(serviceChargeTotal)} /> : null}
-              <div className="mt-1.5 flex items-center justify-between border-t border-[var(--color-border)] pt-1.5">
-                <span className="text-base font-semibold text-[var(--color-text-primary)]">Total</span>
-                <span className="text-xl font-semibold tabular-nums text-[var(--color-text-primary)]">{formatIDR(total)}</span>
-              </div>
-            </div>
-
-            {submitError ? (
-              <p role="alert" className="mt-3 rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
-                {submitError}
-              </p>
-            ) : null}
-
-            <Button
-              size="lg"
-              className="mt-3 w-full"
-              disabled={cart.length === 0 || isSubmitting || !isOnline || (paymentMethod === "card" && !cardBank)}
-              onClick={handleSubmit}
-            >
-              {isSubmitting ? "Submitting…" : `Submit order · ${formatIDR(total)}`}
-            </Button>
-          </div>
-        </aside>
+        <PosCartPanel
+          cart={cart}
+          orderType={orderType}
+          setOrderType={setOrderType}
+          tableLabel={tableLabel}
+          setTableLabel={setTableLabel}
+          paymentMethod={paymentMethod}
+          setPaymentMethod={setPaymentMethod}
+          cardBank={cardBank}
+          setCardBank={setCardBank}
+          discountTotal={discountTotal}
+          setDiscountTotal={setDiscountTotal}
+          subtotal={subtotal}
+          taxTotal={taxTotal}
+          serviceChargeTotal={serviceChargeTotal}
+          total={total}
+          updateQuantity={updateQuantity}
+          removeLine={removeLine}
+          submitError={submitError}
+          isSubmitting={isSubmitting}
+          isOnline={isOnline}
+          handleSubmit={handleSubmit}
+        />
       </div>
 
       {configuring ? (
         <ItemModal item={configuring} onClose={() => setConfiguring(null)} onAdd={addToCart} />
       ) : null}
-    </div>
-  );
-}
-
-function ItemThumbnail({ item }: { item: PosMenuItem }) {
-  const [failed, setFailed] = useState(false);
-
-  if (!item.imageUrl || failed) {
-    return (
-      <div className="flex h-24 w-full shrink-0 items-center justify-center bg-[var(--color-page-bg)]">
-        <ImageOff size={20} className="text-[var(--color-text-muted)]" />
-      </div>
-    );
-  }
-
-  return (
-    // Product photos live at cashier-pasted external URLs, not a fixed set of
-    // remote hosts, so next/image's remotePatterns allowlist doesn't fit here.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={item.imageUrl}
-      alt=""
-      className="h-24 w-full shrink-0 object-cover"
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between text-[var(--color-text-secondary)]">
-      <span>{label}</span>
-      <span className="tabular-nums">{value}</span>
     </div>
   );
 }

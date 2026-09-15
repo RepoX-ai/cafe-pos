@@ -2,7 +2,7 @@ import type { Database } from "@/lib/db/client";
 import { stockCountLines, stockCounts } from "@/lib/db/schema";
 import type { StockCountInput } from "@/lib/validation/stock-count";
 import { recordAuditLog } from "./audit";
-import { insertMovementAndApplyStock, lockIngredientForUpdate } from "./inventory-service";
+import { insertMovementAndApplyStock, lockIngredientForUpdate, lockIngredientsForUpdate } from "./inventory-service";
 import type { ActorContext } from "./ingredient-service";
 
 /**
@@ -28,6 +28,9 @@ export async function createAndSubmitStockCount(
         submittedAt: new Date(),
       })
       .returning();
+
+    // All ingredient locks up front, in id order (see lockIngredientsForUpdate).
+    await lockIngredientsForUpdate(tx, actor.businessId, input.lines.map((line) => line.ingredientId));
 
     for (const line of input.lines) {
       const locked = await lockIngredientForUpdate(tx, actor.businessId, line.ingredientId);

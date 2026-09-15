@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { formatIDR } from "@/lib/money/money";
+import { useEffect, useState, type ReactNode } from "react";
 import { useActionState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
-import { Pagination } from "@/components/ui/pagination";
-import { usePagination } from "@/components/ui/use-pagination";
 import { createWasteRecordAction, type WasteActionState } from "./actions";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
 
@@ -45,9 +44,17 @@ function formatDate(value: string | Date) {
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
 }
 
-export function WasteClient({ ingredients, records }: { ingredients: IngredientOption[]; records: WasteRow[] }) {
+export function WasteClient({
+  ingredients,
+  records,
+  pagination,
+}: {
+  ingredients: IngredientOption[];
+  /** One server-fetched page of waste history. */
+  records: WasteRow[];
+  pagination?: ReactNode;
+}) {
   const [recording, setRecording] = useState(false);
-  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(records, 20);
 
   return (
     <div className="flex flex-col gap-8">
@@ -83,14 +90,14 @@ export function WasteClient({ ingredients, records }: { ingredients: IngredientO
               </tr>
             </thead>
             <tbody>
-              {pageItems.length === 0 ? (
+              {records.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                     No waste recorded yet.
                   </td>
                 </tr>
               ) : (
-                pageItems.map((r) => (
+                records.map((r) => (
                   <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDate(r.createdAt)}</td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{r.ingredientName}</td>
@@ -98,14 +105,14 @@ export function WasteClient({ ingredients, records }: { ingredients: IngredientO
                       {Number(r.quantityBaseUnits).toLocaleString("id-ID")} {UNIT_LABEL[r.baseUnit]}
                     </td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{REASON_LABEL[r.reason] ?? r.reason}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">Rp{r.estimatedCost.toLocaleString("id-ID")}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{formatIDR(r.estimatedCost)}</td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
           </div>
-          <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
+          {pagination}
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { roles, sessions, userRoles, users } from "@/lib/db/schema";
 import type { RoleName } from "@/lib/permissions/permissions";
@@ -54,6 +54,7 @@ export async function validateSessionToken(
   if (!token) return null;
 
   const tokenHash = hashToken(token);
+  // Session, user, and role names in one round trip.
   const [row] = await db
     .select({
       userId: users.id,
@@ -62,6 +63,11 @@ export async function validateSessionToken(
       email: users.email,
       active: users.active,
       expiresAt: sessions.expiresAt,
+      roles: sql<string[]>`array(
+        select ${roles.name}::text from ${userRoles}
+        inner join ${roles} on ${roles.id} = ${userRoles.roleId}
+        where ${userRoles.userId} = ${users.id}
+      )`,
     })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
@@ -72,19 +78,13 @@ export async function validateSessionToken(
   if (row.expiresAt.getTime() < Date.now()) return null;
   if (!row.active) return null;
 
-  const roleRows = await db
-    .select({ name: roles.name })
-    .from(userRoles)
-    .innerJoin(roles, eq(userRoles.roleId, roles.id))
-    .where(eq(userRoles.userId, row.userId));
-
   return {
     id: row.userId,
     businessId: row.businessId,
     name: row.name,
     email: row.email,
     active: row.active,
-    roles: roleRows.map((r) => r.name as RoleName),
+    roles: row.roles as RoleName[],
   };
 }
 

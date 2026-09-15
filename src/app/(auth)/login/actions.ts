@@ -1,17 +1,31 @@
 "use server";
 
 import { eq } from "drizzle-orm";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { login, logout } from "@/server/services/auth-service";
 import { createSession, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { clearLoginAttempts, consumeLoginAttempt } from "@/server/services/login-rate-limit";
+import { getRequestMeta } from "@/lib/http/request-meta";
+import {
+  claimRateLimitCleanupSlot,
+  clearRateLimits,
+  consumeRateLimits,
+  deleteExpiredRateLimitBuckets,
+  RATE_LIMITS,
+  type RateLimitCheck,
+} from "@/server/services/rate-limit";
 import { DEV_SEED_ACCOUNTS } from "@/lib/dev-seed-accounts";
 
 export type LoginFormState = { error?: string } | undefined;
+
+// Longest plausible email, and a password cap well above any real
+// passphrase so an oversized body can't be pushed through hashing.
+const MAX_IDENTIFIER_LENGTH = 320;
+const MAX_PASSWORD_LENGTH = 1024;
 
 export async function loginAction(
   _prevState: LoginFormState,
@@ -24,21 +38,31 @@ export async function loginAction(
     return { error: "Enter your email and password." };
   }
 
-  const headerList = await headers();
-  const ipAddress = headerList.get("x-forwarded-for");
-  // Rate-limit by IP+email so one attacker can't lock out someone else's
-  // account, and one compromised account can't be brute-forced from a
-  // single IP either (PRD §12).
-  const rateLimitKey = `${ipAddress ?? "unknown"}:${identifier.toLowerCase()}`;
+  const { ipAddress, userAgent } = await getRequestMeta();
+  const account = identifier.toLowerCase().slice(0, MAX_IDENTIFIER_LENGTH);
+  // Separate buckets (PRD §12): per client IP stops rotating identifiers
+  // from one address; per account stops spreading guesses across addresses;
+  // account + IP is the everyday allowance for one device. IP buckets only
+  // exist when a trusted proxy supplies the IP (see lib/http/client-ip.ts).
+  const accountIp: RateLimitCheck[] = ipAddress ? [{ rule: RATE_LIMITS.loginAccountIp(), key: [ipAddress, account] }] : [];
+  const accountOnly: RateLimitCheck = { rule: RATE_LIMITS.loginAccount(), key: [account] };
+  const checks: RateLimitCheck[] = [
+    ...(ipAddress ? [{ rule: RATE_LIMITS.loginClientIp(), key: [ipAddress] }] : []),
+    ...accountIp,
+    accountOnly,
+  ];
 
-  if (!(await consumeLoginAttempt(db, rateLimitKey))) {
+  const blocked = await consumeRateLimits(db, checks);
+  if (claimRateLimitCleanupSlot()) after(() => deleteExpiredRateLimitBuckets(db).catch(() => undefined));
+  if (blocked) {
     return { error: "Too many attempts. Wait a few minutes and try again." };
   }
 
-  const result = await login(db, identifier, password, {
-    ipAddress,
-    userAgent: headerList.get("user-agent"),
-  });
+  if (identifier.length > MAX_IDENTIFIER_LENGTH || password.length > MAX_PASSWORD_LENGTH) {
+    return { error: "Incorrect email or password." };
+  }
+
+  const result = await login(db, identifier, password, { ipAddress, userAgent });
 
   if (!result.ok) {
     return {
@@ -49,7 +73,9 @@ export async function loginAction(
     };
   }
 
-  await clearLoginAttempts(db, rateLimitKey);
+  // The per-IP bucket is deliberately not cleared: otherwise one valid login
+  // would reset an attacker's allowance for rotating other identifiers.
+  await clearRateLimits(db, [...accountIp, accountOnly]);
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE_NAME, result.token, {
@@ -69,16 +95,7 @@ export async function logoutAction(): Promise<void> {
   const user = await getCurrentUser();
 
   if (token && user) {
-    const headerList = await headers();
-    await logout(
-      db,
-      token,
-      { businessId: user.businessId, userId: user.id },
-      {
-        ipAddress: headerList.get("x-forwarded-for"),
-        userAgent: headerList.get("user-agent"),
-      },
-    );
+    await logout(db, token, { businessId: user.businessId, userId: user.id }, await getRequestMeta());
   }
 
   cookieStore.delete(SESSION_COOKIE_NAME);
@@ -123,11 +140,7 @@ export async function devQuickLoginAction(email: string): Promise<DevQuickLoginS
     await logout(db, existingToken, { businessId: currentUser.businessId, userId: currentUser.id });
   }
 
-  const headerList = await headers();
-  const { token, expiresAt } = await createSession(db, user.id, {
-    ipAddress: headerList.get("x-forwarded-for"),
-    userAgent: headerList.get("user-agent"),
-  });
+  const { token, expiresAt } = await createSession(db, user.id, await getRequestMeta());
 
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,

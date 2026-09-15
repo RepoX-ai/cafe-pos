@@ -1,7 +1,7 @@
 "use client";
 
 import { formatIDR } from "@/lib/money/money";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useActionState } from "react";
 import { CalendarDays, Layers, Plus, Receipt, Repeat, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,8 +15,6 @@ import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import { DatePicker } from "@/components/ui/date-picker";
 import { ActionMenu } from "@/components/ui/action-menu";
-import { Pagination } from "@/components/ui/pagination";
-import { usePagination } from "@/components/ui/use-pagination";
 import { EXPENSE_CATEGORIES } from "@/lib/validation/expense";
 import { createExpenseAction, updateExpenseAction, type ExpenseActionState } from "./actions";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
@@ -44,6 +42,7 @@ const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
 
 export function ExpensesClient({
   records,
+  pagination,
   summary,
   previousSummary,
   byCategory,
@@ -53,7 +52,9 @@ export function ExpensesClient({
   to,
   today,
 }: {
+  /** One server-fetched page of the range's expenses. */
   records: ExpenseRow[];
+  pagination?: ReactNode;
   summary: ExpenseSummary;
   previousSummary: ExpenseSummary;
   byCategory: CategoryTotal[];
@@ -67,7 +68,6 @@ export function ExpensesClient({
     null,
   );
 
-  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(records, 20);
   const averagePerDay = rangeLengthDays > 0 ? Math.round(summary.total / rangeLengthDays) : 0;
   const previousAveragePerDay = rangeLengthDays > 0 ? Math.round(previousSummary.total / rangeLengthDays) : 0;
   const largestCategoryTotal = byCategory[0]?.total ?? 0;
@@ -210,14 +210,14 @@ export function ExpensesClient({
               </tr>
             </thead>
             <tbody>
-              {pageItems.length === 0 ? (
+              {records.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                     No expenses recorded between {from} and {to}.
                   </td>
                 </tr>
               ) : (
-                pageItems.map((r) => (
+                records.map((r) => (
                   <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.expenseDate}</td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{CATEGORY_LABEL[r.category] ?? r.category}</td>
@@ -239,7 +239,7 @@ export function ExpensesClient({
             </tbody>
           </table>
           </div>
-          <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
+          {pagination}
         </div>
       </div>
     </div>

@@ -15,15 +15,20 @@ import {
 } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
-import { listIngredients } from "@/server/services/ingredient-service";
 import {
   getFailedPrintJobs,
   getRecentOrders,
   getSalesByDay,
   getSalesByMenuItem,
   getSalesSummary,
+  getStockAlerts,
 } from "@/server/services/reports-service";
-import { startOfBusinessDay, endOfBusinessDay, todayInBusinessTimezone, shiftBusinessDate } from "@/lib/dates/dates";
+import {
+  previousBusinessPeriod,
+  resolveBusinessDateRange,
+  shiftBusinessDate,
+  todayInBusinessTimezone,
+} from "@/lib/dates/dates";
 import { Badge } from "@/components/ui/badge";
 import { DateRangeForm } from "@/components/ui/date-range-form";
 import { StatCard as Card, computeTrend } from "@/components/ui/stat-card";
@@ -42,28 +47,25 @@ export default async function DashboardPage({
   const { from, to } = await searchParams;
 
   const today = todayInBusinessTimezone();
-  const fromDate = from || today;
-  const toDate = to || today;
-  const range = { from: startOfBusinessDay(fromDate), to: endOfBusinessDay(toDate) };
+  const range = resolveBusinessDateRange(from, to, { from: today, to: today });
+  const { from: fromDate, to: toDate } = range;
 
   // The trend chart always shows a fixed trailing 14-day window ending on
   // `toDate`, independent of the KPI cards' date-range filter above — so it
   // reads as a trend on first load instead of the single bar you'd get from
   // the cards' today-only default.
   const chartFromDate = shiftBusinessDate(toDate, -13);
-  const chartRange = { from: startOfBusinessDay(chartFromDate), to: endOfBusinessDay(toDate) };
+  const chartRange = { from: chartFromDate, to: toDate };
 
-  // "vs. last period" comparison: the same number of days immediately
-  // preceding the selected range.
-  const rangeLengthDays = Math.round((endOfBusinessDay(toDate).getTime() - startOfBusinessDay(fromDate).getTime()) / 86_400_000) + 1;
-  const previousToDate = shiftBusinessDate(fromDate, -1);
-  const previousFromDate = shiftBusinessDate(fromDate, -rangeLengthDays);
-  const previousRange = { from: startOfBusinessDay(previousFromDate), to: endOfBusinessDay(previousToDate) };
+  // "vs. last period" comparison: the same number of calendar days
+  // immediately preceding the selected range (a single day compares with
+  // the day before).
+  const previousRange = previousBusinessPeriod(range);
 
-  const [summary, previousSummary, ingredients, topItems, recentOrders, failedPrints, salesByDay] = await Promise.all([
+  const [summary, previousSummary, stockAlerts, topItems, recentOrders, failedPrints, salesByDay] = await Promise.all([
     getSalesSummary(db, user.businessId, range),
     getSalesSummary(db, user.businessId, previousRange),
-    listIngredients(db, user.businessId),
+    getStockAlerts(db, user.businessId, 6),
     getSalesByMenuItem(db, user.businessId, range),
     getRecentOrders(db, user.businessId, 8),
     getFailedPrintJobs(db, user.businessId),
@@ -77,10 +79,7 @@ export default async function DashboardPage({
     return { day, value: row?.totalSales ?? 0, caption: `${row?.orderCount ?? 0} orders` };
   });
 
-  const lowStock = ingredients.filter(
-    (i) => i.reorderLevelBaseUnits && Number(i.currentQuantityBaseUnits) <= Number(i.reorderLevelBaseUnits),
-  );
-  const outOfStock = ingredients.filter((i) => Number(i.currentQuantityBaseUnits) <= 0);
+  const { lowStock, outOfStock } = stockAlerts;
   const topSelling = [...topItems].sort((a, b) => b.quantitySold - a.quantitySold).slice(0, 5);
   const highestCogs = [...topItems].sort((a, b) => b.cogs - a.cogs).slice(0, 5);
 
@@ -151,7 +150,7 @@ export default async function DashboardPage({
           {lowStock.length === 0 ? (
             <EmptyRow text="Nothing below its reorder level." />
           ) : (
-            lowStock.slice(0, 6).map((i) => (
+            lowStock.map((i) => (
               <WidgetRow
                 key={i.id}
                 left={i.name}
@@ -172,7 +171,7 @@ export default async function DashboardPage({
           {outOfStock.length === 0 ? (
             <EmptyRow text="Nothing is out of stock." />
           ) : (
-            outOfStock.slice(0, 6).map((i) => (
+            outOfStock.map((i) => (
               <WidgetRow
                 key={i.id}
                 left={i.name}
@@ -241,7 +240,7 @@ export default async function DashboardPage({
                     {p.orderNumber}
                   </Link>
                 }
-                right={<Badge tone="danger">Failed</Badge>}
+                right={p.uncertain ? <Badge tone="warning">Outcome unknown</Badge> : <Badge tone="danger">Failed</Badge>}
               />
             ))
           )}

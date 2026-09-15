@@ -72,6 +72,7 @@ data only — never run the seed script against a production database.
 | `npm run db:migrate` | Apply migrations to `DATABASE_URL` |
 | `npm run db:seed` | Insert development seed data (idempotent) |
 | `npm run db:create-owner` | Create the first business + owner account on a fresh/production database |
+| `npm run db:cleanup-rate-limits` | Delete expired rate-limit buckets (optional cron; the app also cleans up after requests) |
 | `npm run db:studio` | Drizzle Studio (browse the database) |
 
 ## Architecture notes
@@ -95,6 +96,14 @@ data only — never run the seed script against a production database.
   SHA-256 hash of the session token lives in Postgres, and every request
   re-validates it (including the user's `active` flag) so deactivation
   takes effect immediately.
+- **Concurrency**: checkout, cancellation/refund, purchases and stock counts
+  lock ingredient rows in ingredient-id order (reversals lock the order row
+  first), so competing requests serialize instead of double-applying stock.
+  Order numbers come from a per-business counter row
+  (`order_number_counters`), locked only from number allocation to commit.
+- **Growing lists are paginated on the server** (`?page=N`, 20 rows, newest
+  first with an id tie-breaker); CSV exports stream every matching row in
+  batches from one read-only snapshot.
 - **Historical orders never change**: menu/recipe/cost snapshots are
   copied onto the order at submission time (see `orders`, `order_lines`,
   `order_ingredient_consumption` in the schema) — editing a menu item or

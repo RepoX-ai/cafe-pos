@@ -7,7 +7,16 @@ import {
   getExpensesByDay,
   listExpensesInRange,
 } from "@/server/services/expense-service";
-import { shiftBusinessDate, todayInBusinessTimezone } from "@/lib/dates/dates";
+import {
+  calendarDaysInclusive,
+  isCalendarDate,
+  previousBusinessPeriod,
+  resolveBusinessDateRange,
+  shiftBusinessDate,
+  todayInBusinessTimezone,
+} from "@/lib/dates/dates";
+import { pageWindow, parsePageParam, toPage } from "@/lib/pagination";
+import { ServerPagination } from "@/components/ui/server-pagination";
 import type { TrendPoint } from "@/components/ui/trend-chart";
 import { ExpensesClient } from "./expenses-client";
 
@@ -25,35 +34,34 @@ const CHART_DAYS = 14;
 export default async function ExpensesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; page?: string }>;
 }) {
   const user = await requirePageAccess("expenses:write");
-  const { from, to } = await searchParams;
+  const { from, to, page } = await searchParams;
 
   const today = todayInBusinessTimezone();
-  const toDate = to || today;
-  const fromDate = from || shiftBusinessDate(toDate, -DEFAULT_DAYS_BACK);
-  const range = { from: fromDate, to: toDate };
+  const defaultTo = isCalendarDate(to) ? to : today;
+  const range = resolveBusinessDateRange(from, to, { from: shiftBusinessDate(defaultTo, -DEFAULT_DAYS_BACK), to: defaultTo });
+  const { from: fromDate, to: toDate } = range;
 
   // "vs. last period": the same number of days immediately preceding the range.
-  const rangeLengthDays = daysBetween(fromDate, toDate) + 1;
-  const previousRange = {
-    from: shiftBusinessDate(fromDate, -rangeLengthDays),
-    to: shiftBusinessDate(fromDate, -1),
-  };
+  const rangeLengthDays = calendarDaysInclusive(range);
+  const previousRange = previousBusinessPeriod(range);
 
   // The trend chart holds a fixed trailing 14-day window ending on `toDate`,
   // independent of the cards' range — so it still reads as a trend when the
   // Daily preset narrows the cards to a single day.
   const chartFromDate = shiftBusinessDate(toDate, -(CHART_DAYS - 1));
+  const window = pageWindow(parsePageParam(page));
 
-  const [records, summary, previousSummary, byCategory, byDay] = await Promise.all([
-    listExpensesInRange(db, user.businessId, range),
+  const [rows, summary, previousSummary, byCategory, byDay] = await Promise.all([
+    listExpensesInRange(db, user.businessId, range, window),
     getExpenseSummary(db, user.businessId, range),
     getExpenseSummary(db, user.businessId, previousRange),
     getExpensesByCategory(db, user.businessId, range),
     getExpensesByDay(db, user.businessId, { from: chartFromDate, to: toDate }),
   ]);
+  const records = toPage(rows, window.page, window.pageSize);
 
   const byDayMap = new Map(byDay.map((d) => [d.day, d]));
   const trendData: TrendPoint[] = Array.from({ length: CHART_DAYS }, (_, i) => {
@@ -70,7 +78,14 @@ export default async function ExpensesPage({
   return (
     <div className="mx-auto max-w-[1440px]">
       <ExpensesClient
-        records={records}
+        records={records.rows}
+        pagination={
+          <ServerPagination
+            page={{ ...records, rowCount: records.rows.length }}
+            basePath="/expenses"
+            params={{ from: fromDate, to: toDate }}
+          />
+        }
         summary={summary}
         previousSummary={previousSummary}
         byCategory={byCategory}
@@ -82,12 +97,4 @@ export default async function ExpensesPage({
       />
     </div>
   );
-}
-
-/** Whole days from one Y-M-D calendar date to another. Asia/Jakarta has no DST
- *  (fixed UTC+7), so plain UTC arithmetic on the date-only strings is exact. */
-function daysBetween(from: string, to: string): number {
-  const fromMs = Date.parse(`${from}T00:00:00Z`);
-  const toMs = Date.parse(`${to}T00:00:00Z`);
-  return Math.round((toMs - fromMs) / 86_400_000);
 }

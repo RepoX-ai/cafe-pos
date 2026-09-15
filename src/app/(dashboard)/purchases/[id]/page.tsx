@@ -1,4 +1,4 @@
-import { formatIDR } from "@/lib/money/money";
+import { formatIDR, formatIDRRate } from "@/lib/money/money";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -16,9 +16,6 @@ type BaseUnit = "gram" | "millilitre" | "piece";
 
 const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
 
-function formatRate(n: number) {
-  return `Rp${n.toLocaleString("id-ID", { maximumFractionDigits: 2 })}`;
-}
 
 function formatDateTime(value: Date) {
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
@@ -75,7 +72,7 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
                   {UNIT_LABEL[line.ingredientBaseUnit as BaseUnit]}
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">
-                  {formatRate(Number(line.costPerBaseUnit))}
+                  {formatIDRRate(line.costPerBaseUnit)}
                 </td>
                 <td className="px-4 py-3 text-right tabular-nums">{formatIDR(line.totalLineCost)}</td>
               </tr>

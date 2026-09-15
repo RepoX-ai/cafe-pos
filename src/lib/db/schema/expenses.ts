@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { boolean, date, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { businesses, locations } from "./core";
 import { users } from "./auth";
 
@@ -21,4 +21,4 @@ export const expenses = pgTable("expenses", {
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("expenses_business_expense_date_idx").on(table.businessId, table.expenseDate)]);

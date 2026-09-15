@@ -2,11 +2,13 @@ import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 import { ArrowLeft } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
 import { getOrderById } from "@/server/services/order-service";
+import { recoverAbandonedPrintJobs } from "@/server/services/print-service";
 import { Badge } from "@/components/ui/badge";
 import { OrderActionButton } from "./order-action-button";
 import { PrintJobsPanel } from "./print-jobs-panel";
@@ -31,6 +33,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   if (!detail) notFound();
 
   const { order, lines, printJobs } = detail;
+  // A job abandoned mid-print already shows as "outcome unknown"; record that
+  // on the job (FAILED, for a person to check) once the response is sent.
+  if (printJobs.some((job) => job.outcomeUnknown)) {
+    after(() => recoverAbandonedPrintJobs(db, user.businessId).catch(() => undefined));
+  }
 
   return (
     <div className="mx-auto max-w-[900px]">
@@ -134,7 +141,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
       <section className="mt-6">
         <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Print jobs</h2>
-        <PrintJobsPanel orderId={order.id} printJobs={printJobs} canManagePrinter={canManagePrinter} canReprint={canReprint} />
+        <PrintJobsPanel
+          orderId={order.id}
+          printJobs={printJobs}
+          canManagePrinter={canManagePrinter}
+          canReprint={canReprint}
+        />
       </section>
 
       {order.status !== "CANCELLED" && order.status !== "REFUNDED" ? (

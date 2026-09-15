@@ -1,7 +1,6 @@
 "use client";
 
-import { Pagination } from "@/components/ui/pagination";
-import { usePagination } from "@/components/ui/use-pagination";
+import type { ReactNode } from "react";
 import { formatBusinessDateTime } from "@/lib/dates/dates";
 
 interface AuditLogRow {
@@ -14,9 +13,8 @@ interface AuditLogRow {
   metadata: unknown;
 }
 
-export function AuditLogTable({ logs }: { logs: AuditLogRow[] }) {
-  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(logs, 20);
-
+/** One server-fetched page of audit events, with its pagination footer. */
+export function AuditLogTable({ logs, pagination }: { logs: AuditLogRow[]; pagination?: ReactNode }) {
   return (
     <div className="mt-6 overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="overflow-x-auto">
@@ -31,14 +29,14 @@ export function AuditLogTable({ logs }: { logs: AuditLogRow[] }) {
             </tr>
           </thead>
           <tbody>
-            {pageItems.length === 0 ? (
+            {logs.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                   No audit events yet.
                 </td>
               </tr>
             ) : (
-              pageItems.map((log) => (
+              logs.map((log) => (
                 <tr key={log.id} className="border-b border-[var(--color-border)] last:border-0 align-top">
                   <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatBusinessDateTime(new Date(log.createdAt))}</td>
                   <td className="px-4 py-3 text-[var(--color-text-secondary)]">{log.actorName ?? "System"}</td>
@@ -60,7 +58,7 @@ export function AuditLogTable({ logs }: { logs: AuditLogRow[] }) {
           </tbody>
         </table>
       </div>
-      <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
+      {pagination}
     </div>
   );
 }

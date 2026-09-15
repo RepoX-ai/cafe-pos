@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useActionState } from "react";
 import { ClipboardList, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Modal } from "@/components/ui/modal";
 import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
-import { Pagination } from "@/components/ui/pagination";
-import { usePagination } from "@/components/ui/use-pagination";
+import { formatIDR } from "@/lib/money/money";
 import { createManualAdjustmentAction, submitStockCountAction, type InventoryActionState } from "./actions";
 import { useToast } from "@/components/ui/toast";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
@@ -69,10 +68,13 @@ export function InventoryClient({
   ingredients,
   movements,
   canAdjust,
+  ledgerPagination,
 }: {
   ingredients: IngredientRow[];
+  /** One server-fetched page of the ledger. */
   movements: MovementRow[];
   canAdjust: boolean;
+  ledgerPagination?: ReactNode;
 }) {
   const [adjusting, setAdjusting] = useState(false);
   const [counting, setCounting] = useState(false);
@@ -128,7 +130,7 @@ export function InventoryClient({
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <div className="lg:col-span-3">
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Ledger</h2>
-          <LedgerTab movements={movements} />
+          <LedgerTab movements={movements} pagination={ledgerPagination} />
         </div>
         <div className="lg:col-span-1">
           <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
@@ -166,9 +168,7 @@ function LowStockPanel({ rows }: { rows: IngredientRow[] }) {
   );
 }
 
-function LedgerTab({ movements }: { movements: MovementRow[] }) {
-  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(movements, 20);
-
+function LedgerTab({ movements, pagination }: { movements: MovementRow[]; pagination?: ReactNode }) {
   return (
     <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="overflow-x-auto">
@@ -184,14 +184,14 @@ function LedgerTab({ movements }: { movements: MovementRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {pageItems.length === 0 ? (
+          {movements.length === 0 ? (
             <tr>
               <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                 No movements yet.
               </td>
             </tr>
           ) : (
-            pageItems.map((m) => {
+            movements.map((m) => {
               const qty = Number(m.quantityBaseUnits);
               return (
                 <tr key={m.id} className="border-b border-[var(--color-border)] last:border-0">
@@ -205,7 +205,7 @@ function LedgerTab({ movements }: { movements: MovementRow[] }) {
                     {formatQty(m.quantityBaseUnits, m.baseUnit)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">
-                    {m.totalCost !== null ? `Rp${m.totalCost.toLocaleString("id-ID")}` : "—"}
+                    {m.totalCost !== null ? formatIDR(m.totalCost) : "—"}
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-secondary)]">{m.reason ?? "—"}</td>
                 </tr>
@@ -215,7 +215,7 @@ function LedgerTab({ movements }: { movements: MovementRow[] }) {
         </tbody>
       </table>
       </div>
-      <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
+      {pagination}
     </div>
   );
 }

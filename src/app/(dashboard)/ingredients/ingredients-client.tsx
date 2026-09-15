@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import { Plus } from "lucide-react";
+import { formatIDRRate } from "@/lib/money/money";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,10 +47,6 @@ function formatQuantity(value: string | null, unit: BaseUnit) {
   return `${num.toLocaleString("id-ID", { maximumFractionDigits: 2 })} ${UNIT_LABEL[unit]}`;
 }
 
-function formatCost(value: string) {
-  const num = Number(value);
-  return `Rp${num.toLocaleString("id-ID", { maximumFractionDigits: 2 })}`;
-}
 
 export function IngredientsClient({
   ingredients,
@@ -133,7 +130,7 @@ export function IngredientsClient({
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatCost(ing.averageCostPerBaseUnit)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{formatIDRRate(ing.averageCostPerBaseUnit)}</td>
                   <td className="px-4 py-3">
                     <Badge tone={ing.active ? "success" : "neutral"}>
                       {ing.active ? "Active" : "Archived"}

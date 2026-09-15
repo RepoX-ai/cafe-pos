@@ -5,11 +5,20 @@ import { convertToBaseUnits } from "@/lib/units/units";
 import { microsToRupiah, multiplyQuantityByRate } from "@/lib/money/money";
 import { calculateWeightedAverageCost } from "@/lib/purchasing/weighted-average-cost";
 import type { PurchaseInput } from "@/lib/validation/purchase";
+import type { BusinessDateRange } from "@/lib/dates/dates";
+import { withinCalendarDates } from "./range-filters";
 import { recordAuditLog } from "./audit";
-import { insertMovementAndApplyStock, lockIngredientForUpdate } from "./inventory-service";
+import { insertMovementAndApplyStock, lockIngredientForUpdate, lockIngredientsForUpdate } from "./inventory-service";
 import type { ActorContext } from "./ingredient-service";
 
-export async function listPurchases(db: Database, businessId: string, limit = 100) {
+/** Newest receipts first; `range` filters on the date-only purchase_date. */
+export async function listPurchases(
+  db: Database,
+  businessId: string,
+  opts: { range?: BusinessDateRange; limit: number; offset: number },
+) {
+  const conditions = [eq(purchases.businessId, businessId)];
+  if (opts.range) conditions.push(withinCalendarDates(purchases.purchaseDate, opts.range));
   return db
     .select({
       id: purchases.id,
@@ -22,9 +31,10 @@ export async function listPurchases(db: Database, businessId: string, limit = 10
     })
     .from(purchases)
     .leftJoin(suppliers, eq(purchases.supplierId, suppliers.id))
-    .where(eq(purchases.businessId, businessId))
-    .orderBy(desc(purchases.createdAt))
-    .limit(limit);
+    .where(and(...conditions))
+    .orderBy(desc(purchases.createdAt), desc(purchases.id))
+    .limit(opts.limit)
+    .offset(opts.offset);
 }
 
 export async function getPurchaseWithLines(db: Database, businessId: string, id: string) {
@@ -94,6 +104,11 @@ export async function createAndFinalizePurchase(
       .returning();
 
     let totalCost = 0;
+
+    // Take every ingredient lock up front, in id order, like checkout and
+    // order reversals do — per-line locking in entry order could deadlock
+    // against them.
+    await lockIngredientsForUpdate(tx, actor.businessId, input.lines.map((line) => line.ingredientId));
 
     for (const line of input.lines) {
       const quantityBaseUnits = convertToBaseUnits({

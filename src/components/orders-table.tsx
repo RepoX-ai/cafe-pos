@@ -1,10 +1,9 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
-import { Pagination } from "@/components/ui/pagination";
-import { usePagination } from "@/components/ui/use-pagination";
 
 export interface OrderRow {
   id: string;
@@ -25,20 +24,33 @@ function formatItem(item: { name: string; quantity: number }) {
   return `${item.quantity}× ${item.name}`;
 }
 
-/** Whole-row click target for the orders list — not just the order-number link. */
-export function OrdersTable({ orders, basePath = "/orders" }: { orders: OrderRow[]; basePath?: "/orders" | "/pos/orders" }) {
+/**
+ * Whole-row click target for the orders list — not just the order-number
+ * link. Renders one server-fetched page; `pagination` is the footer for it.
+ */
+export function OrdersTable({
+  orders,
+  basePath = "/orders",
+  pagination,
+}: {
+  orders: OrderRow[];
+  basePath?: "/orders" | "/pos/orders";
+  pagination?: ReactNode;
+}) {
   const router = useRouter();
-  const { page, setPage, totalPages, pageItems, pageSize, totalItems } = usePagination(orders, 20);
 
   if (orders.length === 0) {
     return (
-      <table className="w-full min-w-[1100px] border-collapse text-sm">
-        <tbody>
-          <tr>
-            <td className="px-4 py-10 text-center text-[var(--color-text-secondary)]">No orders found.</td>
-          </tr>
-        </tbody>
-      </table>
+      <div>
+        <table className="w-full min-w-[1100px] border-collapse text-sm">
+          <tbody>
+            <tr>
+              <td className="px-4 py-10 text-center text-[var(--color-text-secondary)]">No orders found.</td>
+            </tr>
+          </tbody>
+        </table>
+        {pagination}
+      </div>
     );
   }
 
@@ -57,7 +69,7 @@ export function OrdersTable({ orders, basePath = "/orders" }: { orders: OrderRow
           </tr>
         </thead>
         <tbody>
-          {pageItems.map((o) => (
+          {orders.map((o) => (
             <tr
               key={o.id}
               onClick={() => router.push(`${basePath}/${o.id}`)}
@@ -99,7 +111,7 @@ export function OrdersTable({ orders, basePath = "/orders" }: { orders: OrderRow
           ))}
         </tbody>
       </table>
-      <Pagination page={page} totalPages={totalPages} totalItems={totalItems} pageSize={pageSize} onPageChange={setPage} />
+      {pagination}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { BrowserReceipt } from "@/components/browser-receipt";
 import type { PrintJobPayload } from "@/printing/printer-provider";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { retryPrintJobAction, reprintOrderAction } from "../actions";
@@ -14,6 +14,12 @@ interface PrintJobRow {
   status: string;
   attemptCount: number;
   lastError: string | null;
+  /** Abandoned mid-print: it may or may not have printed. */
+  outcomeUnknown?: boolean;
+}
+
+function newRequestKey() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `reprint-${Date.now()}-${Math.random()}`;
 }
 
 export function PrintJobsPanel({
@@ -31,6 +37,9 @@ export function PrintJobsPanel({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [isReprinting, setIsReprinting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // One key per deliberate Reprint. It survives a failed/unknown response so
+  // clicking again retries that same request instead of queueing a second receipt.
+  const reprintKey = useRef<string | null>(null);
   const showToast = useToast();
 
   async function retry(jobId: string) {
@@ -38,7 +47,7 @@ export function PrintJobsPanel({
     try {
       const result = await retryPrintJobAction(jobId, orderId);
       if (result.ok && result.payload) setReceipt(result.payload);
-      const text = result.ok ? `Retry result: ${result.status}` : result.error;
+      const text = result.ok ? `Retry result: ${result.status}${result.error ? ` — ${result.error}` : ""}` : result.error;
       setMessage(text);
       showToast(result.ok ? "success" : "error", text);
     } catch {
@@ -51,9 +60,11 @@ export function PrintJobsPanel({
   async function reprint() {
     setIsReprinting(true);
     try {
-      const result = await reprintOrderAction(orderId);
+      reprintKey.current ??= newRequestKey();
+      const result = await reprintOrderAction(orderId, reprintKey.current);
+      reprintKey.current = null;
       if (result.ok && result.payload) setReceipt(result.payload);
-      const text = result.ok ? `Reprint result: ${result.status}` : result.error;
+      const text = result.ok ? `Reprint result: ${result.status}${result.error ? ` — ${result.error}` : ""}` : result.error;
       setMessage(text);
       showToast(result.ok ? "success" : "error", text);
     } catch {
@@ -72,12 +83,18 @@ export function PrintJobsPanel({
           <div key={p.id} className="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2.5 text-sm">
             <div>
               <span className="text-[var(--color-text-primary)]">{p.destination}</span>
-              {p.lastError ? <p className="text-xs text-[var(--color-danger)]">{p.lastError}</p> : null}
+              {p.outcomeUnknown ? (
+                <p className="text-xs text-[var(--color-warning)]">Print outcome unknown — check whether this receipt printed before retrying.</p>
+              ) : p.lastError ? (
+                <p className="text-xs text-[var(--color-danger)]">{p.lastError}</p>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-[var(--color-text-muted)]">attempt {p.attemptCount}</span>
-              <Badge tone={p.status === "PRINTED" ? "success" : p.status === "FAILED" ? "danger" : "accent"}>{p.status}</Badge>
-              {canManagePrinter && (p.status === "FAILED" || p.status === "QUEUED") ? (
+              <Badge tone={p.outcomeUnknown ? "warning" : p.status === "PRINTED" ? "success" : p.status === "FAILED" ? "danger" : "accent"}>
+                {p.outcomeUnknown ? "UNKNOWN" : p.status}
+              </Badge>
+              {canManagePrinter && (p.status === "FAILED" || p.status === "QUEUED" || p.outcomeUnknown) ? (
                 <Button size="sm" variant="secondary" onClick={() => retry(p.id)} disabled={pendingId === p.id}>
                   {pendingId === p.id ? "Retrying…" : "Retry"}
                 </Button>

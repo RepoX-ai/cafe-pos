@@ -1,7 +1,10 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { ingredients, inventoryMovements } from "@/lib/db/schema";
+import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
+import type { BusinessDateRange } from "@/lib/dates/dates";
 import { recordAuditLog } from "./audit";
+import { withinBusinessDays } from "./range-filters";
 import type { ActorContext } from "./ingredient-service";
 
 export class InsufficientStockError extends Error {
@@ -31,6 +34,99 @@ export async function lockIngredientForUpdate(tx: Database, businessId: string, 
     .for("update");
   if (!row) throw new Error("Ingredient not found");
   return row;
+}
+
+export type LockedIngredient = typeof ingredients.$inferSelect;
+
+/**
+ * Locks several ingredient rows in one statement, always in ingredient-id
+ * order. Every multi-ingredient flow (checkout, cancellation/refund,
+ * purchases, stock counts) takes its ingredient locks through here, so two
+ * transactions can never hold them in opposite orders and deadlock.
+ * Lock order across flows: order row -> ingredient rows (by id) -> order-number counter.
+ */
+export async function lockIngredientsForUpdate(
+  tx: Database,
+  businessId: string,
+  ingredientIds: Iterable<string>,
+): Promise<Map<string, LockedIngredient>> {
+  const ids = [...new Set(ingredientIds)];
+  const locked = new Map<string, LockedIngredient>();
+  if (ids.length === 0) return locked;
+  const rows = await tx
+    .select()
+    .from(ingredients)
+    .where(and(inArray(ingredients.id, ids), eq(ingredients.businessId, businessId)))
+    .orderBy(asc(ingredients.id))
+    .for("update");
+  for (const row of rows) locked.set(row.id, row);
+  if (locked.size !== ids.length) throw new Error("Ingredient not found");
+  return locked;
+}
+
+export interface BulkMovementInput extends Omit<InsertMovementInput, "quantityBaseUnits"> {
+  id: string;
+  /** Signed ten-thousandths of a base unit (see `toQuantityUnits`). */
+  quantityUnits: bigint;
+}
+
+/**
+ * Batch form of `insertMovementAndApplyStock`: one INSERT for every ledger
+ * row and one UPDATE for every touched ingredient's cached quantity. Every
+ * ingredient must already be locked via `lockIngredientsForUpdate`; the new
+ * quantity is the locked quantity plus the exact sum of its movements.
+ */
+export async function insertMovementsAndApplyStock(
+  tx: Database,
+  movements: BulkMovementInput[],
+  locked: Map<string, LockedIngredient>,
+): Promise<Map<string, bigint>> {
+  const nextQuantity = new Map<string, bigint>();
+  if (movements.length === 0) return nextQuantity;
+
+  for (const movement of movements) {
+    const ingredient = locked.get(movement.ingredientId);
+    if (!ingredient) throw new Error("Ingredient must be locked before its stock changes");
+    const current = nextQuantity.get(movement.ingredientId) ?? toQuantityUnits(ingredient.currentQuantityBaseUnits);
+    nextQuantity.set(movement.ingredientId, current + movement.quantityUnits);
+  }
+
+  await tx.insert(inventoryMovements).values(
+    movements.map((movement) => {
+      const ingredient = locked.get(movement.ingredientId)!;
+      return {
+        id: movement.id,
+        businessId: movement.businessId,
+        locationId: movement.locationId ?? null,
+        ingredientId: movement.ingredientId,
+        ingredientNameSnapshot: ingredient.name,
+        ingredientBaseUnitSnapshot: ingredient.baseUnit,
+        movementType: movement.movementType,
+        quantityBaseUnits: formatQuantityUnits(movement.quantityUnits),
+        unitCost: movement.unitCost ?? null,
+        totalCost: movement.totalCost ?? null,
+        sourceType: movement.sourceType,
+        sourceId: movement.sourceId ?? null,
+        relatedMovementId: movement.relatedMovementId ?? null,
+        reason: movement.reason ?? null,
+        notes: movement.notes ?? null,
+        createdBy: movement.createdBy ?? null,
+      };
+    }),
+  );
+
+  const values = sql.join(
+    [...nextQuantity].map(([id, quantity]) => sql`(${id}::uuid, ${formatQuantityUnits(quantity)}::numeric)`),
+    sql`, `,
+  );
+  await tx.execute(sql`
+    update ingredients
+    set current_quantity_base_units = v.quantity, updated_at = now()
+    from (values ${values}) as v(id, quantity)
+    where ingredients.id = v.id
+  `);
+
+  return nextQuantity;
 }
 
 export interface InsertMovementInput {
@@ -182,13 +278,15 @@ export async function createManualAdjustment(
   return movement;
 }
 
+/** Ledger rows, newest first; `range` filters on created_at by Jakarta business day. */
 export async function listMovements(
   db: Database,
   businessId: string,
-  opts: { ingredientId?: string; limit?: number } = {},
+  opts: { ingredientId?: string; range?: BusinessDateRange; limit?: number; offset?: number } = {},
 ) {
   const conditions = [eq(inventoryMovements.businessId, businessId)];
   if (opts.ingredientId) conditions.push(eq(inventoryMovements.ingredientId, opts.ingredientId));
+  if (opts.range) conditions.push(withinBusinessDays(inventoryMovements.createdAt, opts.range));
 
   return db
     .select({
@@ -211,6 +309,7 @@ export async function listMovements(
     .from(inventoryMovements)
     .leftJoin(ingredients, eq(inventoryMovements.ingredientId, ingredients.id))
     .where(and(...conditions))
-    .orderBy(desc(inventoryMovements.createdAt))
-    .limit(opts.limit ?? 200);
+    .orderBy(desc(inventoryMovements.createdAt), desc(inventoryMovements.id))
+    .limit(opts.limit ?? 200)
+    .offset(opts.offset ?? 0);
 }

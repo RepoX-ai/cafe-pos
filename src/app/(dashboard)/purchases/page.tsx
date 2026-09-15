@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
+import { pageWindow, parsePageParam, toPage } from "@/lib/pagination";
+import { ServerPagination } from "@/components/ui/server-pagination";
 import { listIngredients } from "@/server/services/ingredient-service";
 import { listSuppliers } from "@/server/services/supplier-service";
 import { listPurchases } from "@/server/services/purchase-service";
@@ -10,14 +12,21 @@ export const metadata: Metadata = {
   title: "Purchases — CaféOps",
 };
 
-export default async function PurchasesPage() {
+export default async function PurchasesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string; page?: string }>;
+}) {
   const user = await requirePageAccess("purchases:write");
+  const { tab, page } = await searchParams;
+  const window = pageWindow(parsePageParam(page));
 
-  const [ingredients, suppliers, purchases] = await Promise.all([
+  const [ingredients, suppliers, purchaseRows] = await Promise.all([
     listIngredients(db, user.businessId),
     listSuppliers(db, user.businessId, { includeArchived: true }),
-    listPurchases(db, user.businessId),
+    listPurchases(db, user.businessId, window),
   ]);
+  const purchases = toPage(purchaseRows, window.page, window.pageSize);
 
   return (
     <div className="mx-auto max-w-[1440px]">
@@ -27,7 +36,19 @@ export default async function PurchasesPage() {
       </p>
 
       <div className="mt-8">
-        <PurchasesClient ingredients={ingredients} suppliers={suppliers} purchases={purchases} />
+        <PurchasesClient
+          ingredients={ingredients}
+          suppliers={suppliers}
+          purchases={purchases.rows}
+          initialTab={tab === "history" || tab === "suppliers" ? tab : "new"}
+          historyPagination={
+            <ServerPagination
+              page={{ ...purchases, rowCount: purchases.rows.length }}
+              basePath="/purchases"
+              params={{ tab: "history" }}
+            />
+          }
+        />
       </div>
     </div>
   );

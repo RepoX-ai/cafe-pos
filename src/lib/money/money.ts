@@ -87,6 +87,37 @@ export function formatIDR(amount: Rupiah): string {
     .replace(/\s/g, ""); // Intl inserts "Rp 25.000"; PRD wants "Rp25.000"
 }
 
+/**
+ * Rupiah-per-base-unit rates (e.g. average ingredient cost) are exact
+ * decimals, not transacted amounts, so they keep up to two fraction digits
+ * instead of rounding to a whole Rupiah.
+ */
+export function formatIDRRate(rate: number | string): string {
+  return `Rp${Number(rate).toLocaleString("id-ID", { maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Converts a PostgreSQL `bigint` aggregate (node-postgres returns it as a
+ * string) to a JS number, refusing values outside the safe-integer range
+ * rather than silently losing precision. Money columns are `integer`, but a
+ * SUM over them can exceed 2^31, so aggregates are cast to bigint in SQL.
+ */
+export function toSafeInteger(value: string | number | bigint | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  const exact = typeof value === "bigint" ? value : BigInt(value);
+  if (exact > BigInt(Number.MAX_SAFE_INTEGER) || exact < BigInt(Number.MIN_SAFE_INTEGER)) {
+    throw new RangeError(`Aggregate ${exact} is outside the safe integer range`);
+  }
+  return Number(exact);
+}
+
+/** Whole-Rupiah average, rounded half up with exact integer arithmetic. */
+export function averageRupiah(total: Rupiah, count: number): Rupiah {
+  if (count <= 0) return 0;
+  const numerator = BigInt(total) * 2n + (total >= 0 ? BigInt(count) : -BigInt(count));
+  return Number(numerator / (2n * BigInt(count)));
+}
+
 /** Safe division for margins: returns null when the denominator is zero. */
 export function safeDivide(numerator: number, denominator: number): number | null {
   if (denominator === 0) return null;

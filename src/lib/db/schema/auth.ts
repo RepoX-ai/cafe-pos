@@ -71,7 +71,7 @@ export const sessions = pgTable("sessions", {
   userAgent: text("user_agent"),
   ipAddress: text("ip_address"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("sessions_user_id_idx").on(table.userId)]);
 
 export const auditLogs = pgTable("audit_logs", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -88,11 +88,17 @@ export const auditLogs = pgTable("audit_logs", {
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("audit_logs_business_created_at_idx").on(table.businessId, table.createdAt, table.id)]);
 
-/** Shared login windows; hashed keys avoid retaining raw email/IP identifiers. */
+/**
+ * Shared fixed-window rate-limit buckets (login and authenticated actions —
+ * the table keeps its original name so running instances stay compatible
+ * during a deploy). Hashed keys avoid retaining raw email/IP identifiers.
+ */
 export const loginAttempts = pgTable("login_attempts", {
   keyHash: text("key_hash").primaryKey(),
   count: integer("count").notNull().default(0),
   windowStart: timestamp("window_start", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("login_attempts_window_start_idx").on(table.windowStart)]);
+  // End of the current window; the cleanup job deletes rows past it.
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("login_attempts_expires_at_idx").on(table.expiresAt)]);

@@ -10,21 +10,25 @@ export interface CsvColumn<T> {
 }
 
 function escapeCsvField(value: string): string {
-  if (/[",\n]/.test(value)) {
+  if (/[",\r\n]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
 }
 
+export function csvHeader<T>(columns: CsvColumn<T>[]): string {
+  return columns.map((c) => escapeCsvField(c.label)).join(",");
+}
+
+export function csvRow<T extends Record<string, unknown>>(row: T, columns: CsvColumn<T>[]): string {
+  return columns
+    .map((c) => {
+      const raw = c.value ? c.value(row) : (row[c.key as keyof T] as unknown);
+      return escapeCsvField(raw === null || raw === undefined ? "" : String(raw));
+    })
+    .join(",");
+}
+
 export function toCsv<T extends Record<string, unknown>>(rows: T[], columns: CsvColumn<T>[]): string {
-  const header = columns.map((c) => escapeCsvField(c.label)).join(",");
-  const lines = rows.map((row) =>
-    columns
-      .map((c) => {
-        const raw = c.value ? c.value(row) : (row[c.key as keyof T] as unknown);
-        return escapeCsvField(raw === null || raw === undefined ? "" : String(raw));
-      })
-      .join(","),
-  );
-  return [header, ...lines].join("\r\n");
+  return [csvHeader(columns), ...rows.map((row) => csvRow(row, columns))].join("\r\n");
 }

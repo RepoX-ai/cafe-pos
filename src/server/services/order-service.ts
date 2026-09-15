@@ -1,30 +1,35 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   businesses,
   orderIngredientConsumption,
   orderLineModifiers,
   orderLines,
+  orderNumberCounters,
   orders,
   printJobs,
 } from "@/lib/db/schema";
 import { microsToRupiah, multiplyQuantityByRate, sumRupiah } from "@/lib/money/money";
+import { pageWindow, toPage, type Page } from "@/lib/pagination";
 import { calculateServiceCharge, calculateTax, parseTaxConfig } from "@/lib/settings/tax";
-import type { SubmitOrderInput } from "@/lib/validation/order";
+import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
+import { ORDER_LIMITS, type SubmitOrderInput } from "@/lib/validation/order";
 import { recordAuditLog } from "./audit";
+import { lineDemandPerUnit, loadOrderCatalog, type OrderCatalog } from "./order-consumption";
 import {
-  calculateLineIngredientDemand,
-  getOrderSelectionRules,
-  getMenuItemForOrder,
-  getModifierOptionsById,
-  getVariantWithItem,
-} from "./order-consumption";
-import { insertMovementAndApplyStock, lockIngredientForUpdate, InsufficientStockError } from "./inventory-service";
+  insertMovementsAndApplyStock,
+  lockIngredientsForUpdate,
+  InsufficientStockError,
+  type BulkMovementInput,
+} from "./inventory-service";
 import type { ActorContext } from "./ingredient-service";
+import { abandonedPrintClaim } from "./print-service";
 
 export class OrderValidationError extends Error {}
 
 interface PreparedLine {
+  id: string;
   menuItemId: string;
   menuItemVariantId: string | null;
   itemNameSnapshot: string;
@@ -38,27 +43,67 @@ interface PreparedLine {
   cogsSnapshot: number;
   grossProfitSnapshot: number;
   consumption: Array<{
+    movementId: string;
     ingredientId: string;
     ingredientName: string;
     baseUnit: "gram" | "millilitre" | "piece";
-    quantityBaseUnits: number; // total for this line (per-unit x quantity)
+    quantityUnits: bigint; // total for this line (per-unit x quantity)
     unitCostSnapshot: string;
     totalCost: number;
   }>;
 }
 
-async function generateOrderNumber(tx: Database, businessId: string, prefix: string): Promise<string> {
-  const [row] = await tx
-    .select({ count: sql<number>`count(*)::int` })
-    .from(orders)
-    .where(eq(orders.businessId, businessId));
-  const next = (row?.count ?? 0) + 1;
-  return `${prefix}-${String(next).padStart(5, "0")}`;
+/** Walks drizzle's DrizzleQueryError -> pg error chain; the constraint name is only on the pg error. */
+function isUniqueViolation(error: unknown, constraint: string): boolean {
+  for (let current = error as { code?: string; constraint?: string; cause?: unknown } | undefined; current; current = current.cause as typeof current) {
+    if (current.code === "23505" && current.constraint === constraint) return true;
+  }
+  return false;
 }
 
-function isUniqueViolation(error: unknown, constraintHint: string): boolean {
-  const err = error as { code?: string; constraint?: string; message?: string };
-  return err?.code === "23505" && (err.constraint?.includes(constraintHint) || err.message?.includes(constraintHint) || false);
+export async function findOrderByIdempotencyKey(db: Database, businessId: string, idempotencyKey: string) {
+  const [existing] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.businessId, businessId), eq(orders.idempotencyKey, idempotencyKey)))
+    .limit(1);
+  return existing ?? null;
+}
+
+/**
+ * Next order number for the business. The counter row is created on first
+ * use from the existing order count, so numbering continues the documented
+ * `PREFIX-00001` sequence (count + 1) for businesses that already have
+ * orders. `resync` re-aligns a counter that fell behind existing numbers
+ * (only attempted after an order-number collision).
+ */
+async function allocateOrderNumber(tx: Database, businessId: string, resync: boolean): Promise<number> {
+  if (resync) {
+    await tx.execute(sql`
+      update order_number_counters
+      set last_number = greatest(last_number, (select count(*)::int from orders where business_id = ${businessId}))
+      where business_id = ${businessId}
+    `);
+  }
+  const [updated] = await tx
+    .update(orderNumberCounters)
+    .set({ lastNumber: sql`${orderNumberCounters.lastNumber} + 1`, updatedAt: new Date() })
+    .where(eq(orderNumberCounters.businessId, businessId))
+    .returning({ lastNumber: orderNumberCounters.lastNumber });
+  if (updated) return updated.lastNumber;
+
+  const [inserted] = await tx
+    .insert(orderNumberCounters)
+    .values({
+      businessId,
+      lastNumber: sql`(select count(*)::int + 1 from orders where business_id = ${businessId})`,
+    })
+    .onConflictDoUpdate({
+      target: orderNumberCounters.businessId,
+      set: { lastNumber: sql`${orderNumberCounters.lastNumber} + 1`, updatedAt: new Date() },
+    })
+    .returning({ lastNumber: orderNumberCounters.lastNumber });
+  return inserted.lastNumber;
 }
 
 /**
@@ -67,23 +112,31 @@ function isUniqueViolation(error: unknown, constraintHint: string): boolean {
  * snapshotting, ingredient consumption + inventory movements, COGS/profit
  * calculation, a queued print job, and an audit log — or nothing at all if
  * any step fails.
+ *
+ * Serialization: submissions that share an ingredient serialize on those
+ * ingredient row locks (taken in id order); every submission for a business
+ * serializes on its order-number counter row, but only from number
+ * allocation — after validation, costing and the stock check — to commit.
+ * A concurrent retry of the same idempotency key loses on the unique index
+ * and returns the winner's order, with its own work rolled back.
  */
 export async function submitOrder(
   db: Database,
   actor: ActorContext,
   input: SubmitOrderInput,
 ): Promise<{ order: typeof orders.$inferSelect; idempotent: boolean }> {
-  // Order-number generation races under concurrent submissions; retry a
-  // few times on a unique-constraint conflict rather than failing the
-  // whole checkout for what is, in practice, extremely rare contention.
   const MAX_ATTEMPTS = 3;
   let lastError: unknown;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      return await attemptSubmitOrder(db, actor, input);
+      return await attemptSubmitOrder(db, actor, input, attempt > 0);
     } catch (error) {
-      if (isUniqueViolation(error, "order_number")) {
+      if (isUniqueViolation(error, "orders_business_idempotency_key_idx")) {
+        const existing = await findOrderByIdempotencyKey(db, actor.businessId, input.idempotencyKey);
+        if (existing) return { order: existing, idempotent: true };
+      }
+      if (isUniqueViolation(error, "orders_business_order_number_idx")) {
         lastError = error;
         continue;
       }
@@ -93,15 +146,88 @@ export async function submitOrder(
   throw lastError instanceof Error ? lastError : new Error("Could not generate a unique order number");
 }
 
-async function attemptSubmitOrder(db: Database, actor: ActorContext, input: SubmitOrderInput) {
+function validateLine(catalog: OrderCatalog, line: SubmitOrderInput["lines"][number]) {
+  // Two pricing paths: a selected variant (the normal case), or — when
+  // the item has no variants at all — the item's own base price. An item
+  // sold the second way has no recipe row to deduct stock or compute COGS
+  // from, so it never affects inventory/COGS regardless of tracksInventory.
+  let itemName: string;
+  let variantName: string | null = null;
+  let categoryName: string | null = null;
+  let basePrice: number;
+  let hasRecipe = false;
+
+  if (line.menuItemVariantId) {
+    const variant = catalog.variants.get(line.menuItemVariantId);
+    if (!variant || variant.menuItemId !== line.menuItemId) {
+      throw new OrderValidationError("A menu item in this order no longer exists.");
+    }
+    if (!variant.menuItemActive || !variant.variantActive) {
+      throw new OrderValidationError(`"${variant.menuItemName}" is not currently available.`);
+    }
+    itemName = variant.menuItemName;
+    variantName = variant.variantName;
+    categoryName = variant.categoryName;
+    basePrice = variant.variantPrice;
+    hasRecipe = variant.tracksInventory;
+  } else {
+    const item = catalog.baseItems.get(line.menuItemId);
+    if (item && item.variantCount > 0) {
+      throw new OrderValidationError("Choose an available variant for this item.");
+    }
+    if (!item) {
+      throw new OrderValidationError("A menu item in this order no longer exists.");
+    }
+    if (!item.menuItemActive) {
+      throw new OrderValidationError(`"${item.menuItemName}" is not currently available.`);
+    }
+    itemName = item.menuItemName;
+    categoryName = item.categoryName;
+    basePrice = item.basePrice;
+  }
+
+  const selectedOptions = line.modifierOptionIds.flatMap((id) => {
+    const option = catalog.options.get(id);
+    return option ? [option] : [];
+  });
+  if (selectedOptions.length !== line.modifierOptionIds.length || new Set(line.modifierOptionIds).size !== line.modifierOptionIds.length) {
+    throw new OrderValidationError("One or more selected modifiers are no longer available.");
+  }
+  const inactiveModifier = selectedOptions.find((m) => !m.active);
+  if (inactiveModifier) {
+    throw new OrderValidationError(`"${inactiveModifier.name}" is no longer available.`);
+  }
+
+  const assigned = new Map((catalog.groupsByItem.get(line.menuItemId) ?? []).filter((g) => g.active).map((g) => [g.id, g]));
+  if (selectedOptions.some((option) => !assigned.has(option.modifierGroupId))) {
+    throw new OrderValidationError("A selected modifier does not belong to this item.");
+  }
+  for (const group of assigned.values()) {
+    const count = selectedOptions.filter((option) => option.modifierGroupId === group.id).length;
+    if (count < Math.max(group.minSelections, group.required ? 1 : 0) || count > group.maxSelections) {
+      throw new OrderValidationError(`Check the number of selections for "${group.name}".`);
+    }
+  }
+
+  const unitPrice = basePrice + sumRupiah(selectedOptions.map((m) => m.priceAdjustment));
+  return {
+    line,
+    itemName,
+    variantName,
+    categoryName,
+    unitPrice,
+    lineTotal: unitPrice * line.quantity,
+    selectedOptions,
+    demandPerUnit:
+      hasRecipe && line.menuItemVariantId
+        ? lineDemandPerUnit(catalog, line.menuItemVariantId, line.modifierOptionIds)
+        : new Map<string, number>(),
+  };
+}
+
+async function attemptSubmitOrder(db: Database, actor: ActorContext, input: SubmitOrderInput, resyncCounter: boolean) {
   return db.transaction(async (tx) => {
-    // Serialize submissions per business before checking keys and allocating order numbers.
-    await tx.select({ id: businesses.id }).from(businesses).where(eq(businesses.id, actor.businessId)).for("update");
-    const [existing] = await tx
-      .select()
-      .from(orders)
-      .where(and(eq(orders.businessId, actor.businessId), eq(orders.idempotencyKey, input.idempotencyKey)))
-      .limit(1);
+    const existing = await findOrderByIdempotencyKey(tx, actor.businessId, input.idempotencyKey);
     if (existing) {
       return { order: existing, idempotent: true };
     }
@@ -109,148 +235,69 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
     const [business] = await tx.select().from(businesses).where(eq(businesses.id, actor.businessId)).limit(1);
     if (!business) throw new OrderValidationError("Business not found");
 
-    // --- Validate lines, price them, and compute ingredient demand ---------
-    const prepared: PreparedLine[] = [];
-    const totalDemandByIngredient = new Map<
-      string,
-      { ingredientName: string; baseUnit: "gram" | "millilitre" | "piece"; quantity: number; costPerBaseUnit: string }
-    >();
+    // --- Validate and price every line from one batched catalog read ---------
+    const catalog = await loadOrderCatalog(tx, actor.businessId, input.lines);
+    const validated = input.lines.map((line) => validateLine(catalog, line));
 
-    for (const line of input.lines) {
-      const rules = await getOrderSelectionRules(tx, actor.businessId, line.menuItemId);
-      if (!line.menuItemVariantId && rules.variants.length > 0) {
-        throw new OrderValidationError("Choose an available variant for this item.");
-      }
-      // Two pricing paths: a selected variant (the normal case), or — when
-      // the item has no variants at all — the item's own base price. An
-      // item sold the second way has no recipe row to deduct stock or
-      // compute COGS from (recipes are keyed by menu_item_variant_id), so
-      // it never affects inventory/COGS regardless of tracksInventory.
-      let itemName: string;
-      let variantName: string | null = null;
-      let categoryName: string | null = null;
-      let basePrice: number;
-      let hasRecipe = false;
+    // --- Lock every consumed ingredient, then cost from the locked rows -------
+    const locked = await lockIngredientsForUpdate(
+      tx,
+      actor.businessId,
+      validated.flatMap((line) => [...line.demandPerUnit.keys()]),
+    );
 
-      if (line.menuItemVariantId) {
-        const variant = await getVariantWithItem(tx, actor.businessId, line.menuItemVariantId);
-        if (!variant || variant.menuItemId !== line.menuItemId) {
-          throw new OrderValidationError("A menu item in this order no longer exists.");
-        }
-        if (!variant.menuItemActive || !variant.variantActive) {
-          throw new OrderValidationError(`"${variant.menuItemName}" is not currently available.`);
-        }
-        itemName = variant.menuItemName;
-        variantName = variant.variantName;
-        categoryName = variant.categoryName;
-        basePrice = variant.variantPrice;
-        hasRecipe = variant.tracksInventory;
-      } else {
-        const item = await getMenuItemForOrder(tx, actor.businessId, line.menuItemId);
-        if (!item) {
-          throw new OrderValidationError("A menu item in this order no longer exists.");
-        }
-        if (!item.menuItemActive) {
-          throw new OrderValidationError(`"${item.menuItemName}" is not currently available.`);
-        }
-        itemName = item.menuItemName;
-        categoryName = item.categoryName;
-        basePrice = item.basePrice;
-      }
-
-      const modifierOptions = await getModifierOptionsById(tx, actor.businessId, line.modifierOptionIds);
-      if (modifierOptions.length !== line.modifierOptionIds.length) {
-        throw new OrderValidationError("One or more selected modifiers are no longer available.");
-      }
-      const inactiveModifier = modifierOptions.find((m) => !m.active);
-      if (inactiveModifier) {
-        throw new OrderValidationError(`"${inactiveModifier.name}" is no longer available.`);
-      }
-
-      const assigned = new Map(rules.groups.filter((g) => g.active).map((g) => [g.id, g]));
-      if (modifierOptions.some((option) => !assigned.has(option.modifierGroupId))) {
-        throw new OrderValidationError("A selected modifier does not belong to this item.");
-      }
-      for (const group of assigned.values()) {
-        const count = modifierOptions.filter((option) => option.modifierGroupId === group.id).length;
-        if (count < Math.max(group.minSelections, group.required ? 1 : 0) || count > group.maxSelections) {
-          throw new OrderValidationError(`Check the number of selections for "${group.name}".`);
-        }
-      }
-
-      const modifierAdjustmentTotal = sumRupiah(modifierOptions.map((m) => m.priceAdjustment));
-      const unitPrice = basePrice + modifierAdjustmentTotal;
-      const lineTotal = unitPrice * line.quantity;
-
+    const needByIngredient = new Map<string, bigint>();
+    const prepared: PreparedLine[] = validated.map((v) => {
       const consumption: PreparedLine["consumption"] = [];
       let lineCogsPerUnit = 0;
-
-      if (hasRecipe && line.menuItemVariantId) {
-        const demand = await calculateLineIngredientDemand(tx, line.menuItemVariantId, line.modifierOptionIds);
-        for (const d of demand.values()) {
-          const totalQty = d.quantityPerUnit * line.quantity;
-          const totalCost = microsToRupiah(multiplyQuantityByRate(totalQty, d.costPerBaseUnit));
-          lineCogsPerUnit += microsToRupiah(multiplyQuantityByRate(d.quantityPerUnit, d.costPerBaseUnit));
-          consumption.push({
-            ingredientId: d.ingredientId,
-            ingredientName: d.ingredientName,
-            baseUnit: d.baseUnit,
-            quantityBaseUnits: totalQty,
-            unitCostSnapshot: d.costPerBaseUnit,
-            totalCost,
-          });
-
-          const existingDemand = totalDemandByIngredient.get(d.ingredientId);
-          if (existingDemand) {
-            existingDemand.quantity += totalQty;
-          } else {
-            totalDemandByIngredient.set(d.ingredientId, {
-              ingredientName: d.ingredientName,
-              baseUnit: d.baseUnit,
-              quantity: totalQty,
-              costPerBaseUnit: d.costPerBaseUnit,
-            });
-          }
-        }
+      for (const [ingredientId, quantityPerUnit] of v.demandPerUnit) {
+        const ingredient = locked.get(ingredientId)!;
+        const totalQuantity = quantityPerUnit * v.line.quantity;
+        const quantityUnits = toQuantityUnits(totalQuantity);
+        lineCogsPerUnit += microsToRupiah(multiplyQuantityByRate(quantityPerUnit, ingredient.averageCostPerBaseUnit));
+        consumption.push({
+          movementId: randomUUID(),
+          ingredientId,
+          ingredientName: ingredient.name,
+          baseUnit: ingredient.baseUnit,
+          quantityUnits,
+          unitCostSnapshot: ingredient.averageCostPerBaseUnit,
+          totalCost: microsToRupiah(multiplyQuantityByRate(totalQuantity, ingredient.averageCostPerBaseUnit)),
+        });
+        needByIngredient.set(ingredientId, (needByIngredient.get(ingredientId) ?? 0n) + quantityUnits);
       }
-
-      const cogsSnapshot = lineCogsPerUnit * line.quantity;
-
-      prepared.push({
-        menuItemId: line.menuItemId,
-        menuItemVariantId: line.menuItemVariantId ?? null,
-        itemNameSnapshot: itemName,
-        variantNameSnapshot: variantName,
-        categoryNameSnapshot: categoryName,
-        quantity: line.quantity,
-        unitPriceSnapshot: unitPrice,
-        lineTotal,
-        notes: line.notes,
-        modifiers: modifierOptions.map((m) => ({
+      const cogsSnapshot = lineCogsPerUnit * v.line.quantity;
+      return {
+        id: randomUUID(),
+        menuItemId: v.line.menuItemId,
+        menuItemVariantId: v.line.menuItemVariantId ?? null,
+        itemNameSnapshot: v.itemName,
+        variantNameSnapshot: v.variantName,
+        categoryNameSnapshot: v.categoryName,
+        quantity: v.line.quantity,
+        unitPriceSnapshot: v.unitPrice,
+        lineTotal: v.lineTotal,
+        notes: v.line.notes,
+        modifiers: v.selectedOptions.map((m) => ({
           modifierOptionId: m.id,
           name: m.name,
           priceAdjustment: m.priceAdjustment,
           cogsAdjustment: 0,
         })),
         cogsSnapshot,
-        grossProfitSnapshot: lineTotal - cogsSnapshot,
+        grossProfitSnapshot: v.lineTotal - cogsSnapshot,
         consumption,
-      });
-    }
+      };
+    });
 
     // --- Stock check across the whole order (before writing anything) ------
     if (!business.allowNegativeStock) {
-      for (const [ingredientId, need] of totalDemandByIngredient) {
-        const locked = await lockIngredientForUpdate(tx, actor.businessId, ingredientId);
-        if (Number(locked.currentQuantityBaseUnits) - need.quantity < 0) {
-          throw new InsufficientStockError(need.ingredientName, need.quantity - Number(locked.currentQuantityBaseUnits));
+      for (const [ingredientId, need] of needByIngredient) {
+        const ingredient = locked.get(ingredientId)!;
+        const available = toQuantityUnits(ingredient.currentQuantityBaseUnits);
+        if (available - need < 0n) {
+          throw new InsufficientStockError(ingredient.name, Number(formatQuantityUnits(need - available)));
         }
-      }
-    } else {
-      // Still lock every distinct ingredient so concurrent orders serialize
-      // correctly even when negative stock is allowed.
-      for (const ingredientId of totalDemandByIngredient.keys()) {
-        await lockIngredientForUpdate(tx, actor.businessId, ingredientId);
       }
     }
 
@@ -269,7 +316,11 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
     const grossProfit = netSales - cogsTotal;
     const grossMarginPercentage = netSales > 0 ? Math.round((grossProfit / netSales) * 100 * 100) / 100 : null;
 
-    const orderNumber = await generateOrderNumber(tx, actor.businessId, business.orderNumberPrefix);
+    if ([subtotal, total, cogsTotal, ...prepared.map((l) => l.cogsSnapshot)].some((amount) => amount > ORDER_LIMITS.maxRupiah)) {
+      throw new OrderValidationError("This order is too large to record. Split it into smaller orders.");
+    }
+
+    const orderNumber = `${business.orderNumberPrefix}-${String(await allocateOrderNumber(tx, actor.businessId, resyncCounter)).padStart(5, "0")}`;
 
     const [order] = await tx
       .insert(orders)
@@ -294,72 +345,69 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
       })
       .returning();
 
-    for (const line of prepared) {
-      const [orderLine] = await tx
-        .insert(orderLines)
-        .values({
+    await tx.insert(orderLines).values(
+      prepared.map((line) => ({
+        id: line.id,
+        orderId: order.id,
+        menuItemId: line.menuItemId,
+        menuItemVariantId: line.menuItemVariantId,
+        itemNameSnapshot: line.itemNameSnapshot,
+        variantNameSnapshot: line.variantNameSnapshot,
+        categoryNameSnapshot: line.categoryNameSnapshot,
+        quantity: line.quantity,
+        unitPriceSnapshot: line.unitPriceSnapshot,
+        lineTotal: line.lineTotal,
+        cogsSnapshot: line.cogsSnapshot,
+        grossProfitSnapshot: line.grossProfitSnapshot,
+        notes: line.notes || null,
+      })),
+    );
+
+    const modifierRows = prepared.flatMap((line) =>
+      line.modifiers.map((m) => ({
+        orderLineId: line.id,
+        modifierOptionId: m.modifierOptionId,
+        modifierNameSnapshot: m.name,
+        priceAdjustmentSnapshot: m.priceAdjustment,
+        cogsAdjustmentSnapshot: m.cogsAdjustment,
+      })),
+    );
+    if (modifierRows.length > 0) await tx.insert(orderLineModifiers).values(modifierRows);
+
+    const consumption = prepared.flatMap((line) => line.consumption.map((c) => ({ line, c })));
+    await insertMovementsAndApplyStock(
+      tx,
+      consumption.map(({ c }): BulkMovementInput => ({
+        id: c.movementId,
+        businessId: actor.businessId,
+        ingredientId: c.ingredientId,
+        movementType: "SALE_CONSUMPTION",
+        quantityUnits: -c.quantityUnits,
+        unitCost: c.unitCostSnapshot,
+        totalCost: c.totalCost,
+        sourceType: "order",
+        sourceId: order.id,
+        createdBy: actor.userId,
+      })),
+      locked,
+    );
+    if (consumption.length > 0) {
+      await tx.insert(orderIngredientConsumption).values(
+        consumption.map(({ line, c }) => ({
           orderId: order.id,
-          menuItemId: line.menuItemId,
-          menuItemVariantId: line.menuItemVariantId,
-          itemNameSnapshot: line.itemNameSnapshot,
-          variantNameSnapshot: line.variantNameSnapshot,
-          categoryNameSnapshot: line.categoryNameSnapshot,
-          quantity: line.quantity,
-          unitPriceSnapshot: line.unitPriceSnapshot,
-          lineTotal: line.lineTotal,
-          cogsSnapshot: line.cogsSnapshot,
-          grossProfitSnapshot: line.grossProfitSnapshot,
-          notes: line.notes || null,
-        })
-        .returning();
-
-      if (line.modifiers.length > 0) {
-        await tx.insert(orderLineModifiers).values(
-          line.modifiers.map((m) => ({
-            orderLineId: orderLine.id,
-            modifierOptionId: m.modifierOptionId,
-            modifierNameSnapshot: m.name,
-            priceAdjustmentSnapshot: m.priceAdjustment,
-            cogsAdjustmentSnapshot: m.cogsAdjustment,
-          })),
-        );
-      }
-
-      for (const c of line.consumption) {
-        const locked = await lockIngredientForUpdate(tx, actor.businessId, c.ingredientId);
-        const newQuantity = Number(locked.currentQuantityBaseUnits) - c.quantityBaseUnits;
-
-        const movement = await insertMovementAndApplyStock(
-          tx,
-          {
-            businessId: actor.businessId,
-            ingredientId: c.ingredientId,
-            movementType: "SALE_CONSUMPTION",
-            quantityBaseUnits: -c.quantityBaseUnits,
-            unitCost: c.unitCostSnapshot,
-            totalCost: c.totalCost,
-            sourceType: "order",
-            sourceId: order.id,
-            createdBy: actor.userId,
-          },
-          { newQuantityBaseUnits: newQuantity },
-        );
-
-        await tx.insert(orderIngredientConsumption).values({
-          orderId: order.id,
-          orderLineId: orderLine.id,
+          orderLineId: line.id,
           ingredientId: c.ingredientId,
           ingredientNameSnapshot: c.ingredientName,
           ingredientBaseUnitSnapshot: c.baseUnit,
-          quantityBaseUnits: String(c.quantityBaseUnits),
+          quantityBaseUnits: formatQuantityUnits(c.quantityUnits),
           unitCostSnapshot: c.unitCostSnapshot,
           totalCost: c.totalCost,
-          inventoryMovementId: movement.id,
-        });
-      }
+          inventoryMovementId: c.movementId,
+        })),
+      );
     }
 
-    // Print job: queued now, actually processed by a provider in Phase 4.
+    // Print job: queued now, processed by a provider after commit.
     await tx.insert(printJobs).values({
       orderId: order.id,
       destination: "CUSTOMER_RECEIPT",
@@ -431,7 +479,12 @@ export async function getOrderById(db: Database, businessId: string, orderId: st
     .from(orderIngredientConsumption)
     .where(eq(orderIngredientConsumption.orderId, orderId));
 
-  const prints = await db.select().from(printJobs).where(eq(printJobs.orderId, orderId)).orderBy(desc(printJobs.createdAt));
+  // outcomeUnknown: still PROCESSING past its lease, so it may or may not have printed.
+  const prints = await db
+    .select({ ...getTableColumns(printJobs), outcomeUnknown: sql<boolean>`coalesce(${abandonedPrintClaim()}, false)` })
+    .from(printJobs)
+    .where(eq(printJobs.orderId, orderId))
+    .orderBy(desc(printJobs.createdAt));
 
   return {
     order,
@@ -446,11 +499,9 @@ export async function getOrderById(db: Database, businessId: string, orderId: st
 
 export interface ListOrdersFilters {
   status?: string;
-  from?: Date;
-  to?: Date;
   search?: string;
-  createdBy?: string;
-  limit?: number;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface OrderItemSummary {
@@ -494,97 +545,122 @@ export async function listOrderItemSummaries(
   return byOrder;
 }
 
-export async function listOrders(db: Database, businessId: string, filters: ListOrdersFilters = {}) {
+/** One page of orders, newest first (id breaks ties so pages never overlap). */
+export async function listOrders(
+  db: Database,
+  businessId: string,
+  filters: ListOrdersFilters = {},
+): Promise<Page<typeof orders.$inferSelect>> {
+  const { page, pageSize, limit, offset } = pageWindow(filters.page, filters.pageSize);
   const conditions = [eq(orders.businessId, businessId)];
   if (filters.status) conditions.push(eq(orders.status, filters.status as (typeof orders.$inferSelect)["status"]));
-  if (filters.createdBy) conditions.push(eq(orders.createdBy, filters.createdBy));
   if (filters.search) conditions.push(sql`${orders.orderNumber} ILIKE ${"%" + filters.search + "%"}`);
-  if (filters.from) conditions.push(sql`${orders.createdAt} >= ${filters.from}`);
-  if (filters.to) conditions.push(sql`${orders.createdAt} <= ${filters.to}`);
 
-  return db
+  const rows = await db
     .select()
     .from(orders)
     .where(and(...conditions))
-    .orderBy(desc(orders.createdAt))
-    .limit(filters.limit ?? 100);
+    .orderBy(desc(orders.createdAt), desc(orders.id))
+    .limit(limit)
+    .offset(offset);
+  return toPage(rows, page, pageSize);
 }
 
+const REVERSALS = {
+  cancel: {
+    status: "CANCELLED",
+    conflictingStatus: "REFUNDED",
+    conflictMessage: "A refunded order cannot be cancelled.",
+    movementType: "ORDER_CANCELLATION_REVERSAL",
+    reason: "Order cancellation reversal",
+    auditAction: "order.cancelled",
+  },
+  refund: {
+    status: "REFUNDED",
+    conflictingStatus: "CANCELLED",
+    conflictMessage: "A cancelled order cannot be refunded.",
+    movementType: "REFUND_REVERSAL",
+    reason: "Order refund reversal",
+    auditAction: "order.refunded",
+  },
+} as const;
+
 /**
- * Cancellation reverses every SALE_CONSUMPTION movement the order created
- * (ORDER_CANCELLATION_REVERSAL, linked back to the original movement) and
- * marks the order CANCELLED. Idempotent: cancelling an already-cancelled
- * order is a no-op that returns the order as-is rather than erroring or
- * double-reversing stock.
+ * Cancellation and refund both reverse every SALE_CONSUMPTION movement the
+ * order created (linked back via relatedMovementId) and change the order's
+ * status, in one transaction (PRD §8 "Cancellation transaction": lock the
+ * order, verify it is cancellable, reverse, update status, audit).
+ *
+ * The order row is locked FOR UPDATE before its status is read, so racing
+ * requests queue behind each other: the first reverses stock, and every
+ * later one sees the final status — a repeat of the same action is an
+ * idempotent no-op, and the other action is refused.
  */
-export async function cancelOrder(
+async function reverseOrder(
   db: Database,
   actor: ActorContext,
   orderId: string,
   reason: string,
+  kind: keyof typeof REVERSALS,
 ) {
+  const config = REVERSALS[kind];
   return db.transaction(async (tx) => {
     const [order] = await tx
       .select()
       .from(orders)
       .where(and(eq(orders.id, orderId), eq(orders.businessId, actor.businessId)))
-      .limit(1);
+      .for("update");
     if (!order) throw new OrderValidationError("Order not found");
 
-    if (order.status === "CANCELLED") {
+    if (order.status === config.status) {
       return order; // idempotent no-op
     }
-    if (order.status === "REFUNDED") {
-      throw new OrderValidationError("A refunded order cannot be cancelled.");
+    if (order.status === config.conflictingStatus) {
+      throw new OrderValidationError(config.conflictMessage);
     }
 
-    const consumptionRows = await tx
-      .select()
-      .from(orderIngredientConsumption)
-      .where(eq(orderIngredientConsumption.orderId, orderId));
+    // The ingredient may have been deleted since the order was placed. Its
+    // consumption row stays for the audit trail, but there is no stock left
+    // to hand back, so it is skipped.
+    const consumptionRows = (
+      await tx.select().from(orderIngredientConsumption).where(eq(orderIngredientConsumption.orderId, orderId))
+    ).filter((row): row is typeof row & { ingredientId: string } => row.ingredientId !== null);
 
-    for (const row of consumptionRows) {
-      // The ingredient may have been deleted since the order was placed.
-      // Its consumption row stays for the audit trail, but there is no
-      // stock left to hand back, so skip the reversal for it.
-      if (!row.ingredientId) continue;
-      const locked = await lockIngredientForUpdate(tx, actor.businessId, row.ingredientId);
-      const newQuantity = Number(locked.currentQuantityBaseUnits) + Number(row.quantityBaseUnits);
+    const locked = await lockIngredientsForUpdate(tx, actor.businessId, consumptionRows.map((row) => row.ingredientId));
+    await insertMovementsAndApplyStock(
+      tx,
+      consumptionRows.map((row) => ({
+        id: randomUUID(),
+        businessId: actor.businessId,
+        ingredientId: row.ingredientId,
+        movementType: config.movementType,
+        quantityUnits: toQuantityUnits(row.quantityBaseUnits),
+        unitCost: row.unitCostSnapshot,
+        totalCost: row.totalCost,
+        sourceType: "order",
+        sourceId: orderId,
+        relatedMovementId: row.inventoryMovementId,
+        reason: config.reason,
+        createdBy: actor.userId,
+      })),
+      locked,
+    );
 
-      await insertMovementAndApplyStock(
-        tx,
-        {
-          businessId: actor.businessId,
-          ingredientId: row.ingredientId,
-          movementType: "ORDER_CANCELLATION_REVERSAL",
-          quantityBaseUnits: Number(row.quantityBaseUnits),
-          unitCost: row.unitCostSnapshot,
-          totalCost: row.totalCost,
-          sourceType: "order",
-          sourceId: orderId,
-          relatedMovementId: row.inventoryMovementId,
-          reason: "Order cancellation reversal",
-          createdBy: actor.userId,
-        },
-        { newQuantityBaseUnits: newQuantity },
-      );
-    }
-
+    const now = new Date();
     const [updated] = await tx
       .update(orders)
-      .set({
-        status: "CANCELLED",
-        cancelledAt: new Date(),
-        cancelledBy: actor.userId,
-        cancellationReason: reason,
-      })
-      .where(eq(orders.id, orderId))
+      .set(
+        kind === "cancel"
+          ? { status: "CANCELLED", cancelledAt: now, cancelledBy: actor.userId, cancellationReason: reason }
+          : { status: "REFUNDED", refundedAt: now, refundedBy: actor.userId, refundReason: reason },
+      )
+      .where(and(eq(orders.id, orderId), eq(orders.businessId, actor.businessId)))
       .returning();
 
     await recordAuditLog(tx, {
       businessId: actor.businessId,
       actorUserId: actor.userId,
-      action: "order.cancelled",
+      action: config.auditAction,
       entityType: "order",
       entityId: orderId,
       before: order,
@@ -596,82 +672,16 @@ export async function cancelOrder(
   });
 }
 
+/** Cancels an order and reverses its stock consumption. Idempotent; refused for refunded orders. */
+export function cancelOrder(db: Database, actor: ActorContext, orderId: string, reason: string) {
+  return reverseOrder(db, actor, orderId, reason, "cancel");
+}
+
 /**
  * Full refund only for the MVP (PRD §6.10). Reverses the same inventory
- * consumption as a cancellation and marks the order REFUNDED; the
- * original order remains in place for audit. Idempotent: refunding an
- * already-refunded order is a no-op.
+ * consumption as a cancellation; the original order remains for audit.
+ * Idempotent; refused for cancelled orders.
  */
-export async function refundOrder(db: Database, actor: ActorContext, orderId: string, reason: string) {
-  return db.transaction(async (tx) => {
-    const [order] = await tx
-      .select()
-      .from(orders)
-      .where(and(eq(orders.id, orderId), eq(orders.businessId, actor.businessId)))
-      .limit(1);
-    if (!order) throw new OrderValidationError("Order not found");
-
-    if (order.status === "REFUNDED") {
-      return order; // idempotent no-op
-    }
-    if (order.status === "CANCELLED") {
-      throw new OrderValidationError("A cancelled order cannot be refunded.");
-    }
-
-    const consumptionRows = await tx
-      .select()
-      .from(orderIngredientConsumption)
-      .where(eq(orderIngredientConsumption.orderId, orderId));
-
-    for (const row of consumptionRows) {
-      // The ingredient may have been deleted since the order was placed.
-      // Its consumption row stays for the audit trail, but there is no
-      // stock left to hand back, so skip the reversal for it.
-      if (!row.ingredientId) continue;
-      const locked = await lockIngredientForUpdate(tx, actor.businessId, row.ingredientId);
-      const newQuantity = Number(locked.currentQuantityBaseUnits) + Number(row.quantityBaseUnits);
-
-      await insertMovementAndApplyStock(
-        tx,
-        {
-          businessId: actor.businessId,
-          ingredientId: row.ingredientId,
-          movementType: "REFUND_REVERSAL",
-          quantityBaseUnits: Number(row.quantityBaseUnits),
-          unitCost: row.unitCostSnapshot,
-          totalCost: row.totalCost,
-          sourceType: "order",
-          sourceId: orderId,
-          relatedMovementId: row.inventoryMovementId,
-          reason: "Order refund reversal",
-          createdBy: actor.userId,
-        },
-        { newQuantityBaseUnits: newQuantity },
-      );
-    }
-
-    const [updated] = await tx
-      .update(orders)
-      .set({
-        status: "REFUNDED",
-        refundedAt: new Date(),
-        refundedBy: actor.userId,
-        refundReason: reason,
-      })
-      .where(eq(orders.id, orderId))
-      .returning();
-
-    await recordAuditLog(tx, {
-      businessId: actor.businessId,
-      actorUserId: actor.userId,
-      action: "order.refunded",
-      entityType: "order",
-      entityId: orderId,
-      before: order,
-      after: updated,
-      metadata: { reason },
-    });
-
-    return updated;
-  });
+export function refundOrder(db: Database, actor: ActorContext, orderId: string, reason: string) {
+  return reverseOrder(db, actor, orderId, reason, "refund");
 }

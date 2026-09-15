@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   numeric,
   pgTable,
@@ -28,7 +30,12 @@ export const recipes = pgTable("recipes", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
-});
+}, (table) => [
+  // "Latest active recipe for these variants" — checkout, POS stock badges, recipe editor.
+  index("recipes_active_variant_version_idx")
+    .on(table.menuItemVariantId, table.version)
+    .where(sql`${table.active}`),
+]);
 
 export const recipeLines = pgTable("recipe_lines", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -46,7 +53,7 @@ export const recipeLines = pgTable("recipe_lines", {
   quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
   wastePercentage: numeric("waste_percentage", { precision: 5, scale: 2 }).default("0"),
   notes: text("notes"),
-});
+}, (table) => [index("recipe_lines_recipe_id_idx").on(table.recipeId)]);
 
 export const modifierRecipeLines = pgTable("modifier_recipe_lines", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -58,4 +65,4 @@ export const modifierRecipeLines = pgTable("modifier_recipe_lines", {
     .references(() => ingredients.id, { onDelete: "cascade" }),
   quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
   wastePercentage: numeric("waste_percentage", { precision: 5, scale: 2 }).default("0"),
-});
+}, (table) => [index("modifier_recipe_lines_option_id_idx").on(table.modifierOptionId)]);

@@ -12,6 +12,7 @@ import {
   users,
 } from "@/lib/db/schema";
 import { hashPassword } from "@/lib/auth/password";
+import { shiftBusinessDate, todayInBusinessTimezone } from "@/lib/dates/dates";
 import { getTestDb, seedTestFixture } from "./helpers";
 import {
   createCategory,
@@ -211,7 +212,8 @@ describe.skipIf(!db)("permanent deletes leave order history intact (integration)
       lines: [{ menuItemId: menuItem.id, menuItemVariantId: variant.id, quantity: 1, modifierOptionIds: [] }],
     });
 
-    const range = { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) };
+    const today = todayInBusinessTimezone();
+    const range = { from: shiftBusinessDate(today, -1), to: shiftBusinessDate(today, 1) };
     const rowFor = async () =>
       (await getSalesByCategory(db!, business.id, range)).find((r) => r.categoryName === category.name);
 

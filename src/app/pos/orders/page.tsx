@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
+import { parsePageParam } from "@/lib/pagination";
+import { ServerPagination } from "@/components/ui/server-pagination";
 import { listOrders, listOrderItemSummaries } from "@/server/services/order-service";
 import type { BadgeTone } from "@/components/ui/badge";
 import { Select } from "@/components/ui/form-field";
@@ -40,15 +42,20 @@ function formatDate(value: Date) {
 export default async function PosOrderHistoryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; search?: string }>;
+  searchParams: Promise<{ status?: string; search?: string; page?: string }>;
 }) {
   const user = await requirePageAccess();
   if (!hasAnyRolePermission(user.roles, "orders:read_all_basic") && !hasAnyRolePermission(user.roles, "orders:read_all")) {
     redirect("/forbidden");
   }
-  const { status, search } = await searchParams;
+  const { status, search, page } = await searchParams;
 
-  const orders = await listOrders(db, user.businessId, { status: status || undefined, search: search || undefined });
+  const result = await listOrders(db, user.businessId, {
+    status: status || undefined,
+    search: search || undefined,
+    page: parsePageParam(page),
+  });
+  const orders = result.rows;
   const itemsByOrder = await listOrderItemSummaries(db, orders.map((o) => o.id));
 
   return (
@@ -88,6 +95,9 @@ export default async function PosOrderHistoryPage({
         <div className="mt-6 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <OrdersTable
             basePath="/pos/orders"
+            pagination={
+              <ServerPagination page={{ ...result, rowCount: orders.length }} basePath="/pos/orders" params={{ status, search }} />
+            }
             orders={orders.map((o) => ({
               id: o.id,
               orderNumber: o.orderNumber,

@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import { getTestDb, seedTestFixture } from "./helpers";
 import { submitOrder, cancelOrder } from "@/server/services/order-service";
 import { getSalesSummary } from "@/server/services/reports-service";
+import { shiftBusinessDate, todayInBusinessTimezone } from "@/lib/dates/dates";
 
 const db = getTestDb();
 
 describe.skipIf(!db)("reports (integration)", () => {
   it("excludes cancelled orders from the sales summary", async () => {
     const { business, user, variant, menuItem } = await seedTestFixture(db!, { openingStock: "1000", costPerBaseUnit: "10" });
-    const range = { from: new Date(Date.now() - 60_000), to: new Date(Date.now() + 60_000) };
+    // A day either side of today, so the orders created now are in range even at Jakarta midnight.
+    const today = todayInBusinessTimezone();
+    const range = { from: shiftBusinessDate(today, -1), to: shiftBusinessDate(today, 1) };
 
     const kept = await submitOrder(db!, { businessId: business.id, userId: user.id }, {
       idempotencyKey: "report-kept",

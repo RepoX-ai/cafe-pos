@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  index,
   integer,
   numeric,
   pgTable,
@@ -49,7 +50,12 @@ export const inventoryMovements = pgTable("inventory_movements", {
   notes: text("notes"),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  // Ledger pages and date-ranged movement reports.
+  index("inventory_movements_business_created_at_idx").on(table.businessId, table.createdAt, table.id),
+  // Per-ingredient history, and the ON DELETE SET NULL scan when an ingredient is deleted.
+  index("inventory_movements_ingredient_created_at_idx").on(table.ingredientId, table.createdAt),
+]);
 
 export const stockCounts = pgTable("stock_counts", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -97,4 +103,4 @@ export const wasteRecords = pgTable("waste_records", {
   photoUrl: text("photo_url"),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("waste_records_business_created_at_idx").on(table.businessId, table.createdAt, table.id)]);

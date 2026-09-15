@@ -1,13 +1,22 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { ingredients, wasteRecords } from "@/lib/db/schema";
+import type { BusinessDateRange } from "@/lib/dates/dates";
 import { microsToRupiah, multiplyQuantityByRate } from "@/lib/money/money";
 import type { WasteInput } from "@/lib/validation/waste";
 import { recordAuditLog } from "./audit";
 import { applyStockMovement, lockIngredientForUpdate } from "./inventory-service";
 import type { ActorContext } from "./ingredient-service";
+import { withinBusinessDays } from "./range-filters";
 
-export async function listWasteRecords(db: Database, businessId: string, limit = 200) {
+/** Newest first; `range` filters on created_at by Jakarta business day. */
+export async function listWasteRecords(
+  db: Database,
+  businessId: string,
+  opts: { range?: BusinessDateRange; limit: number; offset: number },
+) {
+  const conditions = [eq(wasteRecords.businessId, businessId)];
+  if (opts.range) conditions.push(withinBusinessDays(wasteRecords.createdAt, opts.range));
   return db
     .select({
       id: wasteRecords.id,
@@ -22,9 +31,10 @@ export async function listWasteRecords(db: Database, businessId: string, limit =
     })
     .from(wasteRecords)
     .leftJoin(ingredients, eq(wasteRecords.ingredientId, ingredients.id))
-    .where(eq(wasteRecords.businessId, businessId))
-    .orderBy(desc(wasteRecords.createdAt))
-    .limit(limit);
+    .where(and(...conditions))
+    .orderBy(desc(wasteRecords.createdAt), desc(wasteRecords.id))
+    .limit(opts.limit)
+    .offset(opts.offset);
 }
 
 /**

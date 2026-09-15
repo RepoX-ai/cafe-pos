@@ -16,6 +16,62 @@ export function formatBusinessDate(date: Date): string {
   return formatInTimeZone(date, BUSINESS_TIMEZONE, "yyyy-MM-dd");
 }
 
+/**
+ * An inclusive range of business calendar dates (YYYY-MM-DD, Asia/Jakarta).
+ * Date-only columns (expenses.expense_date, purchases.purchase_date) compare
+ * against these strings directly; timestamp columns use `businessDayBounds`.
+ */
+export interface BusinessDateRange {
+  from: string;
+  to: string;
+}
+
+const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** True for a real Y-M-D calendar date (rejects e.g. 2026-02-30). */
+export function isCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string" || !CALENDAR_DATE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * Validated range from untrusted query params: invalid or missing dates fall
+ * back to the defaults, and a reversed range is put back in order.
+ */
+export function resolveBusinessDateRange(
+  from: string | null | undefined,
+  to: string | null | undefined,
+  defaults: BusinessDateRange,
+): BusinessDateRange {
+  const start = isCalendarDate(from) ? from : defaults.from;
+  const end = isCalendarDate(to) ? to : defaults.to;
+  return start <= end ? { from: start, to: end } : { from: end, to: start };
+}
+
+/**
+ * Half-open UTC instants covering the range: `start` is 00:00 Jakarta on
+ * `from`, `endExclusive` is 00:00 Jakarta on the day after `to`. Filter
+ * timestamps with `>= start AND < endExclusive` — no 23:59:59.999 edge.
+ */
+export function businessDayBounds(range: BusinessDateRange): { start: Date; endExclusive: Date } {
+  return {
+    start: startOfBusinessDay(range.from),
+    endExclusive: startOfBusinessDay(shiftBusinessDate(range.to, 1)),
+  };
+}
+
+/** Number of calendar days in an inclusive range (a single day is 1). */
+export function calendarDaysInclusive(range: BusinessDateRange): number {
+  return Math.round((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000) + 1;
+}
+
+/** The same number of calendar days immediately before the range. */
+export function previousBusinessPeriod(range: BusinessDateRange): BusinessDateRange {
+  const days = calendarDaysInclusive(range);
+  return { from: shiftBusinessDate(range.from, -days), to: shiftBusinessDate(range.from, -1) };
+}
+
 /** Start-of-day (00:00:00 Asia/Jakarta) for a given calendar date, as a UTC Date. */
 export function startOfBusinessDay(calendarDate: string): Date {
   return fromZonedTime(`${calendarDate}T00:00:00`, BUSINESS_TIMEZONE);

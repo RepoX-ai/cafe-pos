@@ -35,7 +35,7 @@ export async function recordAuditLog(db: Database, input: AuditLogInput): Promis
   });
 }
 
-export async function listAuditLogs(db: Database, businessId: string, limit = 200) {
+export async function listAuditLogs(db: Database, businessId: string, window: { limit: number; offset: number }) {
   return db
     .select({
       id: auditLogs.id,
@@ -50,6 +50,7 @@ export async function listAuditLogs(db: Database, businessId: string, limit = 20
     .from(auditLogs)
     .leftJoin(users, eq(auditLogs.actorUserId, users.id))
     .where(eq(auditLogs.businessId, businessId))
-    .orderBy(desc(auditLogs.createdAt))
-    .limit(limit);
+    .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
+    .limit(window.limit)
+    .offset(window.offset);
 }

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  index,
   integer,
   numeric,
   pgTable,
@@ -63,8 +64,25 @@ export const orders = pgTable(
       table.businessId,
       table.idempotencyKey,
     ),
+    // Order lists, date-ranged reports and recent orders: tenant filter,
+    // newest first, with id as the pagination tie-breaker.
+    index("orders_business_created_at_idx").on(table.businessId, table.createdAt, table.id),
   ],
 );
+
+/**
+ * Per-business order-number allocator. Incrementing this row replaces the
+ * old COUNT(*) + 1 — it's atomic, gapless (the increment rolls back with a
+ * failed submission), and its row lock is only held from number allocation
+ * to commit rather than across the whole checkout.
+ */
+export const orderNumberCounters = pgTable("order_number_counters", {
+  businessId: uuid("business_id")
+    .primaryKey()
+    .references(() => businesses.id, { onDelete: "restrict" }),
+  lastNumber: integer("last_number").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const orderLines = pgTable("order_lines", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -89,7 +107,7 @@ export const orderLines = pgTable("order_lines", {
   cogsSnapshot: integer("cogs_snapshot").notNull().default(0),
   grossProfitSnapshot: integer("gross_profit_snapshot").notNull().default(0),
   notes: text("notes"),
-});
+}, (table) => [index("order_lines_order_id_idx").on(table.orderId)]);
 
 export const orderLineModifiers = pgTable("order_line_modifiers", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -102,7 +120,7 @@ export const orderLineModifiers = pgTable("order_line_modifiers", {
   modifierNameSnapshot: text("modifier_name_snapshot").notNull(),
   priceAdjustmentSnapshot: integer("price_adjustment_snapshot").notNull().default(0),
   cogsAdjustmentSnapshot: integer("cogs_adjustment_snapshot").notNull().default(0),
-});
+}, (table) => [index("order_line_modifiers_order_line_id_idx").on(table.orderLineId)]);
 
 /**
  * Explicit audit trail of the recipe calculation behind an order: exactly
@@ -133,4 +151,4 @@ export const orderIngredientConsumption = pgTable("order_ingredient_consumption"
     () => inventoryMovements.id,
     { onDelete: "set null" },
   ),
-});
+}, (table) => [index("order_ingredient_consumption_order_id_idx").on(table.orderId)]);

@@ -1,8 +1,10 @@
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
+import { averageRupiah } from "@/lib/money/money";
 import { expenses } from "@/lib/db/schema";
 import type { ExpenseInput } from "@/lib/validation/expense";
 import { recordAuditLog } from "./audit";
+import { sumAsSafeInteger } from "./range-filters";
 import type { ActorContext } from "./ingredient-service";
 
 /**
@@ -23,13 +25,20 @@ function rangeFilter(businessId: string, range: CalendarRange) {
   );
 }
 
-export async function listExpensesInRange(db: Database, businessId: string, range: CalendarRange, limit = 500) {
+/** Newest expense date first; created_at and id keep the order stable across pages. */
+export async function listExpensesInRange(
+  db: Database,
+  businessId: string,
+  range: CalendarRange,
+  window: { limit: number; offset: number },
+) {
   return db
     .select()
     .from(expenses)
     .where(rangeFilter(businessId, range))
-    .orderBy(desc(expenses.expenseDate))
-    .limit(limit);
+    .orderBy(desc(expenses.expenseDate), desc(expenses.createdAt), desc(expenses.id))
+    .limit(window.limit)
+    .offset(window.offset);
 }
 
 export interface ExpenseSummary {
@@ -46,9 +55,9 @@ export async function getExpenseSummary(
 ): Promise<ExpenseSummary> {
   const [row] = await db
     .select({
-      total: sql<number>`coalesce(sum(${expenses.amount}), 0)::int`,
+      total: sumAsSafeInteger(expenses.amount),
       entryCount: sql<number>`count(*)::int`,
-      recurringTotal: sql<number>`coalesce(sum(${expenses.amount}) filter (where ${expenses.recurring}), 0)::int`,
+      recurringTotal: sumAsSafeInteger(expenses.amount, sql`${expenses.recurring}`),
     })
     .from(expenses)
     .where(rangeFilter(businessId, range));
@@ -58,7 +67,7 @@ export async function getExpenseSummary(
   return {
     total,
     entryCount,
-    averagePerEntry: entryCount > 0 ? Math.round(total / entryCount) : 0,
+    averagePerEntry: averageRupiah(total, entryCount),
     recurringTotal: row?.recurringTotal ?? 0,
   };
 }
@@ -67,7 +76,7 @@ export async function getExpensesByCategory(db: Database, businessId: string, ra
   return db
     .select({
       category: expenses.category,
-      total: sql<number>`coalesce(sum(${expenses.amount}), 0)::int`,
+      total: sumAsSafeInteger(expenses.amount),
       entryCount: sql<number>`count(*)::int`,
     })
     .from(expenses)
@@ -80,7 +89,7 @@ export async function getExpensesByDay(db: Database, businessId: string, range: 
   return db
     .select({
       day: sql<string>`to_char(${expenses.expenseDate}, 'YYYY-MM-DD')`,
-      total: sql<number>`coalesce(sum(${expenses.amount}), 0)::int`,
+      total: sumAsSafeInteger(expenses.amount),
       entryCount: sql<number>`count(*)::int`,
     })
     .from(expenses)

@@ -21,7 +21,8 @@
     "db:backfill-ingredient-snapshots": "tsx scripts/backfill-ingredient-snapshots.ts",
     "db:seed:matsudon-menu": "tsx scripts/seed-matsudon-menu.ts",
     "db:backfill:matsudon-images": "tsx scripts/backfill-matsudon-images.ts",
-    "db:create-owner": "tsx scripts/create-owner.ts"
+    "db:create-owner": "tsx scripts/create-owner.ts",
+    "db:cleanup-rate-limits": "tsx scripts/cleanup-rate-limits.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1131.0",

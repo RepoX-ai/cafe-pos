@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { getTestDb, seedTestFixture } from "./helpers";
 import { submitOrder } from "@/server/services/order-service";
 import { processPrintJob } from "@/server/services/print-service";
-import { consumeLoginAttempt, clearLoginAttempts } from "@/server/services/login-rate-limit";
+import { clearRateLimits, consumeRateLimit } from "@/server/services/rate-limit";
 import { menuItemModifierGroups, modifierGroups, modifierOptions, printJobs } from "@/lib/db/schema";
 
 const db = getTestDb();
@@ -35,10 +35,10 @@ describe.skipIf(!db)("audit regressions", () => {
     expect(saved.printedAt).toBeNull();
   });
   it("shares and atomically caps login attempts", async () => {
-    const key = randomUUID();
-    const results = await Promise.all(Array.from({ length: 15 }, () => consumeLoginAttempt(db!, key)));
+    const check = { rule: { name: "login-account-ip", limit: 10, windowSeconds: 900 }, key: [randomUUID()] };
+    const results = await Promise.all(Array.from({ length: 15 }, () => consumeRateLimit(db!, check)));
     expect(results.filter(Boolean)).toHaveLength(10);
-    await clearLoginAttempts(db!, key);
-    expect(await consumeLoginAttempt(db!, key)).toBe(true);
+    await clearRateLimits(db!, [check]);
+    expect(await consumeRateLimit(db!, check)).toBe(true);
   });
 });

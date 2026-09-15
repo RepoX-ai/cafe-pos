@@ -2,6 +2,8 @@ import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
+import { parsePageParam } from "@/lib/pagination";
+import { ServerPagination } from "@/components/ui/server-pagination";
 import { listOrders, listOrderItemSummaries } from "@/server/services/order-service";
 import type { BadgeTone } from "@/components/ui/badge";
 import { inputClassName } from "@/components/ui/form-styles";
@@ -28,12 +30,17 @@ function formatDate(value: Date) {
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; search?: string }>;
+  searchParams: Promise<{ status?: string; search?: string; page?: string }>;
 }) {
   const user = await requirePageAccess("orders:read_all");
-  const { status, search } = await searchParams;
+  const { status, search, page } = await searchParams;
 
-  const orders = await listOrders(db, user.businessId, { status: status || undefined, search: search || undefined });
+  const result = await listOrders(db, user.businessId, {
+    status: status || undefined,
+    search: search || undefined,
+    page: parsePageParam(page),
+  });
+  const orders = result.rows;
   const itemsByOrder = await listOrderItemSummaries(db, orders.map((o) => o.id));
 
   return (
@@ -58,6 +65,9 @@ export default async function OrdersPage({
 
       <div className="mt-6 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <OrdersTable
+          pagination={
+            <ServerPagination page={{ ...result, rowCount: orders.length }} basePath="/orders" params={{ status, search }} />
+          }
           orders={orders.map((o) => ({
             id: o.id,
             orderNumber: o.orderNumber,

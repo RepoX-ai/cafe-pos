@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   date,
+  index,
   integer,
   numeric,
   pgTable,
@@ -31,7 +32,7 @@ export const purchases = pgTable("purchases", {
   // Set when a finalized purchase is corrected via reversal + replacement.
   reversedByPurchaseId: uuid("reversed_by_purchase_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("purchases_business_purchase_date_idx").on(table.businessId, table.purchaseDate)]);
 
 export const purchaseLines = pgTable("purchase_lines", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
