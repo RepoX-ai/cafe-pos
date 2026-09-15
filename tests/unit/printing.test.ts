@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { getPrinterProvider } from "@/printing";
+import { afterEach, describe, expect, it } from "vitest";
+import { configuredPrintProvider, getPrinterProvider } from "@/printing";
 
 const samplePayload = {
   orderId: "o1",
@@ -30,7 +30,42 @@ describe("printer providers", () => {
     expect(result.success).toBe(false);
   });
 
+  it("device provider hands the receipt to the tablet instead of claiming success", async () => {
+    const provider = getPrinterProvider("device");
+    const result = await provider.print(samplePayload);
+    expect(result.success).toBe(false);
+    expect(result.requiresClientAction).toBe("device_print");
+  });
+
+  it("device provider never reports a server-side connection", async () => {
+    // The printer pairs with the tablet; the server genuinely cannot reach it.
+    await expect(getPrinterProvider("device").testConnection()).resolves.toMatchObject({ connected: false });
+  });
+
   it("defaults to mock when no provider is configured", () => {
     expect(getPrinterProvider(undefined).name).toBe("mock");
+  });
+});
+
+describe("configured print provider", () => {
+  const original = process.env.PRINT_PROVIDER;
+  afterEach(() => {
+    if (original === undefined) delete process.env.PRINT_PROVIDER;
+    else process.env.PRINT_PROVIDER = original;
+  });
+
+  it("uses the configured provider", () => {
+    process.env.PRINT_PROVIDER = "device";
+    expect(configuredPrintProvider()).toBe("device");
+  });
+
+  it("falls back to mock for an unknown value rather than writing it to the enum column", () => {
+    process.env.PRINT_PROVIDER = "not-a-provider";
+    expect(configuredPrintProvider()).toBe("mock");
+  });
+
+  it("falls back to mock when unset", () => {
+    delete process.env.PRINT_PROVIDER;
+    expect(configuredPrintProvider()).toBe("mock");
   });
 });

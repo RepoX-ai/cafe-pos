@@ -1,0 +1,1 @@
+ALTER TYPE "public"."print_provider" ADD VALUE 'device';

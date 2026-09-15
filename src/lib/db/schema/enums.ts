@@ -53,6 +53,10 @@ export const printProviderEnum = pgEnum("print_provider", [
   "mock",
   "browser",
   "bridge",
+  // Bluetooth printer paired with the staff tablet: the browser sends the
+  // ESC/POS bytes, so the server can only queue the job and wait to be told
+  // the outcome.
+  "device",
 ]);
 
 export const printStatusEnum = pgEnum("print_status", [

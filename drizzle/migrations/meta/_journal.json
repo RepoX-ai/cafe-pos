@@ -36,6 +36,13 @@
       "when": 1789454413699,
       "tag": "0004_slow_vertigo",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789468788562,
+      "tag": "0005_sudden_roland_deschain",
+      "breakpoints": true
     }
   ]
 }

@@ -10,7 +10,17 @@ import { processPrintJob } from "./print-service";
 import { consumeRateLimit, RATE_LIMITS, type RateLimitRule } from "./rate-limit";
 
 export type SubmitOrderResult =
-  | { ok: true; orderId: string; orderNumber: string; total: number; idempotent: boolean; printStatus: string; receipt?: PrintJobPayload }
+  | {
+      ok: true;
+      orderId: string;
+      orderNumber: string;
+      total: number;
+      idempotent: boolean;
+      printStatus: string;
+      receipt?: PrintJobPayload;
+      /** Set when the receipt is the tablet's to print over Bluetooth. */
+      devicePrintJobId?: string;
+    }
   | { ok: false; error: string };
 
 /**
@@ -48,10 +58,15 @@ export async function submitOrderForUser(
 
     let printStatus = "QUEUED";
     let receipt: PrintJobPayload | undefined;
+    let devicePrintJobId: string | undefined;
     const [job] = await db.select().from(printJobs).where(eq(printJobs.orderId, order.id)).limit(1);
     if (job) {
       printStatus = job.status;
-      if (job.provider === "browser") receipt = job.payloadSnapshot as PrintJobPayload;
+      // Both of these providers print on the client, so the client needs the
+      // snapshot. A retried submission gets it too — the tablet may have
+      // lost the response before printing.
+      if (job.provider === "browser" || job.provider === "device") receipt = job.payloadSnapshot as PrintJobPayload;
+      if (job.provider === "device" && job.status !== "PRINTED" && job.status !== "CANCELLED") devicePrintJobId = job.id;
       if (!idempotent) {
         try {
           const result = await processPrintJob(db, job.id);
@@ -62,7 +77,16 @@ export async function submitOrderForUser(
       }
     }
 
-    return { ok: true, orderId: order.id, orderNumber: order.orderNumber, total: order.total, idempotent, printStatus, receipt };
+    return {
+      ok: true,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      total: order.total,
+      idempotent,
+      printStatus,
+      receipt,
+      devicePrintJobId,
+    };
   } catch (error) {
     if (error instanceof InsufficientStockError || error instanceof OrderValidationError) {
       return { ok: false, error: error.message };

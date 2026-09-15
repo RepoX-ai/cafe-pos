@@ -11,6 +11,7 @@ import {
   printJobs,
 } from "@/lib/db/schema";
 import { microsToRupiah, multiplyQuantityByRate, sumRupiah } from "@/lib/money/money";
+import { configuredPrintProvider } from "@/printing";
 import { pageWindow, toPage, type Page } from "@/lib/pagination";
 import { calculateServiceCharge, calculateTax, parseTaxConfig } from "@/lib/settings/tax";
 import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
@@ -411,7 +412,7 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
     await tx.insert(printJobs).values({
       orderId: order.id,
       destination: "CUSTOMER_RECEIPT",
-      provider: (process.env.PRINT_PROVIDER as "mock" | "browser" | "bridge") || "mock",
+      provider: configuredPrintProvider(),
       status: "QUEUED",
       payloadSnapshot: buildPrintPayload(order, prepared, business.name),
       requestedBy: actor.userId,

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { orders, printJobs } from "@/lib/db/schema";
-import { getPrinterProvider, type PrintJobPayload } from "@/printing";
+import { configuredPrintProvider, getPrinterProvider, type PrintJobPayload } from "@/printing";
 import { recordAuditLog } from "./audit";
 import type { ActorContext } from "./ingredient-service";
 
@@ -21,8 +21,9 @@ export const UNCERTAIN_PRINT_ERROR =
 
 export interface ProcessResult {
   status: "PRINTED" | "FAILED" | "QUEUED" | "PROCESSING" | "CANCELLED";
-  requiresClientAction?: "window_print";
+  requiresClientAction?: "window_print" | "device_print";
   payload?: PrintJobPayload;
+  printJobId?: string;
   error?: string;
 }
 
@@ -109,6 +110,14 @@ export async function processPrintJob(db: Database, printJobId: string): Promise
     return updated.length > 0;
   }
 
+  if (result.requiresClientAction === "device_print") {
+    // The printer is paired with the tablet, not the server. Release the
+    // claim and hand the payload back; the tablet prints over Bluetooth and
+    // calls recordDevicePrintResult with what actually happened.
+    await recordOutcome({ status: "QUEUED", printedAt: null, lastError: "Awaiting tablet print" });
+    return { status: "QUEUED", requiresClientAction: "device_print", payload, printJobId };
+  }
+
   if (result.requiresClientAction === "window_print") {
     // Browser fallback: there is no server-side confirmation channel, so
     // handing off to the client is the best this provider can do. The UI
@@ -125,6 +134,46 @@ export async function processPrintJob(db: Database, printJobId: string): Promise
   const error = result.error ?? "Unknown print error";
   if (await recordOutcome({ status: "FAILED", lastError: error })) return { status: "FAILED", error };
   return { status: "PROCESSING", error: "This attempt was superseded before its result was recorded." };
+}
+
+/**
+ * Records what the staff tablet's Bluetooth printer actually did with a
+ * `device` job. Idempotent: a flaky tablet connection may report the same
+ * outcome twice, and a job already marked PRINTED stays PRINTED rather than
+ * being reopened.
+ */
+export async function recordDevicePrintResult(
+  db: Database,
+  actor: { businessId: string },
+  printJobId: string,
+  outcome: { ok: boolean; error?: string },
+): Promise<ProcessResult> {
+  const [job] = await db
+    .select({ id: printJobs.id, status: printJobs.status, provider: printJobs.provider })
+    .from(printJobs)
+    .innerJoin(orders, eq(printJobs.orderId, orders.id))
+    .where(and(eq(printJobs.id, printJobId), eq(orders.businessId, actor.businessId)))
+    .limit(1);
+  if (!job) throw new Error("Print job not found");
+  // Only the tablet's own jobs — never let a client mark a server-side
+  // provider's job as printed.
+  if (job.provider !== "device") throw new Error("This print job is not printed by the tablet.");
+  if (job.status === "PRINTED" || job.status === "CANCELLED") return { status: job.status };
+
+  if (outcome.ok) {
+    await db
+      .update(printJobs)
+      .set({ status: "PRINTED", printedAt: new Date(), lastError: null, claimToken: null, leaseExpiresAt: null })
+      .where(eq(printJobs.id, printJobId));
+    return { status: "PRINTED" };
+  }
+
+  const error = outcome.error?.slice(0, 500) || "The tablet could not print this receipt.";
+  await db
+    .update(printJobs)
+    .set({ status: "FAILED", lastError: error, claimToken: null, leaseExpiresAt: null })
+    .where(eq(printJobs.id, printJobId));
+  return { status: "FAILED", error };
 }
 
 /**
@@ -222,7 +271,7 @@ export async function createReprintJob(db: Database, actor: ActorContext, orderI
     .values({
       orderId,
       destination: lastJob?.destination ?? "CUSTOMER_RECEIPT",
-      provider: (process.env.PRINT_PROVIDER as "mock" | "browser" | "bridge") || "mock",
+      provider: configuredPrintProvider(),
       status: "QUEUED",
       payloadSnapshot: lastJob?.payloadSnapshot ?? {},
       requestedBy: actor.userId,

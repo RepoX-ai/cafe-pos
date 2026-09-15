@@ -5,7 +5,7 @@ import { cartDraftSchema, cartLineSignature } from "@/lib/pos/cart";
 import { submitOrderInputSchema, type SubmitOrderInput } from "@/lib/validation/order";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 import Link from "next/link";
-import { History, WifiOff } from "lucide-react";
+import { History, Printer, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
 import type { TaxConfig } from "@/lib/settings/tax";
@@ -16,6 +16,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { submitOrderAction } from "./actions";
 import { ItemModal, type ConfiguredLine } from "./item-modal";
 import { useToast } from "@/components/ui/toast";
+import { useBluetoothPrinter } from "./use-bluetooth-printer";
 import { PosCartPanel } from "./pos-cart-panel";
 import { PosMenuPanel } from "./pos-menu-panel";
 import { PosOrderConfirmation } from "./pos-order-confirmation";
@@ -72,7 +73,14 @@ export function PosClient({
   const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ orderNumber: string; total: number; printStatus: string; receipt?: PrintJobPayload } | null>(null);
+  const [confirmation, setConfirmation] = useState<{
+    orderNumber: string;
+    total: number;
+    printStatus: string;
+    receipt?: PrintJobPayload;
+    devicePrintJobId?: string;
+  } | null>(null);
+  const printer = useBluetoothPrinter();
   const [isOnline, setIsOnline] = useState(true);
 
   // Draft persistence (PRD §13: keep the unsaved cart in local storage).
@@ -240,7 +248,13 @@ export function PosClient({
       localStorage.removeItem(pendingKey);
       setPending(null);
       if (result.ok) {
-        setConfirmation({ orderNumber: result.orderNumber, total: result.total, printStatus: result.printStatus, receipt: result.receipt });
+        setConfirmation({
+          orderNumber: result.orderNumber,
+          total: result.total,
+          printStatus: result.printStatus,
+          receipt: result.receipt,
+          devicePrintJobId: result.devicePrintJobId,
+        });
         setCart([]);
         setTableLabel("");
         setDiscountTotal(0);
@@ -265,7 +279,7 @@ export function PosClient({
   }
 
   if (confirmation) {
-    return <PosOrderConfirmation confirmation={confirmation} resetOrder={resetOrder} />;
+    return <PosOrderConfirmation confirmation={confirmation} resetOrder={resetOrder} printer={printer} />;
   }
 
   return (
@@ -281,6 +295,22 @@ export function PosClient({
           ) : null}
         </div>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() =>
+              printer.connect().catch((error) =>
+                showToast("error", error instanceof Error ? error.message : "Could not connect to the printer."),
+              )
+            }
+            className={`flex h-8 items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 text-xs font-medium ${
+              printer.isConnected
+                ? "border-[var(--color-success)] text-[var(--color-success)]"
+                : "border-[var(--color-border)] hover:bg-[var(--color-selected-surface)]"
+            }`}
+          >
+            <Printer size={12} />
+            {printer.isConnected ? (printer.deviceName ?? "Printer ready") : "Connect printer"}
+          </button>
           {canViewOrderHistory ? (
             <Link
               href="/pos/orders"

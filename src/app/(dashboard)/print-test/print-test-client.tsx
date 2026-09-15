@@ -4,13 +4,17 @@ import { useCallback, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 import { renderReceipt, renderReceiptText, type ReceiptDestination } from "@/printing/escpos/receipt";
+import { encodeAscii, feed, INIT } from "@/printing/escpos/commands";
 import {
   canRememberDevices,
   getRememberedPrinters,
   isWebBluetoothAvailable,
   openPrinter,
   requestPrinter,
+  type PrinterDevice,
+  type PrinterEndpoint,
   type PrinterLink,
+  type WriteMode,
 } from "@/printing/ble/web-bluetooth";
 
 const SAMPLE: PrintJobPayload = {
@@ -39,10 +43,16 @@ export function PrintTestClient() {
   const [log, setLog] = useState<LogEntry[]>([]);
   const [connected, setConnected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [chunkSize, setChunkSize] = useState(120);
-  const [delayMs, setDelayMs] = useState(20);
+  const [chunkSize, setChunkSize] = useState(20);
+  const [delayMs, setDelayMs] = useState(40);
   const [acceptAll, setAcceptAll] = useState(false);
   const [destination, setDestination] = useState<ReceiptDestination>("CUSTOMER_RECEIPT");
+  const [endpoints, setEndpoints] = useState<PrinterEndpoint[]>([]);
+  const [endpointUuid, setEndpointUuid] = useState("");
+  const [writeMode, setWriteMode] = useState<WriteMode>("auto");
+  const lastDevice = useRef<PrinterDevice | null>(null);
+  /** Mirrors lastDevice for render-time checks — refs can't be read while rendering. */
+  const [hasDevice, setHasDevice] = useState(false);
 
   const append = useCallback((text: string, tone: LogEntry["tone"] = "info") => {
     setLog((entries) => [...entries, { at: new Date().toLocaleTimeString(), text, tone }]);
@@ -55,13 +65,26 @@ export function PrintTestClient() {
     append(navigator.userAgent);
   }, [append]);
 
-  async function attach(device: Awaited<ReturnType<typeof requestPrinter>>) {
-    const opened = await openPrinter(device);
+  async function attach(device: PrinterDevice) {
+    const opened = await openPrinter(device, {
+      characteristicUuid: endpointUuid || undefined,
+      mode: writeMode,
+    });
     link.current = opened;
+    lastDevice.current = device;
+    setHasDevice(true);
+    setEndpoints(opened.endpoints);
+    setEndpointUuid(opened.characteristicUuid);
     setConnected(device.name ?? device.id);
     append(`Connected to ${device.name ?? device.id}`, "ok");
-    append(`Service ${opened.serviceUuid}`);
-    append(`Write characteristic ${opened.characteristicUuid} (${opened.mode})`);
+    append(`Writable characteristics found: ${opened.endpoints.length}`);
+    for (const endpoint of opened.endpoints) {
+      const modes = [endpoint.canWrite ? "write" : null, endpoint.canWriteWithoutResponse ? "write-no-response" : null]
+        .filter(Boolean)
+        .join(", ");
+      append(`  ${endpoint.serviceUuid} / ${endpoint.characteristicUuid} (${modes})`);
+    }
+    append(`Using ${opened.serviceUuid} / ${opened.characteristicUuid} (${opened.mode})`, "ok");
     device.addEventListener("gattserverdisconnected", () => {
       link.current = null;
       setConnected(null);
@@ -100,15 +123,29 @@ export function PrintTestClient() {
       await attach(device);
     });
 
-  const print = (payload: PrintJobPayload) =>
-    run("Print", async () => {
+  const sendBytes = (bytes: Uint8Array, label: string) =>
+    run(label, async () => {
       const current = link.current;
       if (!current) throw new Error("Not connected.");
-      const bytes = renderReceipt(payload, { destination });
-      append(`Sending ${bytes.length} bytes in ${chunkSize}-byte chunks, ${delayMs}ms apart…`);
+      append(`${label}: ${bytes.length} bytes in ${chunkSize}-byte chunks, ${delayMs}ms apart…`);
       const startedAt = performance.now();
       await current.write(bytes, { chunkSize, delayMs });
       append(`Sent in ${Math.round(performance.now() - startedAt)}ms. Check the paper.`, "ok");
+    });
+
+  const print = (payload: PrintJobPayload) => sendBytes(renderReceipt(payload, { destination }), "Print");
+
+  /** Smallest thing that can possibly print: reset, one word, feed. */
+  const printHello = () =>
+    sendBytes(Uint8Array.from([...INIT, ...encodeAscii("HELLO\n"), ...feed(4)]), "Minimal test");
+
+  /** Re-open the same device after changing endpoint or write mode — no chooser. */
+  const reopen = () =>
+    run("Reopen", async () => {
+      const device = lastDevice.current;
+      if (!device) throw new Error("Connect once first.");
+      link.current?.disconnect();
+      await attach(device);
     });
 
   function copyLog() {
@@ -138,6 +175,7 @@ export function PrintTestClient() {
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={connect} disabled={busy}>Connect printer</Button>
           <Button size="sm" variant="secondary" onClick={reconnect} disabled={busy}>Reconnect silently</Button>
+          <Button size="sm" onClick={printHello} disabled={busy || !connected}>Print HELLO only</Button>
           <Button size="sm" variant="secondary" onClick={() => print(SAMPLE)} disabled={busy || !connected}>
             Print sample receipt
           </Button>
@@ -194,8 +232,45 @@ export function PrintTestClient() {
             Show all BLE devices in the chooser
           </label>
         </div>
-        <p className="mt-3 text-xs text-[var(--color-text-secondary)]">
-          If printing comes out garbled or stops halfway, lower the chunk size or raise the delay, then print again.
+
+        <div className="mt-4 flex flex-wrap items-end gap-4 border-t border-[var(--color-border)] pt-4">
+          <label className="flex flex-col gap-1 text-xs text-[var(--color-text-secondary)]">
+            Write to
+            <select
+              value={endpointUuid}
+              onChange={(event) => setEndpointUuid(event.target.value)}
+              className="h-8 max-w-[320px] rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2 text-sm text-[var(--color-text-primary)]"
+            >
+              {endpoints.length === 0 ? <option value="">connect first</option> : null}
+              {endpoints.map((endpoint) => (
+                <option key={endpoint.characteristicUuid} value={endpoint.characteristicUuid}>
+                  {endpoint.characteristicUuid.slice(0, 13)}… ({endpoint.canWrite ? "write" : "no-response"})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-[var(--color-text-secondary)]">
+            Write mode
+            <select
+              value={writeMode}
+              onChange={(event) => setWriteMode(event.target.value as WriteMode)}
+              className="h-8 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2 text-sm text-[var(--color-text-primary)]"
+            >
+              <option value="auto">Auto</option>
+              <option value="without-response">Without response</option>
+              <option value="with-response">With response</option>
+            </select>
+          </label>
+          <Button size="sm" variant="secondary" onClick={reopen} disabled={busy || !hasDevice}>
+            Apply and reconnect
+          </Button>
+        </div>
+
+        <p className="mt-3 max-w-[70ch] text-xs text-[var(--color-text-secondary)]">
+          Nothing coming out? Keep chunk size at 20 — larger writes get split into a &ldquo;long write&rdquo; that this
+          printer accepts and then discards. Try <strong>Print HELLO only</strong> first, then switch write mode to
+          &ldquo;Without response&rdquo; and <strong>Apply and reconnect</strong>. If it still prints nothing, pick a
+          different characteristic from the list.
         </p>
       </section>
 
