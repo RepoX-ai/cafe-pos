@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
+import { formatRoles } from "@/lib/permissions/role-labels";
 import { db } from "@/lib/db/client";
 import { getPosMenu } from "@/server/services/menu-service";
 import { getBusinessById } from "@/server/services/business-service";
@@ -27,6 +28,7 @@ export default async function PosPage() {
     <PosClient
       draftScope={`${user.businessId}:${user.id}`}
       userName={user.name}
+      roleLabel={formatRoles(user.roles)}
       categories={categories}
       items={items}
       tax={tax}

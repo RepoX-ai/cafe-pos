@@ -8,6 +8,7 @@ import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
 import { getOrderById } from "@/server/services/order-service";
 import { Badge } from "@/components/ui/badge";
+import { ReprintReceipt } from "./reprint-receipt";
 
 export const metadata: Metadata = {
   title: "Order — CaféOps",
@@ -34,6 +35,10 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
   const detail = await getOrderById(db, user.businessId, id);
   if (!detail) notFound();
 
+  // Enforced again in the action itself — hiding the button is not access
+  // control (PRD §10).
+  const canReprint = hasAnyRolePermission(user.roles, "orders:reprint");
+
   const { order, lines } = detail;
 
   return (
@@ -51,9 +56,12 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
               {formatDate(order.createdAt)} · {order.orderType} {order.tableLabel ? `· ${order.tableLabel}` : ""}
             </p>
           </div>
-          <Badge tone={order.status === "CANCELLED" ? "neutral" : order.status === "REFUNDED" ? "danger" : "success"}>
-            {order.status}
-          </Badge>
+          <div className="flex flex-col items-end gap-2">
+            <Badge tone={order.status === "CANCELLED" ? "neutral" : order.status === "REFUNDED" ? "danger" : "success"}>
+              {order.status}
+            </Badge>
+            {canReprint ? <ReprintReceipt orderId={order.id} /> : null}
+          </div>
         </div>
 
         {order.status === "CANCELLED" ? (
@@ -67,9 +75,9 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                 <th className="px-4 py-3">Item</th>
-                <th className="px-4 py-3 text-right">Qty</th>
-                <th className="px-4 py-3 text-right">Unit price</th>
-                <th className="px-4 py-3 text-right">Line total</th>
+                <th className="px-4 py-3">Qty</th>
+                <th className="px-4 py-3">Unit price</th>
+                <th className="px-4 py-3">Line total</th>
               </tr>
             </thead>
             <tbody>
@@ -87,9 +95,9 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
                     ) : null}
                     {line.notes ? <p className="text-xs italic text-[var(--color-text-muted)]">&quot;{line.notes}&quot;</p> : null}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">{line.quantity}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatIDR(line.unitPriceSnapshot)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatIDR(line.lineTotal)}</td>
+                  <td className="px-4 py-3 tabular-nums">{line.quantity}</td>
+                  <td className="px-4 py-3 tabular-nums">{formatIDR(line.unitPriceSnapshot)}</td>
+                  <td className="px-4 py-3 tabular-nums">{formatIDR(line.lineTotal)}</td>
                 </tr>
               ))}
             </tbody>

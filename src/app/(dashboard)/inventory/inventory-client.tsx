@@ -178,8 +178,8 @@ function LedgerTab({ movements, pagination }: { movements: MovementRow[]; pagina
             <th className="px-4 py-3">When</th>
             <th className="px-4 py-3">Ingredient</th>
             <th className="px-4 py-3">Type</th>
-            <th className="px-4 py-3 text-right">Quantity</th>
-            <th className="px-4 py-3 text-right">Value</th>
+            <th className="px-4 py-3">Quantity</th>
+            <th className="px-4 py-3">Value</th>
             <th className="px-4 py-3">Reason</th>
           </tr>
         </thead>
@@ -200,11 +200,11 @@ function LedgerTab({ movements, pagination }: { movements: MovementRow[]; pagina
                   <td className="px-4 py-3">
                     <Badge tone={qty >= 0 ? "success" : "danger"}>{MOVEMENT_LABEL[m.movementType] ?? m.movementType}</Badge>
                   </td>
-                  <td className={`px-4 py-3 text-right tabular-nums ${qty >= 0 ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
+                  <td className={`px-4 py-3 tabular-nums ${qty >= 0 ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
                     {qty >= 0 ? "+" : ""}
                     {formatQty(m.quantityBaseUnits, m.baseUnit)}
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">
+                  <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">
                     {m.totalCost !== null ? formatIDR(m.totalCost) : "—"}
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-secondary)]">{m.reason ?? "—"}</td>
@@ -329,9 +329,9 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                 <th className="px-4 py-3">Ingredient</th>
-                <th className="px-4 py-3 text-right">System</th>
-                <th className="px-4 py-3 text-right">Counted</th>
-                <th className="px-4 py-3 text-right">Difference</th>
+                <th className="px-4 py-3">System</th>
+                <th className="px-4 py-3">Counted</th>
+                <th className="px-4 py-3">Difference</th>
               </tr>
             </thead>
             <tbody>
@@ -342,10 +342,10 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
                 return (
                   <tr key={i.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{i.name}</td>
-                    <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">
+                    <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">
                       {formatQty(i.currentQuantityBaseUnits, i.baseUnit)}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatQty(String(counted), i.baseUnit)}</td>
+                    <td className="px-4 py-3 tabular-nums">{formatQty(String(counted), i.baseUnit)}</td>
                     <td
                       className={`px-4 py-3 text-right tabular-nums ${
                         diff === 0 ? "text-[var(--color-text-muted)]" : diff > 0 ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"

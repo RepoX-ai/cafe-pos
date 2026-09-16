@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { averageRupiah, formatIDR, formatIDRRate, toSafeInteger } from "@/lib/money/money";
+import {
+  averageRupiah,
+  formatIDR,
+  formatIDRRate,
+  formatIDRRatePerPurchaseUnit,
+  toSafeInteger,
+} from "@/lib/money/money";
 import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
 import { pageHref, pageWindow, parsePageParam, toPage } from "@/lib/pagination";
 
@@ -30,6 +36,12 @@ describe("database aggregates", () => {
   it("formats large totals and fractional cost rates", () => {
     expect(formatIDR(4_294_967_297)).toBe("Rp4.294.967.297");
     expect(formatIDRRate("12.5")).toBe("Rp12,5");
+  });
+
+  it("scales cost rates to the unit the ingredient is purchased in", () => {
+    expect(formatIDRRatePerPurchaseUnit("913.56", "gram")).toBe("Rp913.560 / kg");
+    expect(formatIDRRatePerPurchaseUnit("0.0165", "millilitre")).toBe("Rp16,5 / L");
+    expect(formatIDRRatePerPurchaseUnit("500", "piece")).toBe("Rp500 / pc");
   });
 });
 

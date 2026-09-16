@@ -84,9 +84,9 @@ export function WasteClient({
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                 <th className="px-4 py-3">When</th>
                 <th className="px-4 py-3">Ingredient</th>
-                <th className="px-4 py-3 text-right">Quantity</th>
+                <th className="px-4 py-3">Quantity</th>
                 <th className="px-4 py-3">Reason</th>
-                <th className="px-4 py-3 text-right">Est. cost</th>
+                <th className="px-4 py-3">Est. cost</th>
               </tr>
             </thead>
             <tbody>
@@ -101,11 +101,11 @@ export function WasteClient({
                   <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDate(r.createdAt)}</td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{r.ingredientName}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">
+                    <td className="px-4 py-3 tabular-nums">
                       {Number(r.quantityBaseUnits).toLocaleString("id-ID")} {UNIT_LABEL[r.baseUnit]}
                     </td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{REASON_LABEL[r.reason] ?? r.reason}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatIDR(r.estimatedCost)}</td>
+                    <td className="px-4 py-3 tabular-nums">{formatIDR(r.estimatedCost)}</td>
                   </tr>
                 ))
               )}

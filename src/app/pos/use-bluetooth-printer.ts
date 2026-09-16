@@ -1,14 +1,21 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import {
   isWebBluetoothAvailable,
   onPrinterDisconnected,
   openPrinter,
   requestPrinter,
-  type PrinterLink,
 } from "@/printing/ble/web-bluetooth";
 import { createSimulatedPrinter } from "@/printing/ble/simulated-printer";
+import {
+  getPrinterLink,
+  getPrinterSnapshot,
+  getServerPrinterSnapshot,
+  setPrinterLink,
+  subscribePrinter,
+  updatePrinter,
+} from "@/printing/ble/printer-store";
 import { renderReceipt } from "@/printing/escpos/receipt";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 
@@ -38,44 +45,38 @@ function simulationRequested() {
 }
 
 /**
- * Holds the POS tablet's Bluetooth printer connection for as long as the
- * page stays open, so staff tap "Connect printer" once per shift rather
- * than once per order. A page reload drops it: this tablet's Chrome has no
- * silent reconnect, so the tap comes back after a refresh.
+ * Reads the tablet's printer connection, which lives in a module-level
+ * store so it outlives any one screen: staff tap "Connect printer" once
+ * per shift and can then print from checkout or from order history.
  */
 export function useBluetoothPrinter(): PosPrinter {
-  const link = useRef<PrinterLink | null>(null);
-  const [deviceName, setDeviceName] = useState<string | null>(null);
-  /** Paired but the radio link has dropped — printing wakes it back up. */
-  const [asleep, setAsleep] = useState(false);
-  const [simulated, setSimulated] = useState(false);
-  const [lastSimulatedReceipt, setLastSimulatedReceipt] = useState<string | null>(null);
+  const snapshot = useSyncExternalStore(subscribePrinter, getPrinterSnapshot, getServerPrinterSnapshot);
 
   const connect = useCallback(async () => {
     if (simulationRequested()) {
-      link.current = createSimulatedPrinter(setLastSimulatedReceipt);
-      setSimulated(true);
-      setDeviceName("Simulated printer");
+      setPrinterLink(
+        createSimulatedPrinter((receipt) => updatePrinter({ lastSimulatedReceipt: receipt })),
+        { deviceName: "Simulated printer", isSimulated: true },
+      );
       return;
     }
     if (!isWebBluetoothAvailable()) {
       throw new Error("This browser can't use Bluetooth printers. Use Chrome on the Android tablet.");
     }
     const device = await requestPrinter();
-    link.current = await openPrinter(device);
-    setDeviceName(device.name ?? "Printer");
+    setPrinterLink(await openPrinter(device), { deviceName: device.name ?? "Printer" });
     // The printer sleeps between orders and drops the link. Keep the
     // pairing: the next print reconnects on its own, so staff don't have to
     // tap Connect again mid-shift.
-    onPrinterDisconnected(device, () => setAsleep(true));
+    onPrinterDisconnected(device, () => updatePrinter({ isAsleep: true }));
   }, []);
 
   const printReceipt = useCallback(async (payload: PrintJobPayload) => {
-    const current = link.current;
-    if (!current) return { ok: false, error: "No printer connected on this tablet." };
+    const link = getPrinterLink();
+    if (!link) return { ok: false, error: "No printer connected on this tablet." };
     try {
-      await current.write(renderReceipt(payload));
-      setAsleep(false);
+      await link.write(renderReceipt(payload));
+      updatePrinter({ isAsleep: false });
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Bluetooth write failed." };
@@ -84,14 +85,14 @@ export function useBluetoothPrinter(): PosPrinter {
 
   return useMemo(
     () => ({
-      isConnected: deviceName !== null,
-      isAsleep: asleep,
-      isSimulated: simulated,
-      deviceName,
-      lastSimulatedReceipt,
+      isConnected: snapshot.deviceName !== null,
+      isAsleep: snapshot.isAsleep,
+      isSimulated: snapshot.isSimulated,
+      deviceName: snapshot.deviceName,
+      lastSimulatedReceipt: snapshot.lastSimulatedReceipt,
       connect,
       printReceipt,
     }),
-    [deviceName, asleep, simulated, lastSimulatedReceipt, connect, printReceipt],
+    [snapshot, connect, printReceipt],
   );
 }

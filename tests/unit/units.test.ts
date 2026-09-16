@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { convertToBaseUnits } from "@/lib/units/units";
+import { convertToBaseUnits, purchaseUnitOptionsFor } from "@/lib/units/units";
 
 describe("units", () => {
   it("converts kilograms of coffee beans to grams", () => {
@@ -34,5 +34,31 @@ describe("units", () => {
     expect(() =>
       convertToBaseUnits({ quantityPurchased: 2, conversionToBaseUnits: 0 }),
     ).toThrow();
+  });
+});
+
+describe("purchaseUnitOptionsFor", () => {
+  it("leads with the ingredient's own unit class, so the default is sensible", () => {
+    expect(purchaseUnitOptionsFor("gram")[0]).toMatchObject({ unit: "kg", conversionToBaseUnits: 1000 });
+    expect(purchaseUnitOptionsFor("millilitre")[0]).toMatchObject({ unit: "L", conversionToBaseUnits: 1000 });
+    expect(purchaseUnitOptionsFor("piece")[0]).toMatchObject({ unit: "pc", conversionToBaseUnits: 1 });
+  });
+
+  it("offers every unit on every ingredient", () => {
+    for (const baseUnit of ["gram", "millilitre", "piece"] as const) {
+      expect(purchaseUnitOptionsFor(baseUnit).map((o) => o.unit).sort()).toEqual(["L", "g", "kg", "ml", "pc"]);
+    }
+  });
+
+  it("labels each option by what the unit itself means", () => {
+    const labelFor = (baseUnit: Parameters<typeof purchaseUnitOptionsFor>[0], unit: string) =>
+      purchaseUnitOptionsFor(baseUnit).find((o) => o.unit === unit)?.label;
+    expect(labelFor("gram", "kg")).toBe("kg (1.000 g)");
+    expect(labelFor("gram", "g")).toBe("gram");
+    expect(labelFor("gram", "L")).toBe("L (1.000 ml)");
+    expect(labelFor("gram", "ml")).toBe("ml");
+    expect(labelFor("gram", "pc")).toBe("pcs");
+    // The label describes the unit, not the ingredient, so it never varies.
+    expect(labelFor("piece", "L")).toBe(labelFor("gram", "L"));
   });
 });

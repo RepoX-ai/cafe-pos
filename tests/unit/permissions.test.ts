@@ -37,11 +37,18 @@ describe("permissions", () => {
     }
   });
 
-  it("does not grant cashier reprint by default, but does with the override", () => {
-    expect(hasPermission("cashier", "orders:reprint")).toBe(false);
-    expect(
-      hasPermission("cashier", "orders:reprint", { cashierCanReprintOwn: true }),
-    ).toBe(true);
+  it("grants cashier reprint by default (PRD §4 role matrix)", () => {
+    // Cashiers reprint receipts themselves rather than waiting for a
+    // manager. Reprinting never creates an order or moves stock.
+    expect(hasPermission("cashier", "orders:reprint")).toBe(true);
+    expect(hasPermission("cashier", "orders:reprint", { cashierCanReprintOwn: true })).toBe(true);
+  });
+
+  it("still keeps cashiers away from cancelling and refunding", () => {
+    // Reprint is deliberately the only order-altering-looking capability a
+    // cashier gained; money-affecting actions stay with managers.
+    expect(hasPermission("cashier", "orders:cancel")).toBe(false);
+    expect(hasPermission("cashier", "orders:refund")).toBe(false);
   });
 
   it("keeps manager away from staff and settings management", () => {

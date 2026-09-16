@@ -93,8 +93,13 @@ export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
     // which the PRD explicitly forbids (§4: "should not see ... ingredient
     // costs ... profit information").
     //
-    // orders:reprint is granted only if the owner explicitly enables
-    // "reprint_own" for cashiers — see overrides below.
+    // Reprint is granted to cashiers by default (PRD §4 role matrix,
+    // changed 2026-09-15 at the café's request: staff reprint receipts
+    // themselves rather than waiting for a manager). It covers any order
+    // they can already see through orders:read_all_basic, creates a new
+    // print job from the order's snapshot, and never re-deducts stock.
+    // Every reprint is audit-logged with who asked for it.
+    "orders:reprint",
   ]),
   inventory_staff: new Set<Permission>([
     // Same reasoning as cashier above: inventory_staff can manage

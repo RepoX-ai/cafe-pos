@@ -119,7 +119,7 @@ export function ItemsTab({
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Category</th>
               <th className="px-4 py-3">Variants</th>
-              <th className="px-4 py-3 text-right">Base price</th>
+              <th className="px-4 py-3">Base price</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3" />
             </tr>
@@ -166,7 +166,7 @@ export function ItemsTab({
                         item.variants.map((v) => v.name).join(", ")
                       )}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
+                    <td className="px-4 py-3 tabular-nums">
                       {minPrice === maxPrice ? formatIDR(minPrice) : `${formatIDR(minPrice)}–${formatIDR(maxPrice)}`}
                     </td>
                     <td className="px-4 py-3">

@@ -58,3 +58,57 @@ function round(value: number, decimals: number): number {
   const factor = 10 ** decimals;
   return Math.round(value * factor) / factor;
 }
+
+/**
+ * A base unit is too fine a scale to read a *cost* in: "Rp0,02" per
+ * millilitre is nothing you can check against a supplier invoice, and two
+ * fraction digits collapse most gram/millilitre rates to a single digit.
+ * Costs are therefore displayed at the scale the ingredient is bought in —
+ * per kg, per litre, per piece — while every stored value and every
+ * costing calculation stays per base unit.
+ */
+export interface PurchaseScale {
+  /** Base units in one displayed unit: 1000 grams per kg. */
+  baseUnitsPer: number;
+  label: string;
+}
+
+const PURCHASE_SCALE: Record<BaseUnit, PurchaseScale> = {
+  gram: { baseUnitsPer: 1000, label: "kg" },
+  millilitre: { baseUnitsPer: 1000, label: "L" },
+  piece: { baseUnitsPer: 1, label: "pc" },
+};
+
+export function purchaseScaleFor(baseUnit: BaseUnit): PurchaseScale {
+  return PURCHASE_SCALE[baseUnit];
+}
+
+/**
+ * The units a purchase can be entered in. Staff see all of them on every
+ * ingredient, so the list never hides the unit an invoice is written in,
+ * and each is labelled by what the unit itself means. The ingredient's own
+ * class is ordered first so the preselected default is the sensible one;
+ * the running "adds N to stock" hint on the entry row is what catches a
+ * cross-class pick. The chosen factor is stored per purchase line, so
+ * nothing here is baked into historical rows.
+ */
+export interface PurchaseUnitOption {
+  unit: string;
+  label: string;
+  conversionToBaseUnits: number;
+}
+
+const PURCHASE_UNITS: (PurchaseUnitOption & { nativeBase: BaseUnit })[] = [
+  { unit: "kg", label: "kg (1.000 g)", nativeBase: "gram", conversionToBaseUnits: 1000 },
+  { unit: "g", label: "gram", nativeBase: "gram", conversionToBaseUnits: 1 },
+  { unit: "L", label: "L (1.000 ml)", nativeBase: "millilitre", conversionToBaseUnits: 1000 },
+  { unit: "ml", label: "ml", nativeBase: "millilitre", conversionToBaseUnits: 1 },
+  { unit: "pc", label: "pcs", nativeBase: "piece", conversionToBaseUnits: 1 },
+];
+
+export function purchaseUnitOptionsFor(baseUnit: BaseUnit): PurchaseUnitOption[] {
+  return [
+    ...PURCHASE_UNITS.filter((u) => u.nativeBase === baseUnit),
+    ...PURCHASE_UNITS.filter((u) => u.nativeBase !== baseUnit),
+  ].map(({ unit, label, conversionToBaseUnits }) => ({ unit, label, conversionToBaseUnits }));
+}

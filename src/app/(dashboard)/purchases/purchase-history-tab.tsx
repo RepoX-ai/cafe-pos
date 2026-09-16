@@ -17,7 +17,7 @@ export function HistoryTab({ purchases, pagination }: { purchases: PurchaseRow[]
             <th className="px-4 py-3">Supplier</th>
             <th className="px-4 py-3">Invoice</th>
             <th className="px-4 py-3">Status</th>
-            <th className="px-4 py-3 text-right">Total</th>
+            <th className="px-4 py-3">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -39,7 +39,7 @@ export function HistoryTab({ purchases, pagination }: { purchases: PurchaseRow[]
                 <td className="px-4 py-3">
                   <Badge tone={p.status === "FINALIZED" ? "success" : "neutral"}>{p.status}</Badge>
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatIDR(p.totalCost)}</td>
+                <td className="px-4 py-3 tabular-nums">{formatIDR(p.totalCost)}</td>
               </tr>
             ))
           )}

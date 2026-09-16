@@ -196,7 +196,7 @@ Default permissions:
 
 - orders:create
 - orders:read_own
-- orders:reprint_own only if explicitly enabled
+- orders:reprint
 
 The Cashier cannot access:
 
@@ -248,7 +248,7 @@ Use this matrix as the default permission policy:
 | POS and create orders | Yes | Yes | Yes | Yes | Optional | No |
 | View own submitted order | Yes | Yes | Yes | Optional | Optional | No |
 | View all orders | Yes | Yes | Yes | No | No | Read-only |
-| Reprint orders | Yes | Yes | Yes | Optional | No | No |
+| Reprint orders | Yes | Yes | Yes | Yes | No | No |
 | Cancel/refund orders | Yes | Yes | Permission-based | No by default | No | No |
 | Dashboard | Yes | Yes | Yes | No | No | Yes |
 | Sales and profit reports | Yes | Yes | Yes | No | Limited if explicitly enabled | Yes |

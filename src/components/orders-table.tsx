@@ -64,7 +64,7 @@ export function OrdersTable({
             <th className="whitespace-nowrap px-4 py-3">Type</th>
             <th className="whitespace-nowrap px-4 py-3">Table</th>
             <th className="px-4 py-3">Items</th>
-            <th className="w-[1%] whitespace-nowrap px-3 py-3 text-right">Total</th>
+            <th className="w-[1%] whitespace-nowrap px-3 py-3">Total</th>
             <th className="whitespace-nowrap px-4 py-3">Status</th>
           </tr>
         </thead>
@@ -103,7 +103,7 @@ export function OrdersTable({
                   </div>
                 )}
               </td>
-              <td className="w-[1%] whitespace-nowrap px-3 py-3 text-right tabular-nums">{o.totalFormatted}</td>
+              <td className="w-[1%] whitespace-nowrap px-3 py-3 tabular-nums">{o.totalFormatted}</td>
               <td className="whitespace-nowrap px-4 py-3">
                 <Badge tone={o.statusTone}>{o.status}</Badge>
               </td>

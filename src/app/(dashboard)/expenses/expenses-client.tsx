@@ -205,7 +205,7 @@ export function ExpensesClient({
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Payee</th>
-                <th className="px-4 py-3 text-right">Amount</th>
+                <th className="px-4 py-3">Amount</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -222,7 +222,7 @@ export function ExpensesClient({
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.expenseDate}</td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{CATEGORY_LABEL[r.category] ?? r.category}</td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.payee ?? "—"}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatIDR(r.amount)}</td>
+                    <td className="px-4 py-3 tabular-nums">{formatIDR(r.amount)}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end">
                         <ActionMenu

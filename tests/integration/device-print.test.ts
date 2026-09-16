@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as schema from "@/lib/db/schema";
 import { getTestDb, seedTestFixture } from "./helpers";
 import { submitOrder } from "@/server/services/order-service";
-import { processPrintJob, recordDevicePrintResult } from "@/server/services/print-service";
+import { createReprintJob, processPrintJob, recordDevicePrintResult } from "@/server/services/print-service";
 
 /**
  * The `device` provider's server half: the printer is paired with the staff
@@ -130,5 +130,32 @@ describe.skipIf(!db)("device (tablet Bluetooth) printing", () => {
     const [job] = await db!.select().from(schema.printJobs).where(eq(schema.printJobs.orderId, order.id));
 
     await expect(recordDevicePrintResult(db!, actor, job.id, { ok: true })).rejects.toThrow(/not printed by the tablet/i);
+  });
+
+  it("reprints from order history as a new job the tablet must print", async () => {
+    const { order, actor, job } = await orderWithDeviceJob();
+    await processPrintJob(db!, job.id);
+    await recordDevicePrintResult(db!, actor, job.id, { ok: true });
+
+    const reprint = await createReprintJob(db!, actor, order.id, "tap-1");
+    expect(reprint.requiresClientAction).toBe("device_print");
+    expect(reprint.printJobId).toBeDefined();
+    expect(reprint.printJobId).not.toBe(job.id);
+    // The reprint carries the order's original snapshot, not today's menu.
+    expect(reprint.payload?.orderNumber).toBe((job.payloadSnapshot as { orderNumber: string }).orderNumber);
+  });
+
+  it("does not queue a second receipt when one tap is retried", async () => {
+    const { order, actor, job } = await orderWithDeviceJob();
+    await processPrintJob(db!, job.id);
+
+    const first = await createReprintJob(db!, actor, order.id, "tap-2");
+    const retry = await createReprintJob(db!, actor, order.id, "tap-2");
+    expect(retry.printJobId ?? retry.status).toBeDefined();
+
+    const jobs = await db!.select().from(schema.printJobs).where(eq(schema.printJobs.orderId, order.id));
+    // The original checkout job plus exactly one reprint.
+    expect(jobs).toHaveLength(2);
+    expect(first.printJobId).toBeDefined();
   });
 });

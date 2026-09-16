@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import { Plus } from "lucide-react";
-import { formatIDRRate } from "@/lib/money/money";
+import { formatIDRRatePerPurchaseUnit } from "@/lib/money/money";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -99,8 +99,8 @@ export function IngredientsClient({
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3 text-right">Stock</th>
-              <th className="px-4 py-3 text-right">Avg. cost / unit</th>
+              <th className="px-4 py-3">Stock</th>
+              <th className="px-4 py-3">Avg. cost</th>
               <th className="px-4 py-3">Status</th>
               {canWrite ? <th className="px-4 py-3" /> : null}
             </tr>
@@ -122,15 +122,13 @@ export function IngredientsClient({
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-[var(--color-text-secondary)]">{ing.category || "—"}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {formatQuantity(ing.currentQuantityBaseUnits, ing.baseUnit)}
-                    {lowStockIds.has(ing.id) ? (
-                      <div>
-                        <Badge tone="warning">Low stock</Badge>
-                      </div>
-                    ) : null}
+                  <td className="px-4 py-3 tabular-nums">
+                    <div className="flex items-center gap-2">
+                      <span>{formatQuantity(ing.currentQuantityBaseUnits, ing.baseUnit)}</span>
+                      {lowStockIds.has(ing.id) ? <Badge tone="warning">Low stock</Badge> : null}
+                    </div>
                   </td>
-                  <td className="px-4 py-3 text-right tabular-nums">{formatIDRRate(ing.averageCostPerBaseUnit)}</td>
+                  <td className="px-4 py-3 tabular-nums">{formatIDRRatePerPurchaseUnit(ing.averageCostPerBaseUnit, ing.baseUnit)}</td>
                   <td className="px-4 py-3">
                     <Badge tone={ing.active ? "success" : "neutral"}>
                       {ing.active ? "Active" : "Archived"}

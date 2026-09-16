@@ -69,11 +69,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
               <th className="px-4 py-3">Item</th>
-              <th className="px-4 py-3 text-right">Qty</th>
-              <th className="px-4 py-3 text-right">Unit price</th>
-              <th className="px-4 py-3 text-right">Line total</th>
-              <th className="px-4 py-3 text-right">COGS</th>
-              <th className="px-4 py-3 text-right">Gross profit</th>
+              <th className="px-4 py-3">Qty</th>
+              <th className="px-4 py-3">Unit price</th>
+              <th className="px-4 py-3">Line total</th>
+              <th className="px-4 py-3">COGS</th>
+              <th className="px-4 py-3">Gross profit</th>
             </tr>
           </thead>
           <tbody>
@@ -91,11 +91,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                   ) : null}
                   {line.notes ? <p className="text-xs italic text-[var(--color-text-muted)]">&quot;{line.notes}&quot;</p> : null}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums">{line.quantity}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatIDR(line.unitPriceSnapshot)}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatIDR(line.lineTotal)}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">{formatIDR(line.cogsSnapshot)}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">{formatIDR(line.grossProfitSnapshot)}</td>
+                <td className="px-4 py-3 tabular-nums">{line.quantity}</td>
+                <td className="px-4 py-3 tabular-nums">{formatIDR(line.unitPriceSnapshot)}</td>
+                <td className="px-4 py-3 tabular-nums">{formatIDR(line.lineTotal)}</td>
+                <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">{formatIDR(line.cogsSnapshot)}</td>
+                <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">{formatIDR(line.grossProfitSnapshot)}</td>
               </tr>
             ))}
           </tbody>
@@ -122,8 +122,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                 <th className="px-4 py-3">Item</th>
-                <th className="px-4 py-3 text-right">Quantity</th>
-                <th className="px-4 py-3 text-right">Cost</th>
+                <th className="px-4 py-3">Quantity</th>
+                <th className="px-4 py-3">Cost</th>
               </tr>
             </thead>
             <tbody>
@@ -131,8 +131,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
                 line.consumption.map((c) => (
                   <tr key={c.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{line.itemNameSnapshot}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{Number(c.quantityBaseUnits).toLocaleString("id-ID")}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatIDR(c.totalCost)}</td>
+                    <td className="px-4 py-3 tabular-nums">{Number(c.quantityBaseUnits).toLocaleString("id-ID")}</td>
+                    <td className="px-4 py-3 tabular-nums">{formatIDR(c.totalCost)}</td>
                   </tr>
                 )),
               )}

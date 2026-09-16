@@ -13,6 +13,8 @@
  * point a value is actually persisted or displayed.
  */
 
+import { purchaseScaleFor, type BaseUnit } from "@/lib/units/units";
+
 const MICROS_PER_RUPIAH = 1_000_000n;
 
 export type Rupiah = number; // whole-Rupiah integer, safe to persist/display
@@ -94,6 +96,17 @@ export function formatIDR(amount: Rupiah): string {
  */
 export function formatIDRRate(rate: number | string): string {
   return `Rp${Number(rate).toLocaleString("id-ID", { maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * The same rate rendered at the scale the ingredient is purchased in —
+ * "Rp913.560 / kg" rather than "Rp913,56" — so it can be read against a
+ * supplier invoice without mental arithmetic. Display only: the stored
+ * rate and all costing arithmetic stay per base unit.
+ */
+export function formatIDRRatePerPurchaseUnit(rate: number | string, baseUnit: BaseUnit): string {
+  const { baseUnitsPer, label } = purchaseScaleFor(baseUnit);
+  return `${formatIDRRate(Number(rate) * baseUnitsPer)} / ${label}`;
 }
 
 /**

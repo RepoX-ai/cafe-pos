@@ -72,7 +72,7 @@ export function RecipeLinesTable({
               <th className="px-4 py-3">Ingredient</th>
               <th className="px-4 py-3">Quantity</th>
               <th className="px-4 py-3">Waste %</th>
-              <th className="px-4 py-3 text-right">Line cost</th>
+              <th className="px-4 py-3">Line cost</th>
               {canWrite ? <th className="px-4 py-3" /> : null}
             </tr>
           </thead>
@@ -139,7 +139,7 @@ export function RecipeLinesTable({
                         className={inputClassName + " w-20"}
                       />
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-[var(--color-text-secondary)]">{formatIDR(lineCost)}</td>
+                    <td className="px-4 py-2 tabular-nums text-[var(--color-text-secondary)]">{formatIDR(lineCost)}</td>
                     {canWrite ? (
                       <td className="px-4 py-2 text-right">
                         <button

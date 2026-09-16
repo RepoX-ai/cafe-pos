@@ -33,5 +33,7 @@ export interface LineDraft {
   quantityPurchased: string;
   purchaseUnit: string;
   conversionToBaseUnits: string;
+  /** True while the line is on a pack unit the dropdown doesn't cover. */
+  customPack: boolean;
   unitPurchaseCost: string;
 }

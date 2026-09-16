@@ -5,7 +5,7 @@ import { cartDraftSchema, cartLineSignature } from "@/lib/pos/cart";
 import { submitOrderInputSchema, type SubmitOrderInput } from "@/lib/validation/order";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 import Link from "next/link";
-import { History, Printer, WifiOff } from "lucide-react";
+import { ChevronDown, History, LogOut, Printer, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
 import type { TaxConfig } from "@/lib/settings/tax";
@@ -34,6 +34,12 @@ import {
 
 const DRAFT_KEY = "cafepos.pos.draft.v1";
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
 function newIdempotencyKey() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `key-${Date.now()}-${Math.random()}`;
 }
@@ -41,6 +47,7 @@ function newIdempotencyKey() {
 export function PosClient({
   draftScope,
   userName,
+  roleLabel,
   categories,
   items,
   tax,
@@ -49,6 +56,7 @@ export function PosClient({
 }: {
   draftScope: string;
   userName: string;
+  roleLabel: string;
   categories: PosCategory[];
   items: PosMenuItem[];
   tax: TaxConfig | null;
@@ -61,6 +69,8 @@ export function PosClient({
   const showToast = useToast();
   const [pending, setPending] = useState<SubmitOrderInput | null>(null);
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const [activeCategory, setActiveCategory] = useState<string | "all">("all");
   const [search, setSearch] = useState("");
   const [configuring, setConfiguring] = useState<PosMenuItem | null>(null);
@@ -90,6 +100,22 @@ export function PosClient({
   } | null>(null);
   const printer = useBluetoothPrinter();
   const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    function handlePointerDown(e: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) setUserMenuOpen(false);
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setUserMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [userMenuOpen]);
 
   // Draft persistence (PRD §13: keep the unsaved cart in local storage).
   // This is a one-time sync from an external store on mount, not state
@@ -343,12 +369,45 @@ export function PosClient({
               Order history
             </Link>
           ) : null}
-          <span className="text-sm text-[var(--color-text-secondary)]">{userName}</span>
-          <form action={logoutAction}>
-            <button type="submit" className="h-8 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 text-xs font-medium hover:bg-[var(--color-selected-surface)]">
-              Log out
+          <div ref={userMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen((prev) => !prev)}
+              aria-haspopup="menu"
+              aria-expanded={userMenuOpen}
+              className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-2 pr-1.5 text-right hover:bg-[var(--color-selected-surface)]"
+            >
+              <div>
+                <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{userName}</p>
+                <p className="text-xs text-[var(--color-text-muted)]">{roleLabel}</p>
+              </div>
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-selected-surface)] text-xs font-semibold text-[var(--color-accent-primary)]">
+                {initials(userName)}
+              </div>
+              <ChevronDown
+                size={16}
+                className={`shrink-0 text-[var(--color-text-muted)] transition-transform ${userMenuOpen ? "rotate-180" : ""}`}
+              />
             </button>
-          </form>
+
+            {userMenuOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 z-20 mt-1.5 w-40 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg"
+              >
+                <form action={logoutAction}>
+                  <button
+                    type="submit"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-danger)]"
+                  >
+                    <LogOut size={16} className="shrink-0" />
+                    Log out
+                  </button>
+                </form>
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 

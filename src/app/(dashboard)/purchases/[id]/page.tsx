@@ -54,27 +54,27 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
           <thead>
             <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
               <th className="px-4 py-3">Ingredient</th>
-              <th className="px-4 py-3 text-right">Qty purchased</th>
-              <th className="px-4 py-3 text-right">→ base units</th>
-              <th className="px-4 py-3 text-right">Cost / base unit</th>
-              <th className="px-4 py-3 text-right">Line total</th>
+              <th className="px-4 py-3">Qty purchased</th>
+              <th className="px-4 py-3">→ base units</th>
+              <th className="px-4 py-3">Cost / base unit</th>
+              <th className="px-4 py-3">Line total</th>
             </tr>
           </thead>
           <tbody>
             {lines.map((line) => (
               <tr key={line.id} className="border-b border-[var(--color-border)] last:border-0">
                 <td className="px-4 py-3 font-medium text-[var(--color-text-primary)]">{line.ingredientName}</td>
-                <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">
+                <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">
                   {Number(line.quantityPurchased).toLocaleString("id-ID", { maximumFractionDigits: 4 })} {line.purchaseUnit}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">
+                <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">
                   {Number(line.quantityBaseUnits).toLocaleString("id-ID", { maximumFractionDigits: 2 })}{" "}
                   {UNIT_LABEL[line.ingredientBaseUnit as BaseUnit]}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-[var(--color-text-secondary)]">
+                <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">
                   {formatIDRRate(line.costPerBaseUnit)}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums">{formatIDR(line.totalLineCost)}</td>
+                <td className="px-4 py-3 tabular-nums">{formatIDR(line.totalLineCost)}</td>
               </tr>
             ))}
           </tbody>
