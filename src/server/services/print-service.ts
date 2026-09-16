@@ -16,6 +16,11 @@ export const PRINT_JOB_MAX_ATTEMPTS = positiveIntEnv("PRINT_JOB_MAX_ATTEMPTS", 5
 /** How long a claim stays valid. Keep it above the slowest expected provider call. */
 export const PRINT_JOB_LEASE_SECONDS = positiveIntEnv("PRINT_JOB_LEASE_SECONDS", 120);
 
+/** Refusals a caller should show to the user rather than log as a fault. */
+export class PrintNotAllowedError extends Error {}
+
+export const CANCELLED_ORDER_PRINT_ERROR = "This order was cancelled — its receipt can no longer be printed.";
+
 export const UNCERTAIN_PRINT_ERROR =
   "Print outcome unknown: processing stopped before the result was recorded. Check whether this receipt printed before retrying.";
 
@@ -198,12 +203,13 @@ export async function recoverAbandonedPrintJobs(db: Database, businessId: string
 
 export async function retryPrintJob(db: Database, actor: ActorContext, printJobId: string) {
   const [job] = await db
-    .select({ id: printJobs.id, orderId: printJobs.orderId })
+    .select({ id: printJobs.id, orderId: printJobs.orderId, orderStatus: orders.status })
     .from(printJobs)
     .innerJoin(orders, eq(printJobs.orderId, orders.id))
     .where(and(eq(printJobs.id, printJobId), eq(orders.businessId, actor.businessId)))
     .limit(1);
   if (!job) throw new Error("Print job not found");
+  if (job.orderStatus === "CANCELLED") throw new PrintNotAllowedError(CANCELLED_ORDER_PRINT_ERROR);
 
   await recoverAbandonedPrintJobs(db, actor.businessId, printJobId);
   const result = await processPrintJob(db, printJobId);
@@ -253,6 +259,10 @@ export async function createReprintJob(db: Database, actor: ActorContext, orderI
     .where(and(eq(orders.id, orderId), eq(orders.businessId, actor.businessId)))
     .limit(1);
   if (!order) throw new Error("Order not found");
+  // A cancelled sale has no receipt to hand anyone. Refunds still do: the
+  // customer had the original, and staff may need a copy for the refund
+  // paperwork, so only cancellation closes printing off.
+  if (order.status === "CANCELLED") throw new PrintNotAllowedError(CANCELLED_ORDER_PRINT_ERROR);
 
   if (requestKey) {
     const existing = await findReprintJob(db, actor.businessId, orderId, requestKey);

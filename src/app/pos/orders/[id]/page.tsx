@@ -35,11 +35,14 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
   const detail = await getOrderById(db, user.businessId, id);
   if (!detail) notFound();
 
-  // Enforced again in the action itself — hiding the button is not access
-  // control (PRD §10).
-  const canReprint = hasAnyRolePermission(user.roles, "orders:reprint");
-
   const { order, lines } = detail;
+
+  // Both conditions are enforced again in the action itself — hiding the
+  // button is not access control (PRD §10) — and a cancelled order has no
+  // receipt to hand anyone, so it isn't offered here either.
+  const canReprint = hasAnyRolePermission(user.roles, "orders:reprint") && order.status !== "CANCELLED";
+
+
 
   return (
     <div className="force-light-theme min-h-screen bg-[var(--color-page-bg)] px-6 py-6">

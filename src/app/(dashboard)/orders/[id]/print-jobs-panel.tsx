@@ -27,11 +27,14 @@ export function PrintJobsPanel({
   printJobs,
   canManagePrinter,
   canReprint,
+  orderCancelled,
 }: {
   orderId: string;
   printJobs: PrintJobRow[];
   canManagePrinter: boolean;
   canReprint: boolean;
+  /** A cancelled order's receipt can't be printed — the server refuses it too. */
+  orderCancelled: boolean;
 }) {
   const [receipt, setReceipt] = useState<PrintJobPayload | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -94,7 +97,7 @@ export function PrintJobsPanel({
               <Badge tone={p.outcomeUnknown ? "warning" : p.status === "PRINTED" ? "success" : p.status === "FAILED" ? "danger" : "accent"}>
                 {p.outcomeUnknown ? "UNKNOWN" : p.status}
               </Badge>
-              {canManagePrinter && (p.status === "FAILED" || p.status === "QUEUED" || p.outcomeUnknown) ? (
+              {canManagePrinter && !orderCancelled && (p.status === "FAILED" || p.status === "QUEUED" || p.outcomeUnknown) ? (
                 <Button size="sm" variant="secondary" onClick={() => retry(p.id)} disabled={pendingId === p.id}>
                   {pendingId === p.id ? "Retrying…" : "Retry"}
                 </Button>
@@ -104,12 +107,18 @@ export function PrintJobsPanel({
         ))
       )}
 
-      {canReprint ? (
+      {canReprint && !orderCancelled ? (
         <div className="mt-2">
           <Button size="sm" variant="secondary" onClick={reprint} disabled={isReprinting}>
             {isReprinting ? "Reprinting…" : "Reprint"}
           </Button>
         </div>
+      ) : null}
+
+      {orderCancelled && (canReprint || canManagePrinter) ? (
+        <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+          This order was cancelled — its receipt can no longer be printed.
+        </p>
       ) : null}
 
       {receipt ? <BrowserReceipt payload={receipt} /> : null}

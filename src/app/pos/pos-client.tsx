@@ -5,6 +5,7 @@ import { cartDraftSchema, cartLineSignature } from "@/lib/pos/cart";
 import { submitOrderInputSchema, type SubmitOrderInput } from "@/lib/validation/order";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronDown, History, LogOut, Printer, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
@@ -172,6 +173,36 @@ export function PosClient({
     };
   }, []);
 
+  // The tablet keeps this page open all day, so a menu item, variant or
+  // price changed in the admin UI would otherwise not appear until someone
+  // reloaded. Re-read the server props when the page comes back to the
+  // foreground, reconnects, or has simply been idle for a minute.
+  // router.refresh() reconciles rather than remounts, so the cart and the
+  // rest of the client state survive it.
+  const router = useRouter();
+  const busy = useRef(false);
+  useEffect(() => {
+    busy.current = isSubmitting || configuring !== null || confirmation !== null || pending !== null;
+  });
+
+  useEffect(() => {
+    const IDLE_REFRESH_MS = 60_000;
+    function refreshCatalog() {
+      if (busy.current || document.hidden || !navigator.onLine) return;
+      router.refresh();
+    }
+    const timer = setInterval(refreshCatalog, IDLE_REFRESH_MS);
+    window.addEventListener("focus", refreshCatalog);
+    window.addEventListener("online", refreshCatalog);
+    document.addEventListener("visibilitychange", refreshCatalog);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refreshCatalog);
+      window.removeEventListener("online", refreshCatalog);
+      document.removeEventListener("visibilitychange", refreshCatalog);
+    };
+  }, [router]);
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       if (activeCategory !== "all" && item.categoryId !== activeCategory) return false;
@@ -188,6 +219,10 @@ export function PosClient({
   const cashReceived = paymentMethod === "cash" ? resolveCashReceived(cashMode, customCash, total) : null;
 
   function addToCart(line: ConfiguredLine) {
+    // Most submission failures are about what is in the cart — a shortage,
+    // an item that went inactive. Editing the cart makes that message stale,
+    // so it goes with the edit rather than sitting there until the next tap.
+    setSubmitError(null);
     setCart((prev) => {
       // Merge into an identical existing line (same item/variant/modifiers/note).
       const signature = cartLineSignature(line);
@@ -230,6 +265,7 @@ export function PosClient({
   }
 
   function updateQuantity(key: string, delta: number) {
+    setSubmitError(null);
     setCart((prev) =>
       prev
         .map((l) => (l.key === key ? { ...l, quantity: l.quantity + delta } : l))
@@ -238,6 +274,7 @@ export function PosClient({
   }
 
   function removeLine(key: string) {
+    setSubmitError(null);
     setCart((prev) => prev.filter((l) => l.key !== key));
   }
 

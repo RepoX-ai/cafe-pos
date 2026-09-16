@@ -1,7 +1,8 @@
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, getTableColumns, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   ingredients,
+  inventoryMovements,
   menuItems,
   menuItemVariants,
   modifierGroups,
@@ -10,12 +11,24 @@ import {
   recipeLines,
   recipes,
 } from "@/lib/db/schema";
+import { purchaseScaleFor } from "@/lib/units/units";
 import type { IngredientInput, IngredientUpdateInput } from "@/lib/validation/ingredient";
 import { recordAuditLog } from "./audit";
 
+/**
+ * Whether any stock movement — purchase, count, sale, waste — exists for
+ * the ingredient. Until one does, its average cost is only the estimate
+ * typed at creation and can still be corrected; after, purchases own it.
+ */
+function hasStockHistory() {
+  return sql<boolean>`exists (select 1 from ${inventoryMovements} where ${inventoryMovements.ingredientId} = ${ingredients.id})`;
+}
+
+export class IngredientValidationError extends Error {}
+
 export async function listIngredients(db: Database, businessId: string, opts: { includeArchived?: boolean } = {}) {
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(ingredients), hasStockHistory: hasStockHistory() })
     .from(ingredients)
     .where(
       opts.includeArchived
@@ -65,8 +78,12 @@ export async function createIngredient(db: Database, actor: ActorContext, input:
         input.reorderLevelBaseUnits !== undefined ? String(input.reorderLevelBaseUnits) : null,
       targetStockBaseUnits:
         input.targetStockBaseUnits !== undefined ? String(input.targetStockBaseUnits) : null,
-      ...(input.startingCostPerBaseUnit !== undefined
-        ? { averageCostPerBaseUnit: String(input.startingCostPerBaseUnit) }
+      ...(input.startingCostPerPurchaseUnit !== undefined
+        ? {
+            averageCostPerBaseUnit: String(
+              input.startingCostPerPurchaseUnit / purchaseScaleFor(input.baseUnit).baseUnitsPer,
+            ),
+          }
         : {}),
       notes: input.notes || null,
     })
@@ -95,9 +112,26 @@ export async function updateIngredient(
   const before = await getIngredientById(db, actor.businessId, id);
   if (!before) throw new Error("Ingredient not found");
 
+  let averageCostPerBaseUnit: string | undefined;
+  if (input.startingCostPerPurchaseUnit !== undefined) {
+    const [{ locked }] = await db
+      .select({ locked: hasStockHistory() })
+      .from(ingredients)
+      .where(eq(ingredients.id, id));
+    if (locked) {
+      throw new IngredientValidationError(
+        "This ingredient already has stock history, so its cost comes from purchases and can't be typed in.",
+      );
+    }
+    averageCostPerBaseUnit = String(
+      input.startingCostPerPurchaseUnit / purchaseScaleFor(before.baseUnit).baseUnitsPer,
+    );
+  }
+
   const [row] = await db
     .update(ingredients)
     .set({
+      ...(averageCostPerBaseUnit !== undefined ? { averageCostPerBaseUnit } : {}),
       name: input.name,
       sku: input.sku || null,
       category: input.category || null,

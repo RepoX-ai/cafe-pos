@@ -4,7 +4,7 @@ import { after } from "next/server";
 import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { submitOrderForUser, type SubmitOrderResult } from "@/server/services/checkout";
-import { createReprintJob, findReprintJob, recordDevicePrintResult } from "@/server/services/print-service";
+import { createReprintJob, findReprintJob, PrintNotAllowedError, recordDevicePrintResult } from "@/server/services/print-service";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { claimRateLimitCleanupSlot, consumeRateLimit, deleteExpiredRateLimitBuckets, RATE_LIMITS } from "@/server/services/rate-limit";
 import type { PrintJobPayload } from "@/printing/printer-provider";
@@ -49,7 +49,8 @@ export async function reprintReceiptAction(orderId: string, requestKey: string):
       devicePrintJobId: result.requiresClientAction === "device_print" ? result.printJobId : undefined,
       error: result.error,
     };
-  } catch {
+  } catch (error) {
+    if (error instanceof PrintNotAllowedError) return { ok: false, error: error.message };
     return { ok: false, error: "Could not queue this receipt for reprinting." };
   }
 }

@@ -1,4 +1,5 @@
 import { formatIDR } from "@/lib/money/money";
+import type { BaseUnit } from "@/lib/units/units";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -17,6 +18,14 @@ export const metadata: Metadata = {
   title: "Order — CaféOps",
 };
 
+const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
+
+/** Base-unit quantity with its unit — "125 g", not a bare "125". */
+function formatBaseQuantity(value: string, unit: BaseUnit | null) {
+  const amount = Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 });
+  return unit ? `${amount} ${UNIT_LABEL[unit]}` : amount;
+}
+
 function formatDate(value: Date) {
   return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
 }
@@ -33,6 +42,18 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   if (!detail) notFound();
 
   const { order, lines, printJobs } = detail;
+
+  // Snapshot columns, not the current ingredient row: a deleted or renamed
+  // ingredient still reports what was actually deducted at the time.
+  const consumptionRows = lines.flatMap((line) =>
+    line.consumption.map((c) => ({
+      id: c.id,
+      ingredientName: c.ingredientNameSnapshot ?? "Deleted ingredient",
+      usedIn: line.variantNameSnapshot ? `${line.itemNameSnapshot} · ${line.variantNameSnapshot}` : line.itemNameSnapshot,
+      quantity: formatBaseQuantity(c.quantityBaseUnits, c.ingredientBaseUnitSnapshot),
+      totalCost: c.totalCost,
+    })),
+  );
   // A job abandoned mid-print already shows as "outcome unknown"; record that
   // on the job (FAILED, for a person to check) once the response is sent.
   if (printJobs.some((job) => job.outcomeUnknown)) {
@@ -102,17 +123,25 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         </table>
       </section>
 
-      <section className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Metric label="Subtotal" value={formatIDR(order.subtotal)} />
-        <Metric label="Discount" value={formatIDR(order.discountTotal)} />
-        <Metric label="Tax" value={formatIDR(order.taxTotal)} />
-        <Metric label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
-        <Metric label="Total" value={formatIDR(order.total)} />
-        {order.cashReceived !== null ? <Metric label="Cash received" value={formatIDR(order.cashReceived)} /> : null}
-        {order.changeDue !== null ? <Metric label="Change" value={formatIDR(order.changeDue)} /> : null}
-        <Metric label="COGS" value={formatIDR(order.cogsTotal)} />
-        <Metric label="Gross profit" value={formatIDR(order.grossProfit)} />
-        <Metric label="Gross margin" value={order.grossMarginPercentage !== null ? `${Number(order.grossMarginPercentage).toFixed(1)}%` : "—"} />
+      <section className="mt-6 grid gap-4 md:grid-cols-2">
+        <TotalsPanel caption="Payment">
+          <TotalsRow label="Subtotal" value={formatIDR(order.subtotal)} />
+          <TotalsRow label="Discount" value={formatIDR(order.discountTotal)} muted />
+          <TotalsRow label="Tax" value={formatIDR(order.taxTotal)} />
+          <TotalsRow label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
+          <TotalsRow label="Total" value={formatIDR(order.total)} emphasis />
+          {order.cashReceived !== null ? <TotalsRow label="Cash received" value={formatIDR(order.cashReceived)} /> : null}
+          {order.changeDue !== null ? <TotalsRow label="Change" value={formatIDR(order.changeDue)} /> : null}
+        </TotalsPanel>
+        <TotalsPanel caption="Profitability">
+          <TotalsRow label="Revenue (subtotal)" value={formatIDR(order.subtotal)} />
+          <TotalsRow label="COGS" value={formatIDR(order.cogsTotal)} />
+          <TotalsRow label="Gross profit" value={formatIDR(order.grossProfit)} emphasis />
+          <TotalsRow
+            label="Gross margin"
+            value={order.grossMarginPercentage !== null ? `${Number(order.grossMarginPercentage).toFixed(1)}%` : "—"}
+          />
+        </TotalsPanel>
       </section>
 
       <section className="mt-6">
@@ -121,20 +150,28 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-                <th className="px-4 py-3">Item</th>
-                <th className="px-4 py-3">Quantity</th>
-                <th className="px-4 py-3">Cost</th>
+                <th className="px-4 py-3">Ingredient</th>
+                <th className="px-4 py-3">Used in</th>
+                <th className="px-4 py-3 text-right">Quantity</th>
+                <th className="px-4 py-3 text-right">Cost</th>
               </tr>
             </thead>
             <tbody>
-              {lines.flatMap((line) =>
-                line.consumption.map((c) => (
-                  <tr key={c.id} className="border-b border-[var(--color-border)] last:border-0">
-                    <td className="px-4 py-3 text-[var(--color-text-secondary)]">{line.itemNameSnapshot}</td>
-                    <td className="px-4 py-3 tabular-nums">{Number(c.quantityBaseUnits).toLocaleString("id-ID")}</td>
-                    <td className="px-4 py-3 tabular-nums">{formatIDR(c.totalCost)}</td>
+              {consumptionRows.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-4 py-3 text-[var(--color-text-secondary)]">
+                    No ingredients were deducted for this order.
+                  </td>
+                </tr>
+              ) : (
+                consumptionRows.map((row) => (
+                  <tr key={row.id} className="border-b border-[var(--color-border)] last:border-0">
+                    <td className="px-4 py-3 font-medium text-[var(--color-text-primary)]">{row.ingredientName}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-secondary)]">{row.usedIn}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{row.quantity}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{formatIDR(row.totalCost)}</td>
                   </tr>
-                )),
+                ))
               )}
             </tbody>
           </table>
@@ -148,6 +185,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           printJobs={printJobs}
           canManagePrinter={canManagePrinter}
           canReprint={canReprint}
+          orderCancelled={order.status === "CANCELLED"}
         />
       </section>
 
@@ -161,11 +199,57 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function TotalsPanel({ caption, children }: { caption: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">{label}</p>
-      <p className="mt-1 text-sm font-medium tabular-nums text-[var(--color-text-primary)]">{value}</p>
+    <div className="self-start overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <table className="w-full border-collapse text-sm">
+        <caption className="border-b border-[var(--color-border)] px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+          {caption}
+        </caption>
+        <tbody>{children}</tbody>
+      </table>
     </div>
+  );
+}
+
+function TotalsRow({
+  label,
+  value,
+  emphasis = false,
+  muted = false,
+}: {
+  label: string;
+  value: string;
+  emphasis?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <tr
+      className={
+        emphasis
+          ? "border-t border-[var(--color-text-primary)]"
+          : "border-t border-[var(--color-border)] first:border-t-0"
+      }
+    >
+      <th
+        scope="row"
+        className={`px-4 py-2.5 text-left ${
+          emphasis ? "font-semibold text-[var(--color-text-primary)]" : "font-normal text-[var(--color-text-secondary)]"
+        }`}
+      >
+        {label}
+      </th>
+      <td
+        className={`px-4 py-2.5 text-right tabular-nums ${
+          emphasis
+            ? "font-semibold text-[var(--color-text-primary)]"
+            : muted
+              ? "text-[var(--color-text-secondary)]"
+              : "text-[var(--color-text-primary)]"
+        }`}
+      >
+        {value}
+      </td>
+    </tr>
   );
 }

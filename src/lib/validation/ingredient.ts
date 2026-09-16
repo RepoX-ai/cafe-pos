@@ -9,7 +9,9 @@ export const ingredientInputSchema = z.object({
   baseUnit: baseUnitSchema,
   reorderLevelBaseUnits: z.coerce.number().min(0).optional(),
   targetStockBaseUnits: z.coerce.number().min(0).optional(),
-  startingCostPerBaseUnit: z.coerce.number().min(0).optional(),
+  // Entered the way the ingredient is bought and the list shows it — per
+  // kg / per litre / per piece — not per base unit. The service converts.
+  startingCostPerPurchaseUnit: z.coerce.number().int("Enter a whole Rupiah amount").min(0).optional(),
   notes: z.string().trim().max(2000).optional().or(z.literal("")),
 });
 

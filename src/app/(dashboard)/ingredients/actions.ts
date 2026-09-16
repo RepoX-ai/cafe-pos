@@ -9,6 +9,7 @@ import { ingredientInputSchema, ingredientUpdateSchema } from "@/lib/validation/
 import {
   createIngredient,
   deleteIngredient,
+  IngredientValidationError,
   setIngredientActive,
   updateIngredient,
 } from "@/server/services/ingredient-service";
@@ -26,7 +27,7 @@ function readIngredientForm(formData: FormData) {
     baseUnit: formData.get("baseUnit"),
     reorderLevelBaseUnits: formData.get("reorderLevelBaseUnits") || undefined,
     targetStockBaseUnits: formData.get("targetStockBaseUnits") || undefined,
-    startingCostPerBaseUnit: formData.get("startingCostPerBaseUnit") || undefined,
+    startingCostPerPurchaseUnit: formData.get("startingCostPerPurchaseUnit") || undefined,
     notes: formData.get("notes"),
   };
 }
@@ -67,7 +68,12 @@ export async function updateIngredientAction(
   }
 
   const meta = await getRequestMeta();
-  await updateIngredient(db, { businessId: user.businessId, userId: user.id, ...meta }, id, parsed.data);
+  try {
+    await updateIngredient(db, { businessId: user.businessId, userId: user.id, ...meta }, id, parsed.data);
+  } catch (error) {
+    if (error instanceof IngredientValidationError) return { ok: false, error: error.message };
+    throw error;
+  }
   revalidatePath("/ingredients");
   return { ok: true };
 }

@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import { Plus } from "lucide-react";
-import { formatIDRRatePerPurchaseUnit } from "@/lib/money/money";
+import { formatIDRRate, formatIDRRatePerPurchaseUnit } from "@/lib/money/money";
+import { purchaseScaleFor } from "@/lib/units/units";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +36,8 @@ export interface IngredientRow {
   reorderLevelBaseUnits: string | null;
   targetStockBaseUnits: string | null;
   averageCostPerBaseUnit: string;
+  /** Any purchase, count, sale or waste recorded — cost is then owned by purchases. */
+  hasStockHistory: boolean;
   active: boolean;
   notes: string | null;
 }
@@ -183,6 +186,16 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
   }, [state]);
 
   const errorState = state && !state.ok ? state : undefined;
+  const [baseUnit, setBaseUnit] = useState<BaseUnit>(existing?.baseUnit ?? "gram");
+  const scale = purchaseScaleFor(baseUnit);
+  // Shown and entered per kg / L / pc, like the Avg. cost column. On edit
+  // it's prefilled from the stored per-base-unit rate, and only submitted
+  // if changed, so saving a name edit never rewrites the cost.
+  const initialCost = existing ? String(Math.round(Number(existing.averageCostPerBaseUnit) * scale.baseUnitsPer)) : "";
+  const [startingCost, setStartingCost] = useState(initialCost);
+  const costEditable = !existing || !existing.hasStockHistory;
+  const unitLabel = UNIT_LABEL[baseUnit];
+  const startingCostNumber = Number(startingCost);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -213,7 +226,13 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
       </div>
 
       <Field label="Base unit" htmlFor="baseUnit" error={errorState?.fieldErrors?.baseUnit}>
-        <Select id="baseUnit" name="baseUnit" defaultValue={existing?.baseUnit ?? "gram"} disabled={!!existing}>
+        <Select
+          id="baseUnit"
+          name="baseUnit"
+          value={baseUnit}
+          onChange={(value) => setBaseUnit(value as BaseUnit)}
+          disabled={!!existing}
+        >
           <option value="gram">Gram (weight)</option>
           <option value="millilitre">Millilitre (volume)</option>
           <option value="piece">Piece (countable)</option>
@@ -225,28 +244,44 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
         ) : null}
       </Field>
 
-      {!existing ? (
+      {costEditable ? (
         <Field
-          label="Starting cost / unit"
-          htmlFor="startingCostPerBaseUnit"
-          hint="Optional. Lets you cost recipes before the first purchase — the next purchase recalculates the average as usual."
-          error={errorState?.fieldErrors?.startingCostPerBaseUnit}
+          label={`${existing ? "Estimated cost" : "Starting cost"} per ${scale.label} (Rp)`}
+          htmlFor="startingCostPerPurchaseUnit"
+          hint={
+            startingCost !== "" && Number.isFinite(startingCostNumber) && startingCostNumber > 0 && baseUnit !== "piece"
+              ? `= ${formatIDRRate(startingCostNumber / scale.baseUnitsPer)} per ${baseUnit}. Optional — purchases recalculate it from what you actually paid.`
+              : "Optional. An estimate so recipes show a cost before you've recorded a purchase — purchases recalculate it from what you actually paid."
+          }
+          error={errorState?.fieldErrors?.startingCostPerPurchaseUnit}
         >
           <input
-            id="startingCostPerBaseUnit"
-            name="startingCostPerBaseUnit"
+            id="startingCostPerPurchaseUnit"
+            name={startingCost !== initialCost ? "startingCostPerPurchaseUnit" : undefined}
             type="number"
+            inputMode="numeric"
             min={0}
-            step="any"
-            placeholder="0"
+            step={1}
+            placeholder={baseUnit === "piece" ? "e.g. 2500" : "e.g. 45000"}
+            value={startingCost}
+            onChange={(e) => setStartingCost(e.target.value)}
             className={inputClassName}
           />
         </Field>
-      ) : null}
+      ) : (
+        <Field label={`Average cost per ${scale.label}`} htmlFor="averageCostReadonly">
+          <p id="averageCostReadonly" className="text-sm tabular-nums text-[var(--color-text-primary)]">
+            {formatIDRRatePerPurchaseUnit(existing!.averageCostPerBaseUnit, baseUnit)}
+          </p>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Calculated from recorded purchases, so it can&apos;t be typed in.
+          </p>
+        </Field>
+      )}
 
       <div className="grid grid-cols-2 gap-4">
         <Field
-          label="Reorder level"
+          label={`Reorder level (${unitLabel})`}
           htmlFor="reorderLevelBaseUnits"
           hint="Warn when stock falls to/below this"
           error={errorState?.fieldErrors?.reorderLevelBaseUnits}
@@ -262,7 +297,7 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
           />
         </Field>
         <Field
-          label="Target stock"
+          label={`Target stock (${unitLabel})`}
           htmlFor="targetStockBaseUnits"
           hint="Optional restock target"
           error={errorState?.fieldErrors?.targetStockBaseUnits}

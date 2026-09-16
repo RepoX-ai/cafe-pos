@@ -8,7 +8,7 @@ import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { cancelOrderInputSchema } from "@/lib/validation/order";
 import { cancelOrder, OrderValidationError, refundOrder } from "@/server/services/order-service";
-import { createReprintJob, findReprintJob, retryPrintJob } from "@/server/services/print-service";
+import { createReprintJob, findReprintJob, PrintNotAllowedError, retryPrintJob } from "@/server/services/print-service";
 import { consumeRateLimit, RATE_LIMITS } from "@/server/services/rate-limit";
 
 export type CancelOrderResult = { ok: true } | { ok: false; error: string };
@@ -56,9 +56,14 @@ export async function retryPrintJobAction(printJobId: string, orderId: string): 
   if (!parsed.success || !parsed.data.printJobId) return { ok: false, error: "Invalid request." };
   if (!(await consumeRateLimit(db, { rule: RATE_LIMITS.print(), key: [user.businessId, user.id] }))) return THROTTLED;
 
-  const result = await retryPrintJob(db, { businessId: user.businessId, userId: user.id }, parsed.data.printJobId);
-  revalidatePath(`/orders/${orderId}`);
-  return { ok: true, status: result.status, payload: result.payload, error: result.error };
+  try {
+    const result = await retryPrintJob(db, { businessId: user.businessId, userId: user.id }, parsed.data.printJobId);
+    revalidatePath(`/orders/${orderId}`);
+    return { ok: true, status: result.status, payload: result.payload, error: result.error };
+  } catch (error) {
+    if (error instanceof PrintNotAllowedError) return { ok: false, error: error.message };
+    throw error;
+  }
 }
 
 /**
@@ -80,9 +85,14 @@ export async function reprintOrderAction(orderId: string, requestKey?: string): 
     return THROTTLED;
   }
 
-  const result = await createReprintJob(db, { businessId: user.businessId, userId: user.id }, parsed.data.orderId, parsed.data.requestKey);
-  revalidatePath(`/orders/${orderId}`);
-  return { ok: true, status: result.status, payload: result.payload, error: result.error };
+  try {
+    const result = await createReprintJob(db, { businessId: user.businessId, userId: user.id }, parsed.data.orderId, parsed.data.requestKey);
+    revalidatePath(`/orders/${orderId}`);
+    return { ok: true, status: result.status, payload: result.payload, error: result.error };
+  } catch (error) {
+    if (error instanceof PrintNotAllowedError) return { ok: false, error: error.message };
+    throw error;
+  }
 }
 
 export async function refundOrderAction(input: unknown): Promise<CancelOrderResult> {

@@ -589,6 +589,7 @@ const REVERSALS = {
     movementType: "ORDER_CANCELLATION_REVERSAL",
     reason: "Order cancellation reversal",
     auditAction: "order.cancelled",
+    printCancelReason: "Order cancelled before this receipt printed.",
   },
   refund: {
     status: "REFUNDED",
@@ -597,6 +598,7 @@ const REVERSALS = {
     movementType: "REFUND_REVERSAL",
     reason: "Order refund reversal",
     auditAction: "order.refunded",
+    printCancelReason: "Order refunded before this receipt printed.",
   },
 } as const;
 
@@ -671,6 +673,15 @@ async function reverseOrder(
       )
       .where(and(eq(orders.id, orderId), eq(orders.businessId, actor.businessId)))
       .returning();
+
+    // A receipt still waiting to print is a receipt for a sale that no
+    // longer exists — void it in the same transaction so a tablet that
+    // reconnects later can't hand the customer one. PROCESSING jobs are
+    // left alone: a worker holds the lease and may already have printed.
+    await tx
+      .update(printJobs)
+      .set({ status: "CANCELLED", lastError: config.printCancelReason, processedAt: now })
+      .where(and(eq(printJobs.orderId, orderId), eq(printJobs.status, "QUEUED")));
 
     await recordAuditLog(tx, {
       businessId: actor.businessId,
