@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   boolean,
+  index,
   integer,
   pgTable,
   text,
@@ -19,7 +20,7 @@ export const menuCategories = pgTable("menu_categories", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("menu_categories_business_id_idx").on(table.businessId)]);
 
 export const menuItems = pgTable("menu_items", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -45,7 +46,7 @@ export const menuItems = pgTable("menu_items", {
   updatedBy: uuid("updated_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("menu_items_business_id_idx").on(table.businessId)]);
 
 export const menuItemVariants = pgTable("menu_item_variants", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -59,7 +60,7 @@ export const menuItemVariants = pgTable("menu_item_variants", {
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("menu_item_variants_menu_item_id_idx").on(table.menuItemId)]);
 
 export const modifierGroups = pgTable("modifier_groups", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -73,7 +74,7 @@ export const modifierGroups = pgTable("modifier_groups", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("modifier_groups_business_id_idx").on(table.businessId)]);
 
 export const modifierOptions = pgTable("modifier_options", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -87,7 +88,7 @@ export const modifierOptions = pgTable("modifier_options", {
   displayOrder: integer("display_order").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("modifier_options_group_id_idx").on(table.modifierGroupId)]);
 
 /**
  * Which modifier groups apply to which menu items. Kept as its own join
@@ -106,4 +107,8 @@ export const menuItemModifierGroups = pgTable(
       .references(() => modifierGroups.id, { onDelete: "cascade" }),
     displayOrder: integer("display_order").notNull().default(0),
   },
+  (table) => [
+    index("menu_item_modifier_groups_menu_item_id_idx").on(table.menuItemId),
+    index("menu_item_modifier_groups_group_id_idx").on(table.modifierGroupId),
+  ],
 );

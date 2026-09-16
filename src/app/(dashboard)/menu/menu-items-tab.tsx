@@ -5,13 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ImageOff, Plus, Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
+import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { Pagination } from "@/components/ui/pagination";
 import { usePagination } from "@/components/ui/use-pagination";
 import { createMenuItemAction, deleteMenuItemAction, setMenuItemActiveAction, type FormActionState } from "./actions";
@@ -191,30 +192,6 @@ export function ItemsTab({
         <NewItemForm categories={categories} onDone={() => setCreating(false)} />
       </Modal>
     </div>
-  );
-}
-
-function ItemThumbnail({ imageUrl, name }: { imageUrl: string | null; name: string }) {
-  const [failed, setFailed] = useState(false);
-
-  if (!imageUrl || failed) {
-    return (
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-page-bg)]">
-        <ImageOff size={14} className="text-[var(--color-text-muted)]" />
-      </div>
-    );
-  }
-
-  return (
-    // Same reasoning as the POS thumbnail: product photos are cashier-pasted
-    // external URLs, not a fixed set of remote hosts next/image can allowlist.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={imageUrl}
-      alt={name}
-      className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)] object-cover"
-      onError={() => setFailed(true)}
-    />
   );
 }
 

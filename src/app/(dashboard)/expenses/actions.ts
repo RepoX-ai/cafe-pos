@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { expenseInputSchema } from "@/lib/validation/expense";
+import { flattenZodErrors } from "@/lib/validation/form-errors";
 import { createExpense, updateExpense } from "@/server/services/expense-service";
 
 export type ExpenseActionState =
@@ -20,17 +21,7 @@ function parseExpenseForm(formData: FormData) {
     payee: formData.get("payee"),
     referenceNumber: formData.get("referenceNumber"),
     notes: formData.get("notes"),
-    recurring: formData.get("recurring") === "on",
   });
-}
-
-function flattenZodErrors(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
-  const fieldErrors: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = String(issue.path[0] ?? "form");
-    if (!fieldErrors[key]) fieldErrors[key] = issue.message;
-  }
-  return fieldErrors;
 }
 
 export async function createExpenseAction(

@@ -1,11 +1,11 @@
 import { randomBytes, createHash } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, lt, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { roles, sessions, userRoles, users } from "@/lib/db/schema";
 import type { RoleName } from "@/lib/permissions/permissions";
 
 export const SESSION_COOKIE_NAME = "cafe_pos_session";
-export const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
 export interface SessionUser {
   id: string;
@@ -94,4 +94,15 @@ export async function invalidateSessionToken(db: Database, token: string): Promi
 
 export async function invalidateAllUserSessions(db: Database, userId: string): Promise<void> {
   await db.delete(sessions).where(eq(sessions.userId, userId));
+}
+
+/**
+ * Deletes up to `batchSize` expired sessions. Validation already rejects
+ * expired rows, so correctness never depends on this — it only stops the
+ * table growing by one row per login forever.
+ */
+export async function deleteExpiredSessions(db: Database, batchSize = 1000): Promise<number> {
+  const expired = db.select({ id: sessions.id }).from(sessions).where(lt(sessions.expiresAt, sql`now()`)).limit(batchSize);
+  const deleted = await db.delete(sessions).where(inArray(sessions.id, expired)).returning({ id: sessions.id });
+  return deleted.length;
 }

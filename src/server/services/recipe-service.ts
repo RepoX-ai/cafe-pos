@@ -105,7 +105,7 @@ export async function saveRecipe(db: Database, actor: ActorContext, input: Recip
     throw new Error("One or more ingredients are invalid for this business");
   }
 
-  const newRecipe = await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const [previous] = await tx
       .select()
       .from(recipes)
@@ -137,17 +137,15 @@ export async function saveRecipe(db: Database, actor: ActorContext, input: Recip
       })),
     );
 
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "recipe.saved",
+      entityType: "recipe",
+      entityId: created.id,
+      metadata: { menuItemVariantId: input.menuItemVariantId, version: created.version },
+    });
+
     return created;
   });
-
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "recipe.saved",
-    entityType: "recipe",
-    entityId: newRecipe.id,
-    metadata: { menuItemVariantId: input.menuItemVariantId, version: newRecipe.version },
-  });
-
-  return newRecipe;
 }

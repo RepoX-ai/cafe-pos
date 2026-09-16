@@ -5,6 +5,7 @@ import { Select } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
 import { calculateRecipeLineCost } from "@/lib/recipes/cost";
 import { formatIDR } from "@/lib/money/money";
+import { BASE_UNIT_LABEL } from "@/lib/units/units";
 
 export interface IngredientOption {
   id: string;
@@ -20,12 +21,6 @@ export interface RecipeLineDraft {
   wastePercentage: number;
   notes: string;
 }
-
-const UNIT_LABEL: Record<IngredientOption["baseUnit"], string> = {
-  gram: "g",
-  millilitre: "ml",
-  piece: "pc",
-};
 
 let keySeq = 0;
 export function newRecipeLineKey() {
@@ -124,7 +119,7 @@ export function RecipeLinesTable({
                           onChange={(e) => onUpdateLine(line.key, { quantityBaseUnits: Number(e.target.value) })}
                           className={inputClassName + " w-24"}
                         />
-                        <span className="text-xs text-[var(--color-text-muted)]">{ing ? UNIT_LABEL[ing.baseUnit] : ""}</span>
+                        <span className="text-xs text-[var(--color-text-muted)]">{ing ? BASE_UNIT_LABEL[ing.baseUnit] : ""}</span>
                       </div>
                     </td>
                     <td className="px-4 py-2">

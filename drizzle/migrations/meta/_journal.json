@@ -50,6 +50,27 @@
       "when": 1789475720083,
       "tag": "0006_broken_deadpool",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789562076568,
+      "tag": "0007_flimsy_living_lightning",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789564132367,
+      "tag": "0008_orange_kronos",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789565017489,
+      "tag": "0009_flowery_fallen_one",
+      "breakpoints": true
     }
   ]
 }

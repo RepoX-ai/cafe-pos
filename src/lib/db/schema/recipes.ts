@@ -35,6 +35,8 @@ export const recipes = pgTable("recipes", {
   index("recipes_active_variant_version_idx")
     .on(table.menuItemVariantId, table.version)
     .where(sql`${table.active}`),
+  // Inactive versions too: the cascade when a variant is deleted.
+  index("recipes_variant_id_idx").on(table.menuItemVariantId),
 ]);
 
 export const recipeLines = pgTable("recipe_lines", {
@@ -53,7 +55,11 @@ export const recipeLines = pgTable("recipe_lines", {
   quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
   wastePercentage: numeric("waste_percentage", { precision: 5, scale: 2 }).default("0"),
   notes: text("notes"),
-}, (table) => [index("recipe_lines_recipe_id_idx").on(table.recipeId)]);
+}, (table) => [
+  index("recipe_lines_recipe_id_idx").on(table.recipeId),
+  // The cascade when an ingredient is deleted, and recipe-usage counts.
+  index("recipe_lines_ingredient_id_idx").on(table.ingredientId),
+]);
 
 export const modifierRecipeLines = pgTable("modifier_recipe_lines", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -65,4 +71,7 @@ export const modifierRecipeLines = pgTable("modifier_recipe_lines", {
     .references(() => ingredients.id, { onDelete: "cascade" }),
   quantityBaseUnits: numeric("quantity_base_units", { precision: 16, scale: 4 }).notNull(),
   wastePercentage: numeric("waste_percentage", { precision: 5, scale: 2 }).default("0"),
-}, (table) => [index("modifier_recipe_lines_option_id_idx").on(table.modifierOptionId)]);
+}, (table) => [
+  index("modifier_recipe_lines_option_id_idx").on(table.modifierOptionId),
+  index("modifier_recipe_lines_ingredient_id_idx").on(table.ingredientId),
+]);

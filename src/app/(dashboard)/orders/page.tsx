@@ -2,10 +2,11 @@ import { formatIDR } from "@/lib/money/money";
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
+import { formatDisplayDateTime } from "@/lib/dates/dates";
 import { parsePageParam } from "@/lib/pagination";
 import { ServerPagination } from "@/components/ui/server-pagination";
 import { listOrders, listOrderItemSummaries } from "@/server/services/order-service";
-import type { BadgeTone } from "@/components/ui/badge";
+import { ORDER_STATUS_TONE } from "@/lib/orders/order-status";
 import { inputClassName } from "@/components/ui/form-styles";
 import { OrdersTable } from "@/components/orders-table";
 import { OrderStatusFilter } from "./order-status-filter";
@@ -13,19 +14,6 @@ import { OrderStatusFilter } from "./order-status-filter";
 export const metadata: Metadata = {
   title: "Orders — CaféOps",
 };
-
-const STATUS_TONE: Record<string, BadgeTone> = {
-  SUBMITTED: "accent",
-  PRINT_PENDING: "warning",
-  PRINTED: "success",
-  COMPLETED: "success",
-  CANCELLED: "neutral",
-  REFUNDED: "danger",
-};
-
-function formatDate(value: Date) {
-  return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
-}
 
 export default async function OrdersPage({
   searchParams,
@@ -66,18 +54,18 @@ export default async function OrdersPage({
       <div className="mt-6 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <OrdersTable
           pagination={
-            <ServerPagination page={{ ...result, rowCount: orders.length }} basePath="/orders" params={{ status, search }} />
+            <ServerPagination page={{ ...result, rowCount: orders.length }} totalItems={result.totalItems} basePath="/orders" params={{ status, search }} />
           }
           orders={orders.map((o) => ({
             id: o.id,
             orderNumber: o.orderNumber,
-            placed: formatDate(o.createdAt),
+            placed: formatDisplayDateTime(o.createdAt),
             orderType: o.orderType,
             tableLabel: o.tableLabel ?? "—",
             items: itemsByOrder.get(o.id) ?? [],
             totalFormatted: formatIDR(o.total),
             status: o.status,
-            statusTone: STATUS_TONE[o.status] ?? "neutral",
+            statusTone: ORDER_STATUS_TONE[o.status] ?? "neutral",
           }))}
         />
       </div>

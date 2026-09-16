@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { convertToBaseUnits, purchaseUnitOptionsFor } from "@/lib/units/units";
+import {
+  baseToDisplayQuantity,
+  baseUnitOfDisplayUnit,
+  convertToBaseUnits,
+  displayToBaseQuantity,
+  displayUnitsFor,
+  formatDisplayQuantity,
+  purchaseUnitOptionsFor,
+  resolveDisplayUnit,
+} from "@/lib/units/units";
 
 describe("units", () => {
   it("converts kilograms of coffee beans to grams", () => {
@@ -60,5 +69,43 @@ describe("purchaseUnitOptionsFor", () => {
     expect(labelFor("gram", "pc")).toBe("pcs");
     // The label describes the unit, not the ingredient, so it never varies.
     expect(labelFor("piece", "L")).toBe(labelFor("gram", "L"));
+  });
+});
+
+describe("ingredient display units", () => {
+  it("converts typed kg / L to base units exactly", () => {
+    expect(displayToBaseQuantity("2.4", "kg")).toBe("2400");
+    expect(displayToBaseQuantity("0.0175", "kg")).toBe("17.5");
+    expect(displayToBaseQuantity("1.5", "L")).toBe("1500");
+    expect(displayToBaseQuantity("12", "pc")).toBe("12");
+    expect(displayToBaseQuantity("250", "g")).toBe("250");
+    expect(displayToBaseQuantity("0.1", "kg")).toBe("100");
+  });
+
+  it("converts base units back to the display unit exactly", () => {
+    expect(baseToDisplayQuantity("2400.0000", "kg")).toBe("2.4");
+    expect(baseToDisplayQuantity("18", "kg")).toBe("0.018");
+    expect(baseToDisplayQuantity("-600", "L")).toBe("-0.6");
+    expect(baseToDisplayQuantity("0", "kg")).toBe("0");
+    expect(baseToDisplayQuantity("17.5", "g")).toBe("17.5");
+  });
+
+  it("formats with the unit, keeping small sale deductions visible", () => {
+    expect(formatDisplayQuantity("2400", "kg")).toBe("2,4 kg");
+    expect(formatDisplayQuantity("-18", "kg")).toBe("-0,018 kg");
+    expect(formatDisplayQuantity("1500", "ml")).toBe("1.500 ml");
+  });
+
+  it("only offers and accepts display units of the same class", () => {
+    expect(displayUnitsFor("gram")).toEqual(["kg", "g"]);
+    expect(baseUnitOfDisplayUnit("L")).toBe("millilitre");
+    expect(resolveDisplayUnit("gram", "kg")).toBe("kg");
+    expect(resolveDisplayUnit("gram", null)).toBe("g");
+    expect(resolveDisplayUnit("gram", "L")).toBe("g");
+  });
+
+  it("rejects input that isn't a plain decimal", () => {
+    expect(() => displayToBaseQuantity("abc", "kg")).toThrow();
+    expect(() => displayToBaseQuantity("", "kg")).toThrow();
   });
 });

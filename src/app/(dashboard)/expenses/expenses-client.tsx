@@ -3,14 +3,13 @@
 import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState, type ReactNode } from "react";
 import { useActionState } from "react";
-import { CalendarDays, Layers, Plus, Receipt, Repeat, Wallet } from "lucide-react";
+import { CalendarDays, Layers, Plus, Receipt, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateRangeForm } from "@/components/ui/date-range-form";
 import { StatCard, computeTrend } from "@/components/ui/stat-card";
 import { TrendChart, type TrendPoint } from "@/components/ui/trend-chart";
 import type { ExpenseSummary } from "@/server/services/expense-service";
 import { Modal } from "@/components/ui/modal";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -93,7 +92,7 @@ export function ExpensesClient({
       <div>
         {/* A rise in spend is bad news, so every trend arrow here reads inverted
             against the dashboard's revenue cards. */}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
             icon={Wallet}
             label="Total expenses"
@@ -120,12 +119,6 @@ export function ExpensesClient({
             trendMeansGood={false}
           />
           <StatCard icon={Layers} label="Avg per entry" value={formatIDR(summary.averagePerEntry)} />
-          <StatCard
-            icon={Repeat}
-            label="Recurring"
-            value={formatIDR(summary.recurringTotal)}
-            previousLabel={`${shareOfTotal(summary.recurringTotal, summary.total)} of total`}
-          />
         </div>
         <p className="mt-2 text-xs text-[var(--color-text-muted)]">
           Cards, the category split and the history table below all cover {from} → {to}.
@@ -296,12 +289,6 @@ function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone
       <Field label="Reference #" htmlFor="referenceNumber">
         <input id="referenceNumber" name="referenceNumber" defaultValue={existing?.referenceNumber ?? ""} className={inputClassName} />
       </Field>
-      <div className="flex items-end pb-2.5">
-        <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-          <Checkbox name="recurring" defaultChecked={existing?.recurring ?? false} />
-          Recurring
-        </label>
-      </div>
       <div className="col-span-2">
         <Field label="Notes" htmlFor="notes">
           <textarea id="notes" name="notes" defaultValue={existing?.notes ?? ""} className={textareaClassName} />

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { boolean, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { businesses } from "./core";
-import { baseUnitEnum } from "./enums";
+import { baseUnitEnum, ingredientDisplayUnitEnum } from "./enums";
 import { suppliers } from "./suppliers";
 
 /**
@@ -23,6 +23,8 @@ export const ingredients = pgTable("ingredients", {
   sku: text("sku"),
   category: text("category"),
   baseUnit: baseUnitEnum("base_unit").notNull(),
+  // Null means the base unit's own (g / ml / pc). See ingredientDisplayUnitEnum.
+  displayUnit: ingredientDisplayUnitEnum("display_unit"),
   currentQuantityBaseUnits: numeric("current_quantity_base_units", {
     precision: 16,
     scale: 4,
@@ -44,4 +46,4 @@ export const ingredients = pgTable("ingredients", {
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("ingredients_business_id_idx").on(table.businessId)]);

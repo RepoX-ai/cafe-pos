@@ -4,7 +4,7 @@
  * order by a unique tie-breaker (e.g. created_at, id) so rows never repeat or
  * vanish between pages.
  */
-export const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 const MAX_PAGE = 100_000;
 
@@ -40,4 +40,22 @@ export function pageHref(basePath: string, params: Record<string, string | undef
 
 export function toPage<T>(rows: T[], page: number, pageSize: number): Page<T> {
   return { rows: rows.slice(0, pageSize), page, pageSize, hasNextPage: rows.length > pageSize };
+}
+
+export function totalPageCount(totalItems: number, pageSize: number): number {
+  return Math.max(1, Math.ceil(totalItems / pageSize));
+}
+
+/**
+ * Page buttons for a pager: every page when there are 7 or fewer, otherwise
+ * the first and last page, the current page with its neighbours, and
+ * "ellipsis" for each skipped run — always 7 slots so the control doesn't
+ * change width while paging.
+ */
+export function pageNumbers(current: number, totalPages: number): Array<number | "ellipsis"> {
+  const range = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  if (totalPages <= 7) return range(1, totalPages);
+  if (current <= 4) return [...range(1, 5), "ellipsis", totalPages];
+  if (current >= totalPages - 3) return [1, "ellipsis", ...range(totalPages - 4, totalPages)];
+  return [1, "ellipsis", current - 1, current, current + 1, "ellipsis", totalPages];
 }

@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
-export const MENU_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+const MENU_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 export function menuImageDirectory() {
   return process.env.MENU_IMAGE_DIR || path.join(process.cwd(), "var", "uploads", "menu");
 }

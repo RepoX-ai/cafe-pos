@@ -1,5 +1,5 @@
 import { formatIDR } from "@/lib/money/money";
-import type { BaseUnit } from "@/lib/units/units";
+import { BASE_UNIT_LABEL, type BaseUnit } from "@/lib/units/units";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -8,6 +8,7 @@ import { ArrowLeft } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
+import { formatDisplayDateTime } from "@/lib/dates/dates";
 import { getOrderById } from "@/server/services/order-service";
 import { recoverAbandonedPrintJobs } from "@/server/services/print-service";
 import { Badge } from "@/components/ui/badge";
@@ -18,16 +19,10 @@ export const metadata: Metadata = {
   title: "Order — CaféOps",
 };
 
-const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
-
 /** Base-unit quantity with its unit — "125 g", not a bare "125". */
 function formatBaseQuantity(value: string, unit: BaseUnit | null) {
   const amount = Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 });
-  return unit ? `${amount} ${UNIT_LABEL[unit]}` : amount;
-}
-
-function formatDate(value: Date) {
-  return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
+  return unit ? `${amount} ${BASE_UNIT_LABEL[unit]}` : amount;
 }
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -71,7 +66,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{order.orderNumber}</h1>
           <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-            {formatDate(order.createdAt)} · {order.orderType} {order.tableLabel ? `· ${order.tableLabel}` : ""}
+            {formatDisplayDateTime(order.createdAt)} · {order.orderType} {order.tableLabel ? `· ${order.tableLabel}` : ""}
           </p>
         </div>
         <Badge tone={order.status === "CANCELLED" ? "neutral" : order.status === "REFUNDED" ? "danger" : "success"}>
@@ -81,7 +76,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
 
       {order.status === "CANCELLED" ? (
         <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-page-bg)] p-3 text-sm text-[var(--color-text-secondary)]">
-          Cancelled {order.cancelledAt ? formatDate(order.cancelledAt) : ""} — {order.cancellationReason}
+          Cancelled {order.cancelledAt ? formatDisplayDateTime(order.cancelledAt) : ""} — {order.cancellationReason}
         </div>
       ) : null}
 

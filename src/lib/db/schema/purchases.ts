@@ -56,4 +56,8 @@ export const purchaseLines = pgTable("purchase_lines", {
   totalLineCost: integer("total_line_cost").notNull(),
   // Exact decimal rate (Rupiah per base unit), not a transacted amount.
   costPerBaseUnit: numeric("cost_per_base_unit", { precision: 16, scale: 6 }).notNull(),
-});
+}, (table) => [
+  index("purchase_lines_purchase_id_idx").on(table.purchaseId),
+  // The ON DELETE SET NULL scan when an ingredient is deleted.
+  index("purchase_lines_ingredient_id_idx").on(table.ingredientId),
+]);

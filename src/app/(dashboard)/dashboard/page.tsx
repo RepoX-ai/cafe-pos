@@ -1,4 +1,5 @@
 import { formatIDR } from "@/lib/money/money";
+import { formatDisplayQuantity, resolveDisplayUnit } from "@/lib/units/units";
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
@@ -30,6 +31,8 @@ import {
   todayInBusinessTimezone,
 } from "@/lib/dates/dates";
 import { Badge } from "@/components/ui/badge";
+import { ItemThumbnail } from "@/components/ui/item-thumbnail";
+import { getMenuItemImages } from "@/server/services/menu-service";
 import { DateRangeForm } from "@/components/ui/date-range-form";
 import { StatCard as Card, computeTrend } from "@/components/ui/stat-card";
 import { TrendChart, type TrendPoint } from "@/components/ui/trend-chart";
@@ -82,6 +85,17 @@ export default async function DashboardPage({
   const { lowStock, outOfStock } = stockAlerts;
   const topSelling = [...topItems].sort((a, b) => b.quantitySold - a.quantitySold).slice(0, 5);
   const highestCogs = [...topItems].sort((a, b) => b.cogs - a.cogs).slice(0, 5);
+  const images = await getMenuItemImages(
+    db,
+    user.businessId,
+    [...new Set([...topSelling, ...highestCogs].map((i) => i.menuItemId).filter((id): id is string => id !== null))],
+  );
+  const itemLabel = (item: { menuItemId: string | null; name: string }) => (
+    <span className="flex min-w-0 items-center gap-3">
+      <ItemThumbnail imageUrl={item.menuItemId ? (images.get(item.menuItemId) ?? null) : null} name={item.name} size="sm" />
+      <span className="truncate">{item.name}</span>
+    </span>
+  );
 
   return (
     <div className="mx-auto max-w-[1440px]">
@@ -157,7 +171,8 @@ export default async function DashboardPage({
                 right={
                   <span className="flex items-center gap-2">
                     <span className="text-xs tabular-nums text-[var(--color-text-muted)]">
-                      {Number(i.currentQuantityBaseUnits).toLocaleString("id-ID")} / {Number(i.reorderLevelBaseUnits).toLocaleString("id-ID")}
+                      {formatDisplayQuantity(i.currentQuantityBaseUnits, resolveDisplayUnit(i.baseUnit, i.displayUnit))} /{" "}
+                      {formatDisplayQuantity(i.reorderLevelBaseUnits!, resolveDisplayUnit(i.baseUnit, i.displayUnit))}
                     </span>
                     <Badge tone="warning">Low</Badge>
                   </span>
@@ -178,7 +193,10 @@ export default async function DashboardPage({
                 right={
                   <span className="flex items-center gap-2">
                     <span className="text-xs tabular-nums text-[var(--color-text-muted)]">
-                      0{i.reorderLevelBaseUnits ? ` / ${Number(i.reorderLevelBaseUnits).toLocaleString("id-ID")}` : ""}
+                      {formatDisplayQuantity("0", resolveDisplayUnit(i.baseUnit, i.displayUnit))}
+                      {i.reorderLevelBaseUnits
+                        ? ` / ${formatDisplayQuantity(i.reorderLevelBaseUnits, resolveDisplayUnit(i.baseUnit, i.displayUnit))}`
+                        : ""}
                     </span>
                     <Badge tone="danger">Out</Badge>
                   </span>
@@ -195,7 +213,7 @@ export default async function DashboardPage({
             <EmptyRow text="No sales in this range yet." />
           ) : (
             topSelling.map((item) => (
-              <WidgetRow key={item.menuItemId ?? item.name} left={item.name} right={<span className="tabular-nums">{item.quantitySold} sold</span>} />
+              <WidgetRow key={item.menuItemId ?? item.name} left={itemLabel(item)} right={<span className="tabular-nums">{item.quantitySold} sold</span>} />
             ))
           )}
         </Widget>
@@ -205,7 +223,7 @@ export default async function DashboardPage({
             <EmptyRow text="No sales in this range yet." />
           ) : (
             highestCogs.map((item) => (
-              <WidgetRow key={item.menuItemId ?? item.name} left={item.name} right={<span className="tabular-nums">{formatIDR(item.cogs)}</span>} />
+              <WidgetRow key={item.menuItemId ?? item.name} left={itemLabel(item)} right={<span className="tabular-nums">{formatIDR(item.cogs)}</span>} />
             ))
           )}
         </Widget>

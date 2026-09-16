@@ -41,7 +41,6 @@ describe("permissions", () => {
     // Cashiers reprint receipts themselves rather than waiting for a
     // manager. Reprinting never creates an order or moves stock.
     expect(hasPermission("cashier", "orders:reprint")).toBe(true);
-    expect(hasPermission("cashier", "orders:reprint", { cashierCanReprintOwn: true })).toBe(true);
   });
 
   it("still keeps cashiers away from cancelling and refunding", () => {
@@ -64,11 +63,6 @@ describe("permissions", () => {
     expect(hasPermission("inventory_staff", "orders:create")).toBe(false);
     // Same rationale as cashier: PRD's matrix says "Menu management" = No.
     expect(hasPermission("inventory_staff", "menu:read")).toBe(false);
-    expect(
-      hasPermission("inventory_staff", "orders:create", {
-        inventoryStaffCanCreateOrders: true,
-      }),
-    ).toBe(true);
   });
 
   it("restricts viewer to read-only access", () => {

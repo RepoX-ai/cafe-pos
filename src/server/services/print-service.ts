@@ -14,12 +14,12 @@ function positiveIntEnv(name: string, fallback: number) {
 /** Attempts one job may make before only a deliberate Reprint can send that receipt again. */
 export const PRINT_JOB_MAX_ATTEMPTS = positiveIntEnv("PRINT_JOB_MAX_ATTEMPTS", 5);
 /** How long a claim stays valid. Keep it above the slowest expected provider call. */
-export const PRINT_JOB_LEASE_SECONDS = positiveIntEnv("PRINT_JOB_LEASE_SECONDS", 120);
+const PRINT_JOB_LEASE_SECONDS = positiveIntEnv("PRINT_JOB_LEASE_SECONDS", 120);
 
 /** Refusals a caller should show to the user rather than log as a fault. */
 export class PrintNotAllowedError extends Error {}
 
-export const CANCELLED_ORDER_PRINT_ERROR = "This order was cancelled — its receipt can no longer be printed.";
+const CANCELLED_ORDER_PRINT_ERROR = "This order was cancelled — its receipt can no longer be printed.";
 
 export const UNCERTAIN_PRINT_ERROR =
   "Print outcome unknown: processing stopped before the result was recorded. Check whether this receipt printed before retrying.";

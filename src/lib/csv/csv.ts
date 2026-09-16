@@ -28,7 +28,3 @@ export function csvRow<T extends Record<string, unknown>>(row: T, columns: CsvCo
     })
     .join(",");
 }
-
-export function toCsv<T extends Record<string, unknown>>(rows: T[], columns: CsvColumn<T>[]): string {
-  return [csvHeader(columns), ...rows.map((row) => csvRow(row, columns))].join("\r\n");
-}

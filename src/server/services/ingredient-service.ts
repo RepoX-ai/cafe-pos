@@ -1,4 +1,4 @@
-import { and, asc, count, eq, getTableColumns, sql } from "drizzle-orm";
+import { and, asc, count, eq, getTableColumns, isNotNull, lte, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   ingredients,
@@ -11,7 +11,7 @@ import {
   recipeLines,
   recipes,
 } from "@/lib/db/schema";
-import { purchaseScaleFor } from "@/lib/units/units";
+import { baseUnitOfDisplayUnit, purchaseScaleFor, type BaseUnit, type DisplayUnit } from "@/lib/units/units";
 import type { IngredientInput, IngredientUpdateInput } from "@/lib/validation/ingredient";
 import { recordAuditLog } from "./audit";
 
@@ -26,6 +26,12 @@ function hasStockHistory() {
 
 export class IngredientValidationError extends Error {}
 
+function assertDisplayUnitMatches(baseUnit: BaseUnit, displayUnit: DisplayUnit | undefined) {
+  if (displayUnit && baseUnitOfDisplayUnit(displayUnit) !== baseUnit) {
+    throw new IngredientValidationError(`"${displayUnit}" can't be used for an ingredient measured in ${baseUnit}s.`);
+  }
+}
+
 export async function listIngredients(db: Database, businessId: string, opts: { includeArchived?: boolean } = {}) {
   const rows = await db
     .select({ ...getTableColumns(ingredients), hasStockHistory: hasStockHistory() })
@@ -37,6 +43,22 @@ export async function listIngredients(db: Database, businessId: string, opts: { 
     )
     .orderBy(asc(ingredients.name));
   return rows;
+}
+
+/** Active ingredients at or below their reorder level, by name — filtered in SQL, not after loading everything. */
+export async function listLowStockIngredients(db: Database, businessId: string) {
+  return db
+    .select()
+    .from(ingredients)
+    .where(
+      and(
+        eq(ingredients.businessId, businessId),
+        eq(ingredients.active, true),
+        isNotNull(ingredients.reorderLevelBaseUnits),
+        lte(ingredients.currentQuantityBaseUnits, ingredients.reorderLevelBaseUnits),
+      ),
+    )
+    .orderBy(asc(ingredients.name));
 }
 
 export async function getIngredientById(db: Database, businessId: string, id: string) {
@@ -66,6 +88,7 @@ export interface ActorContext {
  * formula, blending over this seed like any other receipt.
  */
 export async function createIngredient(db: Database, actor: ActorContext, input: IngredientInput) {
+  assertDisplayUnitMatches(input.baseUnit, input.displayUnit);
   const [row] = await db
     .insert(ingredients)
     .values({
@@ -74,6 +97,7 @@ export async function createIngredient(db: Database, actor: ActorContext, input:
       sku: input.sku || null,
       category: input.category || null,
       baseUnit: input.baseUnit,
+      displayUnit: input.displayUnit ?? null,
       reorderLevelBaseUnits:
         input.reorderLevelBaseUnits !== undefined ? String(input.reorderLevelBaseUnits) : null,
       targetStockBaseUnits:
@@ -111,6 +135,9 @@ export async function updateIngredient(
 ) {
   const before = await getIngredientById(db, actor.businessId, id);
   if (!before) throw new Error("Ingredient not found");
+  // Display only, so it can change even after stock history exists — but
+  // never across classes, which would misread every quantity typed after.
+  assertDisplayUnitMatches(before.baseUnit, input.displayUnit);
 
   let averageCostPerBaseUnit: string | undefined;
   if (input.startingCostPerPurchaseUnit !== undefined) {
@@ -132,6 +159,7 @@ export async function updateIngredient(
     .update(ingredients)
     .set({
       ...(averageCostPerBaseUnit !== undefined ? { averageCostPerBaseUnit } : {}),
+      ...(input.displayUnit ? { displayUnit: input.displayUnit } : {}),
       name: input.name,
       sku: input.sku || null,
       category: input.category || null,
@@ -198,7 +226,7 @@ export async function setIngredientActive(
  * Counts the recipes an ingredient is still part of, so the confirm dialog
  * can say how many menu items get cheaper to make before anyone commits.
  */
-export async function countRecipeUsage(db: Database, businessId: string, id: string) {
+async function countRecipeUsage(db: Database, businessId: string, id: string) {
   const [itemRecipes] = await db
     .select({ total: count() })
     .from(recipeLines)

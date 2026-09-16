@@ -22,7 +22,6 @@ export const expenseInputSchema = z.object({
   payee: z.string().trim().max(200).optional().or(z.literal("")),
   referenceNumber: z.string().trim().max(100).optional().or(z.literal("")),
   notes: z.string().trim().max(1000).optional().or(z.literal("")),
-  recurring: z.coerce.boolean().default(false),
 });
 
 export type ExpenseInput = z.infer<typeof expenseInputSchema>;

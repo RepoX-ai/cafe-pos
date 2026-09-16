@@ -38,8 +38,8 @@ export function AuditLogTable({ logs, pagination }: { logs: AuditLogRow[]; pagin
             ) : (
               logs.map((log) => (
                 <tr key={log.id} className="border-b border-[var(--color-border)] last:border-0 align-top">
-                  <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatBusinessDateTime(new Date(log.createdAt))}</td>
-                  <td className="px-4 py-3 text-[var(--color-text-secondary)]">{log.actorName ?? "System"}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatBusinessDateTime(new Date(log.createdAt))}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">{log.actorName ?? "System"}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-full bg-[var(--color-selected-surface)] px-2 py-0.5 text-xs font-medium text-[var(--color-accent-primary)]">
                       {log.action}

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   ingredients,
@@ -19,11 +19,24 @@ import type {
   ModifierOptionInput,
   VariantInput,
 } from "@/lib/validation/menu";
-import type { RecipeLineInput } from "@/lib/validation/recipe";
-import { effectiveQuantity } from "@/lib/recipes/cost";
+import type { ModifierRecipeInput, RecipeLineInput } from "@/lib/validation/recipe";
+import { calculateRecipeCost, effectiveQuantity } from "@/lib/recipes/cost";
 import { recordAuditLog } from "./audit";
 import type { ActorContext } from "./ingredient-service";
 import { saveRecipe } from "./recipe-service";
+
+/**
+ * Current photo per menu item, for decorating report widgets. Photos are not
+ * part of the order snapshot, so a deleted item simply has none.
+ */
+export async function getMenuItemImages(db: Database, businessId: string, menuItemIds: string[]) {
+  if (menuItemIds.length === 0) return new Map<string, string | null>();
+  const rows = await db
+    .select({ id: menuItems.id, imageUrl: menuItems.imageUrl })
+    .from(menuItems)
+    .where(and(eq(menuItems.businessId, businessId), inArray(menuItems.id, menuItemIds)));
+  return new Map(rows.map((r) => [r.id, r.imageUrl]));
+}
 
 // ---------------------------------------------------------------------------
 // Categories
@@ -98,17 +111,18 @@ export async function listMenuItemsWithVariants(db: Database, businessId: string
     .where(eq(menuItems.businessId, businessId))
     .orderBy(asc(menuItems.displayOrder), asc(menuItems.name));
 
+  // Only the variant's own columns come back; the join is just the tenant filter.
   const variants = await db
-    .select()
+    .select(getTableColumns(menuItemVariants))
     .from(menuItemVariants)
     .innerJoin(menuItems, eq(menuItemVariants.menuItemId, menuItems.id))
     .where(eq(menuItems.businessId, businessId));
 
-  const variantsByItem = new Map<string, (typeof variants)[number]["menu_item_variants"][]>();
+  const variantsByItem = new Map<string, (typeof variants)[number][]>();
   for (const row of variants) {
-    const list = variantsByItem.get(row.menu_item_variants.menuItemId) ?? [];
-    list.push(row.menu_item_variants);
-    variantsByItem.set(row.menu_item_variants.menuItemId, list);
+    const list = variantsByItem.get(row.menuItemId) ?? [];
+    list.push(row);
+    variantsByItem.set(row.menuItemId, list);
   }
 
   return items.map((item) => ({
@@ -269,7 +283,7 @@ async function assertItemBelongsToBusiness(db: Database, businessId: string, men
   if (!item) throw new Error("Menu item not found");
 }
 
-export async function createVariant(
+async function createVariant(
   db: Database,
   actor: ActorContext,
   menuItemId: string,
@@ -369,6 +383,12 @@ export async function setVariantActive(
 // Modifier groups + options
 // ---------------------------------------------------------------------------
 
+export interface ModifierRecipeLineView {
+  ingredientId: string;
+  quantityBaseUnits: number;
+  wastePercentage: number;
+}
+
 export async function listModifierGroupsWithOptions(db: Database, businessId: string) {
   const groups = await db
     .select()
@@ -377,16 +397,49 @@ export async function listModifierGroupsWithOptions(db: Database, businessId: st
     .orderBy(asc(modifierGroups.name));
 
   const options = await db
-    .select()
+    .select(getTableColumns(modifierOptions))
     .from(modifierOptions)
     .innerJoin(modifierGroups, eq(modifierOptions.modifierGroupId, modifierGroups.id))
     .where(eq(modifierGroups.businessId, businessId));
 
-  const optionsByGroup = new Map<string, (typeof options)[number]["modifier_options"][]>();
+  const lines = options.length
+    ? await db
+        .select({
+          modifierOptionId: modifierRecipeLines.modifierOptionId,
+          ingredientId: modifierRecipeLines.ingredientId,
+          quantityBaseUnits: modifierRecipeLines.quantityBaseUnits,
+          wastePercentage: modifierRecipeLines.wastePercentage,
+          costPerBaseUnit: ingredients.averageCostPerBaseUnit,
+        })
+        .from(modifierRecipeLines)
+        .innerJoin(ingredients, eq(modifierRecipeLines.ingredientId, ingredients.id))
+        .where(inArray(modifierRecipeLines.modifierOptionId, options.map((o) => o.id)))
+    : [];
+  const linesByOption = new Map<string, (typeof lines)[number][]>();
+  for (const line of lines) {
+    const list = linesByOption.get(line.modifierOptionId) ?? [];
+    list.push(line);
+    linesByOption.set(line.modifierOptionId, list);
+  }
+
+  type OptionWithRecipe = (typeof options)[number] & { recipeLines: ModifierRecipeLineView[]; cogs: number };
+  const optionsByGroup = new Map<string, OptionWithRecipe[]>();
   for (const row of options) {
-    const list = optionsByGroup.get(row.modifier_options.modifierGroupId) ?? [];
-    list.push(row.modifier_options);
-    optionsByGroup.set(row.modifier_options.modifierGroupId, list);
+    const recipe = (linesByOption.get(row.id) ?? []).map((l) => ({
+      ingredientId: l.ingredientId,
+      quantityBaseUnits: Number(l.quantityBaseUnits),
+      wastePercentage: Number(l.wastePercentage ?? 0),
+      costPerBaseUnit: l.costPerBaseUnit,
+    }));
+    const list = optionsByGroup.get(row.modifierGroupId) ?? [];
+    // COGS at today's average cost, as a preview for the admin screen.
+    // Orders snapshot their own cost when submitted.
+    list.push({
+      ...row,
+      recipeLines: recipe.map((l) => ({ ingredientId: l.ingredientId, quantityBaseUnits: l.quantityBaseUnits, wastePercentage: l.wastePercentage })),
+      cogs: calculateRecipeCost(recipe),
+    });
+    optionsByGroup.set(row.modifierGroupId, list);
   }
 
   return groups.map((group) => ({
@@ -488,6 +541,64 @@ export async function setModifierOptionActive(
     metadata: { groupId },
   });
   return row;
+}
+
+/**
+ * Replaces an option's ingredient lines. Unlike menu-item recipes these are
+ * not versioned: submitted orders already hold their own consumption and
+ * COGS snapshots, so a later edit can't change them.
+ */
+export async function saveModifierOptionRecipe(db: Database, actor: ActorContext, input: ModifierRecipeInput) {
+  await assertGroupBelongsToBusiness(db, actor.businessId, input.groupId);
+  const [option] = await db
+    .select({ id: modifierOptions.id })
+    .from(modifierOptions)
+    .where(and(eq(modifierOptions.id, input.optionId), eq(modifierOptions.modifierGroupId, input.groupId)))
+    .limit(1);
+  if (!option) throw new Error("Modifier option not found");
+
+  const ingredientIds = input.lines.map((l) => l.ingredientId);
+  if (ingredientIds.length > 0) {
+    const rows = await db
+      .select({ id: ingredients.id })
+      .from(ingredients)
+      .where(and(inArray(ingredients.id, ingredientIds), eq(ingredients.businessId, actor.businessId)));
+    if (rows.length !== new Set(ingredientIds).size) {
+      throw new Error("One or more ingredients are invalid for this business");
+    }
+  }
+
+  return db.transaction(async (tx) => {
+    const before = await tx
+      .delete(modifierRecipeLines)
+      .where(eq(modifierRecipeLines.modifierOptionId, input.optionId))
+      .returning();
+    const after = input.lines.length
+      ? await tx
+          .insert(modifierRecipeLines)
+          .values(
+            input.lines.map((line) => ({
+              modifierOptionId: input.optionId,
+              ingredientId: line.ingredientId,
+              quantityBaseUnits: String(line.quantityBaseUnits),
+              wastePercentage: String(line.wastePercentage ?? 0),
+            })),
+          )
+          .returning()
+      : [];
+
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "modifier_option.recipe_saved",
+      entityType: "modifier_option",
+      entityId: input.optionId,
+      before,
+      after,
+      metadata: { groupId: input.groupId },
+    });
+    return after;
+  });
 }
 
 // ---------------------------------------------------------------------------

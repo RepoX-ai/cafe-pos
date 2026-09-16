@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { printJobs } from "@/lib/db/schema";
 import { requirePermission, type RoleName } from "@/lib/permissions/permissions";
@@ -45,6 +45,8 @@ export async function submitOrderForUser(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid order." };
   }
 
+  // One lookup serves both the throttle exemption and submitOrder's own
+  // idempotency check.
   const alreadySubmitted = await findOrderByIdempotencyKey(db, user.businessId, parsed.data.idempotencyKey);
   if (!alreadySubmitted) {
     const allowed = await consumeRateLimit(db, {
@@ -57,12 +59,16 @@ export async function submitOrderForUser(
   }
 
   try {
-    const { order, idempotent } = await submitOrder(db, { businessId: user.businessId, userId: user.id }, parsed.data);
+    const { order, idempotent } = await submitOrder(db, { businessId: user.businessId, userId: user.id }, parsed.data, {
+      idempotencyKeyChecked: !alreadySubmitted,
+    });
 
     let printStatus = "QUEUED";
     let receipt: PrintJobPayload | undefined;
     let devicePrintJobId: string | undefined;
-    const [job] = await db.select().from(printJobs).where(eq(printJobs.orderId, order.id)).limit(1);
+    // The job checkout itself queued is the oldest one; a retried submission
+    // must not pick up a later reprint instead.
+    const [job] = await db.select().from(printJobs).where(eq(printJobs.orderId, order.id)).orderBy(asc(printJobs.createdAt)).limit(1);
     if (job) {
       printStatus = job.status;
       // Both of these providers print on the client, so the client needs the

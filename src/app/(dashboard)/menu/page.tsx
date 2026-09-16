@@ -7,6 +7,7 @@ import {
   listMenuItemsWithVariants,
   listModifierGroupsWithOptions,
 } from "@/server/services/menu-service";
+import { listIngredients } from "@/server/services/ingredient-service";
 import { MenuClient } from "./menu-client";
 
 export const metadata: Metadata = {
@@ -16,11 +17,13 @@ export const metadata: Metadata = {
 export default async function MenuPage() {
   const user = await requirePageAccess("menu:read");
   const canWrite = hasAnyRolePermission(user.roles, "menu:write");
+  const canWriteRecipes = hasAnyRolePermission(user.roles, "recipes:write");
 
-  const [categories, items, modifierGroups] = await Promise.all([
+  const [categories, items, modifierGroups, ingredients] = await Promise.all([
     listCategories(db, user.businessId),
     listMenuItemsWithVariants(db, user.businessId),
     listModifierGroupsWithOptions(db, user.businessId),
+    listIngredients(db, user.businessId),
   ]);
 
   return (
@@ -31,7 +34,19 @@ export default async function MenuPage() {
       </p>
 
       <div className="mt-8">
-        <MenuClient categories={categories} items={items} modifierGroups={modifierGroups} canWrite={canWrite} />
+        <MenuClient
+          categories={categories}
+          items={items}
+          modifierGroups={modifierGroups}
+          ingredients={ingredients.map((ing) => ({
+            id: ing.id,
+            name: ing.name,
+            baseUnit: ing.baseUnit,
+            costPerBaseUnit: ing.averageCostPerBaseUnit,
+          }))}
+          canWrite={canWrite}
+          canWriteRecipes={canWriteRecipes}
+        />
       </div>
     </div>
   );

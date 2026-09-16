@@ -16,6 +16,11 @@ export function formatBusinessDate(date: Date): string {
   return formatInTimeZone(date, BUSINESS_TIMEZONE, "yyyy-MM-dd");
 }
 
+/** "16 Sep 2026 14.05" — the short Indonesian-locale form every list and detail screen shows. */
+export function formatDisplayDateTime(value: Date | string): string {
+  return new Date(value).toLocaleString("id-ID", { timeZone: BUSINESS_TIMEZONE, dateStyle: "medium", timeStyle: "short" });
+}
+
 /**
  * An inclusive range of business calendar dates (YYYY-MM-DD, Asia/Jakarta).
  * Date-only columns (expenses.expense_date, purchases.purchase_date) compare
@@ -73,13 +78,8 @@ export function previousBusinessPeriod(range: BusinessDateRange): BusinessDateRa
 }
 
 /** Start-of-day (00:00:00 Asia/Jakarta) for a given calendar date, as a UTC Date. */
-export function startOfBusinessDay(calendarDate: string): Date {
+function startOfBusinessDay(calendarDate: string): Date {
   return fromZonedTime(`${calendarDate}T00:00:00`, BUSINESS_TIMEZONE);
-}
-
-/** End-of-day (23:59:59.999 Asia/Jakarta) for a given calendar date, as a UTC Date. */
-export function endOfBusinessDay(calendarDate: string): Date {
-  return fromZonedTime(`${calendarDate}T23:59:59.999`, BUSINESS_TIMEZONE);
 }
 
 /** The current date, as a Y-M-D string in the business timezone. */

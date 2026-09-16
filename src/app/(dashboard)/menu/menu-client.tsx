@@ -5,6 +5,7 @@ import { ItemsTab } from "./menu-items-tab";
 import { CategoriesTab } from "./menu-categories-tab";
 import { ModifiersTab } from "./menu-modifiers-tab";
 import type { CategoryRow, MenuItemRow, ModifierGroupRow } from "./menu-types";
+import type { IngredientOption } from "./recipe-lines-table";
 
 /**
  * Menu admin: one tab per responsibility (items, categories, modifiers), each
@@ -16,12 +17,16 @@ export function MenuClient({
   categories,
   items,
   modifierGroups,
+  ingredients,
   canWrite,
+  canWriteRecipes,
 }: {
   categories: CategoryRow[];
   items: MenuItemRow[];
   modifierGroups: ModifierGroupRow[];
+  ingredients: IngredientOption[];
   canWrite: boolean;
+  canWriteRecipes: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("items");
   // Deleting a category leaves its items behind as uncategorized, so the
@@ -64,7 +69,7 @@ export function MenuClient({
       {tab === "categories" ? (
         <CategoriesTab categories={categories} itemsPerCategory={itemsPerCategory} canWrite={canWrite} />
       ) : null}
-      {tab === "modifiers" ? <ModifiersTab groups={modifierGroups} canWrite={canWrite} /> : null}
+      {tab === "modifiers" ? <ModifiersTab groups={modifierGroups} ingredients={ingredients} canWrite={canWrite} canWriteRecipes={canWriteRecipes} /> : null}
     </div>
   );
 }

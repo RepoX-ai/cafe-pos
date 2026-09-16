@@ -13,7 +13,8 @@ import {
   modifierOptionInputSchema,
   variantInputSchema,
 } from "@/lib/validation/menu";
-import { recipeLineInputSchema, type RecipeLineInput } from "@/lib/validation/recipe";
+import { modifierRecipeInputSchema, recipeLineInputSchema, type RecipeLineInput } from "@/lib/validation/recipe";
+import { flattenZodErrors } from "@/lib/validation/form-errors";
 import {
   createCategory,
   createMenuItem,
@@ -25,6 +26,7 @@ import {
   deleteModifierGroup,
   deleteModifierOption,
   deleteVariant,
+  saveModifierOptionRecipe,
   setCategoryActive,
   setItemModifierGroups,
   setMenuItemActive,
@@ -40,15 +42,6 @@ export type FormActionState =
   | { ok: true }
   | { ok: false; error: string; fieldErrors?: Record<string, string> }
   | undefined;
-
-function flattenZodErrors(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
-  const out: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = String(issue.path[0] ?? "form");
-    if (!out[key]) out[key] = issue.message;
-  }
-  return out;
-}
 
 async function actor() {
   const user = await requireCurrentUser();
@@ -317,6 +310,22 @@ export async function setModifierOptionActiveAction(formData: FormData): Promise
     formData.get("active") === "true",
   );
   revalidatePath("/menu");
+}
+
+export type SaveModifierRecipeResult = { ok: true } | { ok: false; error: string };
+
+export async function saveModifierOptionRecipeAction(input: unknown): Promise<SaveModifierRecipeResult> {
+  const { user, actor: ctx } = await actor();
+  requirePermission(user.roles, "recipes:write");
+  const parsed = modifierRecipeInputSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Check the recipe ingredients." };
+  try {
+    await saveModifierOptionRecipe(db, ctx, parsed.data);
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+  revalidatePath("/menu");
+  return { ok: true };
 }
 
 export async function deleteModifierGroupAction(formData: FormData): Promise<void> {

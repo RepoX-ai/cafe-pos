@@ -46,9 +46,7 @@ export type Permission = (typeof PERMISSIONS)[number];
 /**
  * Default policy from the PRD's role access matrix (§4). Entries marked
  * "Permission-based" / "Optional" in the PRD are given a sensible MVP
- * default below and can be overridden per-business later via
- * `settings:write` (see `overrides` param on `hasPermission`) without
- * changing this table's shape.
+ * default below; per-business overrides are a later feature.
  */
 export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
   super_admin: new Set(PERMISSIONS), // every permission, always
@@ -111,7 +109,7 @@ export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
     "inventory:adjust",
     "inventory:waste",
     "purchases:write",
-    // orders:create is optional/assignment-based — see overrides below.
+    // orders:create is optional/assignment-based; not granted by default.
   ]),
   viewer: new Set<Permission>([
     // Same reasoning: "Menu management" is "No" for Viewer too.
@@ -121,42 +119,13 @@ export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
   ]),
 };
 
-/**
- * Per-business toggles for the handful of permissions the PRD explicitly
- * calls out as owner-configurable (cashier reprint, inventory-staff order
- * entry, etc). Until a settings UI persists these, callers can pass an
- * explicit overrides object; omitted keys fall back to `ROLE_PERMISSIONS`.
- */
-export interface PermissionOverrides {
-  cashierCanReprintOwn?: boolean;
-  inventoryStaffCanCreateOrders?: boolean;
-}
-
-export function hasPermission(
-  role: RoleName,
-  permission: Permission,
-  overrides?: PermissionOverrides,
-): boolean {
-  if (overrides?.cashierCanReprintOwn && role === "cashier" && permission === "orders:reprint") {
-    return true;
-  }
-  if (
-    overrides?.inventoryStaffCanCreateOrders &&
-    role === "inventory_staff" &&
-    permission === "orders:create"
-  ) {
-    return true;
-  }
+export function hasPermission(role: RoleName, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role].has(permission);
 }
 
 /** A user may hold multiple roles; access is the union of all their roles' permissions. */
-export function hasAnyRolePermission(
-  roles: RoleName[],
-  permission: Permission,
-  overrides?: PermissionOverrides,
-): boolean {
-  return roles.some((role) => hasPermission(role, permission, overrides));
+export function hasAnyRolePermission(roles: RoleName[], permission: Permission): boolean {
+  return roles.some((role) => hasPermission(role, permission));
 }
 
 export class PermissionDeniedError extends Error {
@@ -167,12 +136,8 @@ export class PermissionDeniedError extends Error {
 }
 
 /** Throws PermissionDeniedError if none of the roles grant the permission. Use at the top of every server action/route handler. */
-export function requirePermission(
-  roles: RoleName[],
-  permission: Permission,
-  overrides?: PermissionOverrides,
-): void {
-  if (!hasAnyRolePermission(roles, permission, overrides)) {
+export function requirePermission(roles: RoleName[], permission: Permission): void {
+  if (!hasAnyRolePermission(roles, permission)) {
     throw new PermissionDeniedError(permission);
   }
 }

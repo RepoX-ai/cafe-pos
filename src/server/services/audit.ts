@@ -35,6 +35,10 @@ export async function recordAuditLog(db: Database, input: AuditLogInput): Promis
   });
 }
 
+export async function countAuditLogs(db: Database, businessId: string) {
+  return db.$count(auditLogs, eq(auditLogs.businessId, businessId));
+}
+
 export async function listAuditLogs(db: Database, businessId: string, window: { limit: number; offset: number }) {
   return db
     .select({

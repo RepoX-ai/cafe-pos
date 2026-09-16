@@ -1,6 +1,13 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/dates/dates";
 import { formatIDR } from "@/lib/money/money";
+import {
+  displayToBaseQuantity,
+  formatDisplayQuantity,
+  resolveDisplayUnit,
+  type DisplayUnit,
+} from "@/lib/units/units";
 import { useEffect, useState, type ReactNode } from "react";
 import { useActionState } from "react";
 import { Plus } from "lucide-react";
@@ -17,12 +24,14 @@ interface IngredientOption {
   id: string;
   name: string;
   baseUnit: BaseUnit;
+  displayUnit: DisplayUnit | null;
 }
 
 interface WasteRow {
   id: string;
   ingredientName: string;
   baseUnit: BaseUnit;
+  displayUnit: DisplayUnit | null;
   quantityBaseUnits: string;
   reason: string;
   estimatedCost: number;
@@ -30,7 +39,7 @@ interface WasteRow {
   createdAt: string | Date;
 }
 
-const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
+const UNIT_WORD: Record<DisplayUnit, string> = { kg: "kilograms", g: "grams", L: "litres", ml: "millilitres", pc: "pieces" };
 const REASON_LABEL: Record<string, string> = {
   expired: "Expired",
   spilled: "Spilled",
@@ -39,10 +48,6 @@ const REASON_LABEL: Record<string, string> = {
   incorrect_preparation: "Incorrect preparation",
   other: "Other",
 };
-
-function formatDate(value: string | Date) {
-  return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
-}
 
 export function WasteClient({
   ingredients,
@@ -99,10 +104,10 @@ export function WasteClient({
               ) : (
                 records.map((r) => (
                   <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0">
-                    <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDate(r.createdAt)}</td>
+                    <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDisplayDateTime(r.createdAt)}</td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{r.ingredientName}</td>
                     <td className="px-4 py-3 tabular-nums">
-                      {Number(r.quantityBaseUnits).toLocaleString("id-ID")} {UNIT_LABEL[r.baseUnit]}
+                      {formatDisplayQuantity(r.quantityBaseUnits, resolveDisplayUnit(r.baseUnit, r.displayUnit))}
                     </td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{REASON_LABEL[r.reason] ?? r.reason}</td>
                     <td className="px-4 py-3 tabular-nums">{formatIDR(r.estimatedCost)}</td>
@@ -123,6 +128,19 @@ function RecordWasteForm({ ingredients, onDone }: { ingredients: IngredientOptio
   const [state, formAction, isPending] = useActionState<WasteActionState, FormData>(createWasteRecordAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Waste recorded.");
+  const [ingredientId, setIngredientId] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const selectedIngredient = ingredients.find((i) => i.id === ingredientId);
+  const unit = selectedIngredient ? resolveDisplayUnit(selectedIngredient.baseUnit, selectedIngredient.displayUnit) : null;
+  // Typed in the ingredient's display unit (0,5 kg), submitted in base units (500 g).
+  let quantityBase = "";
+  if (unit && quantity.trim() !== "") {
+    try {
+      quantityBase = displayToBaseQuantity(quantity, unit);
+    } catch {
+      quantityBase = "";
+    }
+  }
 
   useEffect(() => {
     if (state?.ok) onDone();
@@ -131,9 +149,9 @@ function RecordWasteForm({ ingredients, onDone }: { ingredients: IngredientOptio
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(2,minmax(0,1fr))]">
         <Field label="Ingredient" htmlFor="ingredientId" error={errorState?.fieldErrors?.ingredientId}>
-          <Select id="ingredientId" name="ingredientId" required>
+          <Select id="ingredientId" name="ingredientId" required value={ingredientId} onChange={setIngredientId}>
             <option value="">Select ingredient…</option>
             {ingredients.map((i) => (
               <option key={i.id} value={i.id}>
@@ -142,8 +160,30 @@ function RecordWasteForm({ ingredients, onDone }: { ingredients: IngredientOptio
             ))}
           </Select>
         </Field>
-        <Field label="Quantity" htmlFor="quantityBaseUnits" hint="In the ingredient's base unit" error={errorState?.fieldErrors?.quantityBaseUnits}>
-          <input id="quantityBaseUnits" name="quantityBaseUnits" type="number" min={0} step="any" required className={inputClassName} />
+        <Field
+          label="Quantity"
+          htmlFor="quantityBaseUnits"
+          hint={unit ? `In ${UNIT_WORD[unit]}` : "Select an ingredient to see its unit"}
+          error={errorState?.fieldErrors?.quantityBaseUnits}
+        >
+          <div className="relative">
+            <input
+              id="quantityBaseUnits"
+              type="number"
+              min={0}
+              step="any"
+              required
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              className={`${inputClassName} w-full pr-12`}
+            />
+            <input type="hidden" name="quantityBaseUnits" value={quantityBase} />
+            {unit ? (
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-[var(--color-text-muted)]">
+                {unit}
+              </span>
+            ) : null}
+          </div>
         </Field>
       </div>
       <Field label="Reason" htmlFor="reason" error={errorState?.fieldErrors?.reason}>

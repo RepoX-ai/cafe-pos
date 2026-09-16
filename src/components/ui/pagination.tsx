@@ -1,6 +1,8 @@
 "use client";
 
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { pageNumbers } from "@/lib/pagination";
+import { pageButtonClassName, pageSummary } from "./pagination-styles";
 
 /**
  * Footer control for a paginated table — pair with `usePagination`. Renders
@@ -22,37 +24,49 @@ export function Pagination({
 }) {
   if (totalPages <= 1) return null;
 
-  const start = (page - 1) * pageSize + 1;
-  const end = Math.min(page * pageSize, totalItems);
+  const shown = Math.max(0, Math.min(pageSize, totalItems - (page - 1) * pageSize));
 
   return (
-    <div className="flex items-center justify-between border-t border-[var(--color-border)] px-4 py-2.5">
-      <span className="text-xs text-[var(--color-text-muted)]">
-        {start}–{end} of {totalItems}
-      </span>
+    <nav aria-label="Pagination" className="flex items-center justify-between gap-4 border-t border-[var(--color-border)] px-4 py-2.5">
+      <span className="text-xs text-[var(--color-text-muted)]">{pageSummary(shown, totalItems)}</span>
       <div className="flex items-center gap-1">
         <button
           type="button"
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1}
           aria-label="Previous page"
-          className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)] disabled:pointer-events-none disabled:opacity-40"
+          className={pageButtonClassName(false)}
         >
           <ChevronLeft size={16} />
         </button>
-        <span className="px-1 text-xs tabular-nums text-[var(--color-text-secondary)]">
-          Page {page} of {totalPages}
-        </span>
+        {pageNumbers(page, totalPages).map((n, i) =>
+          n === "ellipsis" ? (
+            <span key={`e${i}`} aria-hidden="true" className="px-1 text-xs text-[var(--color-text-muted)]">
+              …
+            </span>
+          ) : (
+            <button
+              key={n}
+              type="button"
+              onClick={() => onPageChange(n)}
+              aria-label={`Page ${n}`}
+              aria-current={n === page ? "page" : undefined}
+              className={pageButtonClassName(n === page)}
+            >
+              {n}
+            </button>
+          ),
+        )}
         <button
           type="button"
           onClick={() => onPageChange(page + 1)}
           disabled={page >= totalPages}
           aria-label="Next page"
-          className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-secondary)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)] disabled:pointer-events-none disabled:opacity-40"
+          className={pageButtonClassName(false)}
         >
           <ChevronRight size={16} />
         </button>
       </div>
-    </div>
+    </nav>
   );
 }

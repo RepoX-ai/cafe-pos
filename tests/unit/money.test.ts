@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  apportionMicrosToRupiah,
   applyPercentage,
   formatIDR,
   grossMarginPercentage,
@@ -53,5 +54,29 @@ describe("money", () => {
   it("computes gross margin percentage", () => {
     // profit 10000 on sales 25000 = 40%
     expect(grossMarginPercentage(10_000, 25_000)).toBe(40);
+  });
+});
+
+describe("apportionMicrosToRupiah", () => {
+  it("rounds the total once and hands out the remainder by largest fraction", () => {
+    // 16.44408 + 4.155 = 20.59908 -> 21 total; floors 16 + 4 = 20, one extra goes to the larger remainder (.44408 vs .155)
+    const parts = [multiplyQuantityByRate(18, "0.91356"), multiplyQuantityByRate(150, "0.0277")];
+    const result = apportionMicrosToRupiah(parts);
+    expect(result).toEqual([17, 4]);
+    expect(result.reduce((a, b) => a + b, 0)).toBe(microsToRupiah(parts[0] + parts[1]));
+  });
+
+  it("always sums to the once-rounded total, unlike rounding each part", () => {
+    // Three parts of 0.5 Rp: rounding each gives 3, the true total is 1.5 -> 2.
+    const half = 500_000n;
+    const result = apportionMicrosToRupiah([half, half, half]);
+    expect(result.reduce((a, b) => a + b, 0)).toBe(2);
+    expect(result).toEqual([1, 1, 0]);
+  });
+
+  it("handles an empty list and negative parts", () => {
+    expect(apportionMicrosToRupiah([])).toEqual([]);
+    const result = apportionMicrosToRupiah([-1_500_000n, 2_250_000n]);
+    expect(result.reduce((a, b) => a + b, 0)).toBe(microsToRupiah(750_000n));
   });
 });

@@ -7,7 +7,7 @@ import {
   toSafeInteger,
 } from "@/lib/money/money";
 import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
-import { pageHref, pageWindow, parsePageParam, toPage } from "@/lib/pagination";
+import { pageHref, pageNumbers, pageWindow, parsePageParam, toPage, totalPageCount } from "@/lib/pagination";
 
 describe("database aggregates", () => {
   it("keeps bigint sums above the 32-bit integer limit exact", () => {
@@ -83,6 +83,15 @@ describe("pagination params", () => {
     expect(page.rows).toHaveLength(20);
     expect(page.hasNextPage).toBe(true);
     expect(toPage([1, 2], 1, 20).hasNextPage).toBe(false);
+  });
+
+  it("lists page numbers with ellipses once there are more than seven pages", () => {
+    expect(totalPageCount(0, 20)).toBe(1);
+    expect(totalPageCount(1000, 20)).toBe(50);
+    expect(pageNumbers(1, 6)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(pageNumbers(1, 50)).toEqual([1, 2, 3, 4, 5, "ellipsis", 50]);
+    expect(pageNumbers(25, 50)).toEqual([1, "ellipsis", 24, 25, 26, "ellipsis", 50]);
+    expect(pageNumbers(49, 50)).toEqual([1, "ellipsis", 46, 47, 48, 49, 50]);
   });
 
   it("keeps filters in page links and drops the page param for page one", () => {

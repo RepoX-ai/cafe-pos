@@ -81,48 +81,56 @@ export async function createStaff(
   const tempPassword = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
 
-  const [user] = await db
-    .insert(users)
-    .values({ businessId: actor.businessId, name: input.name, email: input.email, passwordHash })
-    .returning();
+  // User, role and audit row land together or not at all — never a user
+  // with no role.
+  const user = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(users)
+      .values({ businessId: actor.businessId, name: input.name, email: input.email, passwordHash })
+      .returning();
 
-  await db.insert(userRoles).values({ userId: user.id, roleId: role.id });
+    await tx.insert(userRoles).values({ userId: created.id, roleId: role.id });
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "user.created",
-    entityType: "user",
-    entityId: user.id,
-    after: { name: user.name, email: user.email, role: input.role },
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "user.created",
+      entityType: "user",
+      entityId: created.id,
+      after: { name: created.name, email: created.email, role: input.role },
+    });
+
+    return created;
   });
 
   return { user, tempPassword };
 }
 
 export async function setStaffActive(db: Database, actor: ActorContext, userId: string, active: boolean) {
-  const [row] = await db
-    .update(users)
-    .set({ active, updatedAt: new Date() })
-    .where(and(eq(users.id, userId), eq(users.businessId, actor.businessId)))
-    .returning();
-  if (!row) throw new Error("User not found");
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(users)
+      .set({ active, updatedAt: new Date() })
+      .where(and(eq(users.id, userId), eq(users.businessId, actor.businessId)))
+      .returning();
+    if (!row) throw new Error("User not found");
 
-  if (!active) {
-    // Immediate effect, not just "on next login" — matches the PRD's
-    // "a deactivated user loses access after the next authorization check."
-    await invalidateAllUserSessions(db, userId);
-  }
+    if (!active) {
+      // Immediate effect, not just "on next login" — matches the PRD's
+      // "a deactivated user loses access after the next authorization check."
+      await invalidateAllUserSessions(tx, userId);
+    }
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: active ? "user.reactivated" : "user.deactivated",
-    entityType: "user",
-    entityId: userId,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: active ? "user.reactivated" : "user.deactivated",
+      entityType: "user",
+      entityId: userId,
+    });
+
+    return row;
   });
-
-  return row;
 }
 
 /**
@@ -142,15 +150,17 @@ export async function resetStaffPassword(
   const tempPassword = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
 
-  await db.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
-  await invalidateAllUserSessions(db, userId);
+  await db.transaction(async (tx) => {
+    await tx.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
+    await invalidateAllUserSessions(tx, userId);
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "user.password_reset",
-    entityType: "user",
-    entityId: userId,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "user.password_reset",
+      entityType: "user",
+      entityId: userId,
+    });
   });
 
   return { tempPassword };

@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { createStaffInputSchema, updateStaffInputSchema } from "@/lib/validation/staff";
+import { flattenZodErrors } from "@/lib/validation/form-errors";
 import {
   countStaffAttribution,
   createStaff,
@@ -25,12 +26,7 @@ export async function createStaffAction(input: unknown): Promise<CreateStaffResu
 
   const parsed = createStaffInputSchema.safeParse(input);
   if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      if (!fieldErrors[key]) fieldErrors[key] = issue.message;
-    }
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors };
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
   }
 
   try {
@@ -81,12 +77,7 @@ export async function updateStaffAction(userId: string, input: unknown): Promise
 
   const parsed = updateStaffInputSchema.safeParse(input);
   if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      if (!fieldErrors[key]) fieldErrors[key] = issue.message;
-    }
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors };
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
   }
 
   try {

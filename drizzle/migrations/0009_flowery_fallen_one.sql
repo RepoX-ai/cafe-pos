@@ -1,0 +1,1 @@
+CREATE INDEX "order_ingredient_consumption_movement_id_idx" ON "order_ingredient_consumption" USING btree ("inventory_movement_id");

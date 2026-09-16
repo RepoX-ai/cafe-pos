@@ -1,7 +1,7 @@
 "use client";
 
 import { formatIDR } from "@/lib/money/money";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useActionState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,18 +16,38 @@ import {
   deleteModifierGroupAction,
   deleteModifierOptionAction,
   setModifierGroupActiveAction,
+  saveModifierOptionRecipeAction,
   setModifierOptionActiveAction,
   type FormActionState,
 } from "./actions";
+import { calculateRecipeCost } from "@/lib/recipes/cost";
+import { useToast } from "@/components/ui/toast";
+import {
+  newRecipeLineKey,
+  RecipeLinesTable,
+  type IngredientOption,
+  type RecipeLineDraft,
+} from "./recipe-lines-table";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { formDataOf, useToastAction } from "@/components/ui/use-toast-action";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
 import type { ModifierGroupRow, ModifierOptionRow } from "./menu-types";
 
-export function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[]; canWrite: boolean }) {
+export function ModifiersTab({
+  groups,
+  ingredients,
+  canWrite,
+  canWriteRecipes,
+}: {
+  groups: ModifierGroupRow[];
+  ingredients: IngredientOption[];
+  canWrite: boolean;
+  canWriteRecipes: boolean;
+}) {
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [addingOptionTo, setAddingOptionTo] = useState<string | null>(null);
+  const [editingRecipe, setEditingRecipe] = useState<{ groupId: string; option: ModifierOptionRow } | null>(null);
 
   return (
     <div className="flex flex-col gap-4">
@@ -78,8 +98,16 @@ export function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[];
                         {formatIDR(opt.priceAdjustment)}
                       </span>
                     ) : null}
-                    {canWrite ? (
-                      <ModifierOptionActions groupId={group.id} option={opt} />
+                    <span className="tabular-nums text-[var(--color-text-muted)]">
+                      {opt.recipeLines.length > 0 ? `· COGS ${formatIDR(opt.cogs)}` : "· No recipe"}
+                    </span>
+                    {canWrite || canWriteRecipes ? (
+                      <ModifierOptionActions
+                        groupId={group.id}
+                        option={opt}
+                        canWrite={canWrite}
+                        onEditRecipe={canWriteRecipes ? () => setEditingRecipe({ groupId: group.id, option: opt }) : undefined}
+                      />
                     ) : null}
                   </span>
                 ))
@@ -91,6 +119,24 @@ export function ModifiersTab({ groups, canWrite }: { groups: ModifierGroupRow[];
 
       <Modal open={creatingGroup} onClose={() => setCreatingGroup(false)} title="New modifier group">
         <ModifierGroupForm onDone={() => setCreatingGroup(false)} />
+      </Modal>
+
+      <Modal
+        open={editingRecipe !== null}
+        onClose={() => setEditingRecipe(null)}
+        title={editingRecipe ? `Recipe — ${editingRecipe.option.name}` : "Recipe"}
+        description="Ingredients deducted from stock each time this option is sold, on top of the item's own recipe."
+        maxWidthClassName="max-w-[640px]"
+      >
+        {editingRecipe ? (
+          <ModifierRecipeForm
+            key={editingRecipe.option.id}
+            groupId={editingRecipe.groupId}
+            option={editingRecipe.option}
+            ingredients={ingredients}
+            onDone={() => setEditingRecipe(null)}
+          />
+        ) : null}
       </Modal>
 
       <Modal open={addingOptionTo !== null} onClose={() => setAddingOptionTo(null)} title="New modifier option">
@@ -232,7 +278,100 @@ function ModifierGroupActions({
   );
 }
 
-function ModifierOptionActions({ groupId, option }: { groupId: string; option: ModifierOptionRow }) {
+function ModifierRecipeForm({
+  groupId,
+  option,
+  ingredients,
+  onDone,
+}: {
+  groupId: string;
+  option: ModifierOptionRow;
+  ingredients: IngredientOption[];
+  onDone: () => void;
+}) {
+  const [lines, setLines] = useState<RecipeLineDraft[]>(() =>
+    option.recipeLines.map((l) => ({ ...l, notes: "", key: newRecipeLineKey() })),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
+  const showToast = useToast();
+
+  const costById = new Map(ingredients.map((i) => [i.id, i.costPerBaseUnit]));
+  const totalCost = calculateRecipeCost(
+    lines
+      .filter((l) => l.ingredientId && l.quantityBaseUnits > 0)
+      .map((l) => ({ ...l, costPerBaseUnit: costById.get(l.ingredientId) ?? "0" })),
+  );
+
+  function save() {
+    setError(null);
+    startTransition(async () => {
+      const result = await saveModifierOptionRecipeAction({
+        groupId,
+        optionId: option.id,
+        lines: lines
+          .filter((l) => l.ingredientId)
+          .map((l) => ({ ingredientId: l.ingredientId, quantityBaseUnits: l.quantityBaseUnits, wastePercentage: l.wastePercentage })),
+      });
+      if (result.ok) {
+        showToast("success", "Recipe saved.");
+        onDone();
+      } else {
+        setError(result.error);
+      }
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <RecipeLinesTable
+        lines={lines}
+        ingredients={ingredients}
+        canWrite
+        onUpdateLine={(key, patch) => setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))}
+        onRemoveLine={(key) => setLines((prev) => prev.filter((l) => l.key !== key))}
+        onAddLine={() =>
+          setLines((prev) => [...prev, { key: newRecipeLineKey(), ingredientId: "", quantityBaseUnits: 0, wastePercentage: 0, notes: "" }])
+        }
+      />
+      <dl className="grid grid-cols-2 gap-4 rounded-[var(--radius-md)] border border-[var(--color-border)] p-4 text-sm">
+        <div>
+          <dt className="text-xs text-[var(--color-text-muted)]">Price adjustment</dt>
+          <dd className="mt-1 font-medium tabular-nums text-[var(--color-text-primary)]">{formatIDR(option.priceAdjustment)}</dd>
+        </div>
+        <div>
+          <dt className="text-xs text-[var(--color-text-muted)]">Recipe cost (COGS)</dt>
+          <dd className="mt-1 font-medium tabular-nums text-[var(--color-text-primary)]">{formatIDR(totalCost)}</dd>
+        </div>
+      </dl>
+      {error ? (
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="secondary" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="button" onClick={save} disabled={isPending}>
+          {isPending ? "Saving…" : "Save recipe"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ModifierOptionActions({
+  groupId,
+  option,
+  canWrite,
+  onEditRecipe,
+}: {
+  groupId: string;
+  option: ModifierOptionRow;
+  canWrite: boolean;
+  onEditRecipe?: () => void;
+}) {
   const [deleting, setDeleting] = useState(false);
   const { run, isPending } = useToastAction();
 
@@ -242,6 +381,8 @@ function ModifierOptionActions({ groupId, option }: { groupId: string; option: M
         size="sm"
         label={`Actions for ${option.name}`}
         items={[
+          ...(onEditRecipe ? [{ label: option.recipeLines.length > 0 ? "Edit recipe" : "Add recipe", onSelect: onEditRecipe }] : []),
+          ...(canWrite ? [
           {
             label: option.active ? "Archive" : "Restore",
             onSelect: () =>
@@ -254,7 +395,8 @@ function ModifierOptionActions({ groupId, option }: { groupId: string; option: M
               ),
             disabled: isPending,
           },
-          { label: "Delete permanently", onSelect: () => setDeleting(true), tone: "danger", disabled: isPending },
+          { label: "Delete permanently", onSelect: () => setDeleting(true), tone: "danger" as const, disabled: isPending },
+          ] : []),
         ]}
       />
       <ConfirmDeleteDialog

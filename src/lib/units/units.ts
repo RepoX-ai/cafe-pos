@@ -7,6 +7,9 @@
 
 export type BaseUnit = "gram" | "millilitre" | "piece";
 
+/** Short label for a base unit: "125 g", "50 ml", "2 pc". */
+export const BASE_UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
+
 export interface UnitConversionInput {
   quantityPurchased: number;
   conversionToBaseUnits: number; // e.g. 1kg -> 1000 (grams per purchased unit)
@@ -111,4 +114,75 @@ export function purchaseUnitOptionsFor(baseUnit: BaseUnit): PurchaseUnitOption[]
     ...PURCHASE_UNITS.filter((u) => u.nativeBase === baseUnit),
     ...PURCHASE_UNITS.filter((u) => u.nativeBase !== baseUnit),
   ].map(({ unit, label, conversionToBaseUnits }) => ({ unit, label, conversionToBaseUnits }));
+}
+
+/**
+ * The unit an ingredient's stock is shown and entered in — kg of chicken,
+ * L of milk — chosen per ingredient. Display only: quantities are stored,
+ * locked and costed in the base unit, and converted at the edge of the UI.
+ * Recipes, purchases and order consumption don't use it; recipe quantities
+ * are per serving and read naturally in g / ml.
+ */
+export type DisplayUnit = "kg" | "g" | "L" | "ml" | "pc";
+
+const DISPLAY_UNITS: Record<DisplayUnit, { baseUnit: BaseUnit; decimalShift: number; option: string }> = {
+  kg: { baseUnit: "gram", decimalShift: 3, option: "kg (weight)" },
+  g: { baseUnit: "gram", decimalShift: 0, option: "gram (weight)" },
+  L: { baseUnit: "millilitre", decimalShift: 3, option: "L (volume)" },
+  ml: { baseUnit: "millilitre", decimalShift: 0, option: "ml (volume)" },
+  pc: { baseUnit: "piece", decimalShift: 0, option: "pcs (countable)" },
+};
+
+export const DISPLAY_UNIT_OPTIONS: { value: DisplayUnit; label: string }[] = (
+  Object.keys(DISPLAY_UNITS) as DisplayUnit[]
+).map((value) => ({ value, label: DISPLAY_UNITS[value].option }));
+
+const DEFAULT_DISPLAY_UNIT: Record<BaseUnit, DisplayUnit> = { gram: "g", millilitre: "ml", piece: "pc" };
+
+export function baseUnitOfDisplayUnit(unit: DisplayUnit): BaseUnit {
+  return DISPLAY_UNITS[unit].baseUnit;
+}
+
+/** The display units that can stand for a base unit: kg and g for gram. */
+export function displayUnitsFor(baseUnit: BaseUnit): DisplayUnit[] {
+  return (Object.keys(DISPLAY_UNITS) as DisplayUnit[]).filter((unit) => DISPLAY_UNITS[unit].baseUnit === baseUnit);
+}
+
+/** The stored display unit, or the base unit's own when unset or from the wrong class. */
+export function resolveDisplayUnit(baseUnit: BaseUnit, displayUnit: DisplayUnit | null | undefined): DisplayUnit {
+  return displayUnit && DISPLAY_UNITS[displayUnit].baseUnit === baseUnit ? displayUnit : DEFAULT_DISPLAY_UNIT[baseUnit];
+}
+
+/** Moves the decimal point of a plain decimal string without going through a float. */
+function shiftDecimal(value: string, places: number): string {
+  const match = /^(-)?(\d*)(?:\.(\d*))?$/.exec(value.trim());
+  if (!match || (match[2] === "" && !match[3])) throw new Error(`Invalid quantity: ${value}`);
+  const [, sign = "", whole, fraction = ""] = match;
+  const digits = whole + fraction;
+  let point = whole.length + places;
+  const padded = point < 0 ? "0".repeat(-point) + digits : digits.padEnd(point, "0");
+  if (point < 0) point = 0;
+  const intPart = padded.slice(0, point).replace(/^0+(?=\d)/, "") || "0";
+  const fracPart = padded.slice(point).replace(/0+$/, "");
+  const result = fracPart ? `${intPart}.${fracPart}` : intPart;
+  return sign && /[1-9]/.test(result) ? `-${result}` : result;
+}
+
+/** "2.4" typed in kg -> "2400" grams. Exact. */
+export function displayToBaseQuantity(value: string | number, unit: DisplayUnit): string {
+  return shiftDecimal(String(value), DISPLAY_UNITS[unit].decimalShift);
+}
+
+/** "2400" grams -> "2.4" in kg. Exact; for prefilling inputs. */
+export function baseToDisplayQuantity(value: string | number, unit: DisplayUnit): string {
+  return shiftDecimal(String(value), -DISPLAY_UNITS[unit].decimalShift);
+}
+
+/** "2,4 kg" — a base-unit quantity formatted in the ingredient's display unit. */
+export function formatDisplayQuantity(value: string | number, unit: DisplayUnit): string {
+  const amount = Number(baseToDisplayQuantity(value, unit)).toLocaleString("id-ID", {
+    // A sale deducts 18 g; in kg that is 0,018 — keep enough digits to show it.
+    maximumFractionDigits: 2 + DISPLAY_UNITS[unit].decimalShift,
+  });
+  return `${amount} ${unit}`;
 }

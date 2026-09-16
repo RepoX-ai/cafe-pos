@@ -26,6 +26,10 @@ function rangeFilter(businessId: string, range: CalendarRange) {
 }
 
 /** Newest expense date first; created_at and id keep the order stable across pages. */
+export async function countExpensesInRange(db: Database, businessId: string, range: CalendarRange) {
+  return db.$count(expenses, rangeFilter(businessId, range));
+}
+
 export async function listExpensesInRange(
   db: Database,
   businessId: string,
@@ -45,7 +49,6 @@ export interface ExpenseSummary {
   total: number;
   entryCount: number;
   averagePerEntry: number;
-  recurringTotal: number;
 }
 
 export async function getExpenseSummary(
@@ -57,7 +60,6 @@ export async function getExpenseSummary(
     .select({
       total: sumAsSafeInteger(expenses.amount),
       entryCount: sql<number>`count(*)::int`,
-      recurringTotal: sumAsSafeInteger(expenses.amount, sql`${expenses.recurring}`),
     })
     .from(expenses)
     .where(rangeFilter(businessId, range));
@@ -68,7 +70,6 @@ export async function getExpenseSummary(
     total,
     entryCount,
     averagePerEntry: averageRupiah(total, entryCount),
-    recurringTotal: row?.recurringTotal ?? 0,
   };
 }
 
@@ -109,7 +110,6 @@ export async function createExpense(db: Database, actor: ActorContext, input: Ex
       payee: input.payee || null,
       referenceNumber: input.referenceNumber || null,
       notes: input.notes || null,
-      recurring: input.recurring,
       createdBy: actor.userId,
     })
     .returning();
@@ -136,7 +136,6 @@ export async function updateExpense(db: Database, actor: ActorContext, id: strin
       payee: input.payee || null,
       referenceNumber: input.referenceNumber || null,
       notes: input.notes || null,
-      recurring: input.recurring,
       updatedAt: new Date(),
     })
     .where(and(eq(expenses.id, id), eq(expenses.businessId, actor.businessId)))

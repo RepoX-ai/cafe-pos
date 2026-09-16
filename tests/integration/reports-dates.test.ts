@@ -97,7 +97,7 @@ describe.skipIf(!db)("report dates and exports (PostgreSQL)", () => {
     for (let i = 0; i < 3; i++) await insertOrder(business.id, "2026-03-10T03:00:00.000Z", 2_000_000_000);
     await db!.insert(schema.expenses).values([
       { businessId: business.id, category: "rent", amount: 2_000_000_000, expenseDate: "2026-03-10" },
-      { businessId: business.id, category: "rent", amount: 2_000_000_000, expenseDate: "2026-03-10", recurring: true },
+      { businessId: business.id, category: "rent", amount: 2_000_000_000, expenseDate: "2026-03-10" },
     ]);
     const range = { from: "2026-03-10", to: "2026-03-10" };
 
@@ -107,7 +107,7 @@ describe.skipIf(!db)("report dates and exports (PostgreSQL)", () => {
     expect(summary.expensesTotal).toBe(4_000_000_000);
     expect(summary.estimatedNetProfit).toBe(2_000_000_000);
     expect((await getSalesByDay(db!, business.id, range))[0].totalSales).toBe(6_000_000_000);
-    expect(await getExpenseSummary(db!, business.id, range)).toMatchObject({ total: 4_000_000_000, recurringTotal: 2_000_000_000 });
+    expect(await getExpenseSummary(db!, business.id, range)).toMatchObject({ total: 4_000_000_000 });
     expect((await exportCsv(business.id, "sales_by_day", range)).rows).toEqual([["2026-03-10", "3", "6000000000", "0", "6000000000"]]);
 
     const empty = await getSalesSummary(db!, business.id, { from: "2026-03-11", to: "2026-03-11" });

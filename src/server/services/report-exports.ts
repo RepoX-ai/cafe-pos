@@ -2,7 +2,7 @@ import type { Database } from "@/lib/db/client";
 import { csvHeader, csvRow, type CsvColumn } from "@/lib/csv/csv";
 import { formatBusinessDateTime, type BusinessDateRange } from "@/lib/dates/dates";
 import { listExpensesInRange } from "./expense-service";
-import { listIngredients } from "./ingredient-service";
+import { listIngredients, listLowStockIngredients } from "./ingredient-service";
 import { listMovements } from "./inventory-service";
 import { listPurchases } from "./purchase-service";
 import {
@@ -34,8 +34,19 @@ export function isReportType(value: string): value is ReportType {
   return (REPORT_TYPES as readonly string[]).includes(value);
 }
 
-/** Row-level reports whose screens are paginated server-side. The rest are grouped or bounded lists. */
-export const PAGINATED_REPORT_TYPES: readonly ReportType[] = ["cancelled_refunded", "inventory_movements", "purchases", "waste", "expenses"];
+export const REPORT_TYPE_LABELS: Record<ReportType, string> = {
+  sales_by_day: "Sales by day",
+  sales_by_menu_item: "Sales by menu item",
+  sales_by_category: "Sales by category",
+  sales_by_payment_method: "Sales by payment method",
+  cancelled_refunded: "Cancelled / refunded orders",
+  current_stock: "Current stock",
+  low_stock: "Low stock",
+  inventory_movements: "Inventory movements",
+  purchases: "Purchases",
+  waste: "Waste",
+  expenses: "Expenses",
+};
 
 type Source<T> =
   | { columns: CsvColumn<T>[]; all: (db: Database) => Promise<T[]> }
@@ -142,10 +153,7 @@ export async function writeReportCsv(
       });
     case "low_stock":
       return emit({
-        all: async (tx) =>
-          (await listIngredients(tx, businessId)).filter(
-            (i) => i.reorderLevelBaseUnits && Number(i.currentQuantityBaseUnits) <= Number(i.reorderLevelBaseUnits),
-          ),
+        all: (tx) => listLowStockIngredients(tx, businessId),
         columns: [
           { key: "name", label: "Ingredient" },
           { key: "currentQuantityBaseUnits", label: "Current Quantity" },

@@ -1,24 +1,33 @@
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { ingredients, purchaseLines, purchases, suppliers } from "@/lib/db/schema";
-import { convertToBaseUnits } from "@/lib/units/units";
+import { convertToBaseUnits, toQuantityUnits } from "@/lib/units/units";
 import { microsToRupiah, multiplyQuantityByRate } from "@/lib/money/money";
 import { calculateWeightedAverageCost } from "@/lib/purchasing/weighted-average-cost";
 import type { PurchaseInput } from "@/lib/validation/purchase";
 import type { BusinessDateRange } from "@/lib/dates/dates";
 import { withinCalendarDates } from "./range-filters";
 import { recordAuditLog } from "./audit";
-import { insertMovementAndApplyStock, lockIngredientForUpdate, lockIngredientsForUpdate } from "./inventory-service";
+import { insertMovementsAndApplyStock, lockIngredientsForUpdate, type MovementInput } from "./inventory-service";
 import type { ActorContext } from "./ingredient-service";
 
 /** Newest receipts first; `range` filters on the date-only purchase_date. */
+function purchaseFilter(businessId: string, range?: BusinessDateRange) {
+  const conditions = [eq(purchases.businessId, businessId)];
+  if (range) conditions.push(withinCalendarDates(purchases.purchaseDate, range));
+  return and(...conditions);
+}
+
+export async function countPurchases(db: Database, businessId: string, opts: { range?: BusinessDateRange } = {}) {
+  return db.$count(purchases, purchaseFilter(businessId, opts.range));
+}
+
 export async function listPurchases(
   db: Database,
   businessId: string,
   opts: { range?: BusinessDateRange; limit: number; offset: number },
 ) {
-  const conditions = [eq(purchases.businessId, businessId)];
-  if (opts.range) conditions.push(withinCalendarDates(purchases.purchaseDate, opts.range));
   return db
     .select({
       id: purchases.id,
@@ -31,7 +40,7 @@ export async function listPurchases(
     })
     .from(purchases)
     .leftJoin(suppliers, eq(purchases.supplierId, suppliers.id))
-    .where(and(...conditions))
+    .where(purchaseFilter(businessId, opts.range))
     .orderBy(desc(purchases.createdAt), desc(purchases.id))
     .limit(opts.limit)
     .offset(opts.offset);
@@ -83,13 +92,17 @@ export async function getPurchaseWithLines(db: Database, businessId: string, id:
  * be layered on without a schema change, but the MVP only ever creates
  * receipts pre-finalized — once finalized, a purchase is immutable; fix
  * mistakes with a new reversing entry, not an edit.
+ *
+ * Every ingredient lock is taken up front, in id order, like checkout and
+ * order reversals do; the lines, the ledger rows and the ingredient
+ * updates are then written as one batch each rather than per line.
  */
 export async function createAndFinalizePurchase(
   db: Database,
   actor: ActorContext,
   input: PurchaseInput & { locationId?: string | null },
 ) {
-  const purchase = await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const [created] = await tx
       .insert(purchases)
       .values({
@@ -103,38 +116,42 @@ export async function createAndFinalizePurchase(
       })
       .returning();
 
+    const locked = await lockIngredientsForUpdate(tx, actor.businessId, input.lines.map((line) => line.ingredientId));
+
+    // The same ingredient may appear on two lines: each line blends over
+    // the quantity and average the previous line left behind.
+    const runningQuantity = new Map<string, number>();
+    const runningAverageCost = new Map<string, number>();
+    const lineRows: (typeof purchaseLines.$inferInsert)[] = [];
+    const movements: MovementInput[] = [];
     let totalCost = 0;
 
-    // Take every ingredient lock up front, in id order, like checkout and
-    // order reversals do — per-line locking in entry order could deadlock
-    // against them.
-    await lockIngredientsForUpdate(tx, actor.businessId, input.lines.map((line) => line.ingredientId));
-
     for (const line of input.lines) {
+      const ingredient = locked.get(line.ingredientId)!;
       const quantityBaseUnits = convertToBaseUnits({
         quantityPurchased: line.quantityPurchased,
         conversionToBaseUnits: line.conversionToBaseUnits,
       });
-      const totalLineCost = microsToRupiah(
-        multiplyQuantityByRate(line.quantityPurchased, line.unitPurchaseCost),
-      );
+      const totalLineCost = microsToRupiah(multiplyQuantityByRate(line.quantityPurchased, line.unitPurchaseCost));
       const costPerBaseUnit = totalLineCost / quantityBaseUnits;
       totalCost += totalLineCost;
 
-      const locked = await lockIngredientForUpdate(tx, actor.businessId, line.ingredientId);
+      const existingQuantity = runningQuantity.get(line.ingredientId) ?? Number(ingredient.currentQuantityBaseUnits);
+      const existingAverageCost = runningAverageCost.get(line.ingredientId) ?? Number(ingredient.averageCostPerBaseUnit);
       const newAverageCost = calculateWeightedAverageCost({
-        existingQuantity: Number(locked.currentQuantityBaseUnits),
-        existingAverageCost: Number(locked.averageCostPerBaseUnit),
+        existingQuantity,
+        existingAverageCost,
         incomingQuantity: quantityBaseUnits,
         incomingCostPerUnit: costPerBaseUnit,
       });
-      const newQuantity = Number(locked.currentQuantityBaseUnits) + quantityBaseUnits;
+      runningQuantity.set(line.ingredientId, existingQuantity + quantityBaseUnits);
+      runningAverageCost.set(line.ingredientId, newAverageCost);
 
-      await tx.insert(purchaseLines).values({
+      lineRows.push({
         purchaseId: created.id,
         ingredientId: line.ingredientId,
-        ingredientNameSnapshot: locked.name,
-        ingredientBaseUnitSnapshot: locked.baseUnit,
+        ingredientNameSnapshot: ingredient.name,
+        ingredientBaseUnitSnapshot: ingredient.baseUnit,
         quantityPurchased: String(line.quantityPurchased),
         purchaseUnit: line.purchaseUnit,
         conversionToBaseUnits: String(line.conversionToBaseUnits),
@@ -142,24 +159,25 @@ export async function createAndFinalizePurchase(
         totalLineCost,
         costPerBaseUnit: String(costPerBaseUnit),
       });
-
-      await insertMovementAndApplyStock(
-        tx,
-        {
-          businessId: actor.businessId,
-          locationId: input.locationId ?? null,
-          ingredientId: line.ingredientId,
-          movementType: "PURCHASE_RECEIPT",
-          quantityBaseUnits,
-          unitCost: String(costPerBaseUnit),
-          totalCost: totalLineCost,
-          sourceType: "purchase",
-          sourceId: created.id,
-          createdBy: actor.userId,
-        },
-        { newQuantityBaseUnits: newQuantity, newAverageCostPerBaseUnit: newAverageCost },
-      );
+      movements.push({
+        id: randomUUID(),
+        businessId: actor.businessId,
+        locationId: input.locationId ?? null,
+        ingredientId: line.ingredientId,
+        movementType: "PURCHASE_RECEIPT",
+        quantityUnits: toQuantityUnits(quantityBaseUnits),
+        unitCost: String(costPerBaseUnit),
+        totalCost: totalLineCost,
+        sourceType: "purchase",
+        sourceId: created.id,
+        createdBy: actor.userId,
+      });
     }
+
+    await tx.insert(purchaseLines).values(lineRows);
+    await insertMovementsAndApplyStock(tx, movements, locked, {
+      averageCostPerBaseUnit: new Map([...runningAverageCost].map(([id, cost]) => [id, String(cost)])),
+    });
 
     const [finalized] = await tx
       .update(purchases)
@@ -167,17 +185,15 @@ export async function createAndFinalizePurchase(
       .where(eq(purchases.id, created.id))
       .returning();
 
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "purchase.finalized",
+      entityType: "purchase",
+      entityId: finalized.id,
+      after: finalized,
+    });
+
     return finalized;
   });
-
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "purchase.finalized",
-    entityType: "purchase",
-    entityId: purchase.id,
-    after: purchase,
-  });
-
-  return purchase;
 }

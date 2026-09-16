@@ -10,13 +10,14 @@ import { Select } from "@/components/ui/form-field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ServerPagination } from "@/components/ui/server-pagination";
-import { listExpensesInRange } from "@/server/services/expense-service";
-import { listIngredients } from "@/server/services/ingredient-service";
-import { listMovements } from "@/server/services/inventory-service";
-import { listPurchases } from "@/server/services/purchase-service";
-import { isReportType, type ReportType } from "@/server/services/report-exports";
-import { listWasteRecords } from "@/server/services/waste-service";
+import { countExpensesInRange, listExpensesInRange } from "@/server/services/expense-service";
+import { listIngredients, listLowStockIngredients } from "@/server/services/ingredient-service";
+import { countMovements, listMovements } from "@/server/services/inventory-service";
+import { countPurchases, listPurchases } from "@/server/services/purchase-service";
+import { isReportType, REPORT_TYPE_LABELS, REPORT_TYPES, type ReportType } from "@/server/services/report-exports";
+import { countWasteRecords, listWasteRecords } from "@/server/services/waste-service";
 import {
+  countCancelledRefundedOrders,
   getCancelledRefundedOrders,
   getSalesByCategory,
   getSalesByDay,
@@ -28,20 +29,6 @@ import { ReportTable } from "./report-table";
 export const metadata: Metadata = {
   title: "Reports — CaféOps",
 };
-
-const REPORT_TYPES = [
-  { value: "sales_by_day", label: "Sales by day" },
-  { value: "sales_by_menu_item", label: "Sales by menu item" },
-  { value: "sales_by_category", label: "Sales by category" },
-  { value: "sales_by_payment_method", label: "Sales by payment method" },
-  { value: "cancelled_refunded", label: "Cancelled / refunded orders" },
-  { value: "current_stock", label: "Current stock" },
-  { value: "low_stock", label: "Low stock" },
-  { value: "inventory_movements", label: "Inventory movements" },
-  { value: "purchases", label: "Purchases" },
-  { value: "waste", label: "Waste" },
-  { value: "expenses", label: "Expenses" },
-] as const;
 
 export default async function ReportsPage({
   searchParams,
@@ -73,8 +60,8 @@ export default async function ReportsPage({
           </label>
           <Select id="type" name="type" defaultValue={type} className="w-[240px]">
             {REPORT_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
+              <option key={t} value={t}>
+                {REPORT_TYPE_LABELS[t]}
               </option>
             ))}
           </Select>
@@ -113,9 +100,10 @@ async function renderReportTable(businessId: string, type: ReportType, range: Bu
   // page at a time with the same filters the CSV export applies.
   const window = pageWindow(page);
   const paged = <T,>(rows: T[]) => toPage(rows, window.page, window.pageSize);
-  const pagination = (result: Page<unknown>) => (
+  const pagination = (result: Page<unknown>, totalItems: number) => (
     <ServerPagination
       page={{ ...result, rowCount: result.rows.length }}
+      totalItems={totalItems}
       basePath="/reports"
       params={{ type, from: range.from, to: range.to }}
     />
@@ -145,11 +133,12 @@ async function renderReportTable(businessId: string, type: ReportType, range: Bu
       );
     }
     case "cancelled_refunded": {
-      const result = paged(await getCancelledRefundedOrders(db, businessId, range, window));
+      const [rows, totalItems] = await Promise.all([getCancelledRefundedOrders(db, businessId, range, window), countCancelledRefundedOrders(db, businessId, range)]);
+      const result = paged(rows);
       return (
         <ReportTable
           columns={["Order #", "Status", "Total", "Reason", "Placed at"]}
-          pagination={pagination(result)}
+          pagination={pagination(result, totalItems)}
           rows={result.rows.map((r) => [
             <Link key={r.id} href={`/orders/${r.id}`} className="font-medium text-[var(--color-accent-primary)] hover:underline">
               {r.orderNumber}
@@ -172,46 +161,49 @@ async function renderReportTable(businessId: string, type: ReportType, range: Bu
       );
     }
     case "low_stock": {
-      const all = await listIngredients(db, businessId);
-      const rows = all.filter((i) => i.reorderLevelBaseUnits && Number(i.currentQuantityBaseUnits) <= Number(i.reorderLevelBaseUnits));
+      const rows = await listLowStockIngredients(db, businessId);
       return <ReportTable columns={["Ingredient", "Current qty", "Reorder level"]} rows={rows.map((r) => [r.name, r.currentQuantityBaseUnits, r.reorderLevelBaseUnits!])} />;
     }
     case "inventory_movements": {
-      const result = paged(await listMovements(db, businessId, { range, ...window }));
+      const [rows, totalItems] = await Promise.all([listMovements(db, businessId, { range, ...window }), countMovements(db, businessId, { range })]);
+      const result = paged(rows);
       return (
         <ReportTable
           columns={["When", "Ingredient", "Type", "Quantity", "Value"]}
-          pagination={pagination(result)}
+          pagination={pagination(result, totalItems)}
           rows={result.rows.map((r) => [formatBusinessDateTime(r.createdAt), r.ingredientName, r.movementType, r.quantityBaseUnits, r.totalCost !== null ? formatIDR(r.totalCost) : "—"])}
         />
       );
     }
     case "purchases": {
-      const result = paged(await listPurchases(db, businessId, { range, ...window }));
+      const [rows, totalItems] = await Promise.all([listPurchases(db, businessId, { range, ...window }), countPurchases(db, businessId, { range })]);
+      const result = paged(rows);
       return (
         <ReportTable
           columns={["Date", "Supplier", "Invoice", "Status", "Total"]}
-          pagination={pagination(result)}
+          pagination={pagination(result, totalItems)}
           rows={result.rows.map((r) => [r.purchaseDate, r.supplierName ?? "—", r.invoiceNumber ?? "—", r.status, formatIDR(r.totalCost)])}
         />
       );
     }
     case "waste": {
-      const result = paged(await listWasteRecords(db, businessId, { range, ...window }));
+      const [rows, totalItems] = await Promise.all([listWasteRecords(db, businessId, { range, ...window }), countWasteRecords(db, businessId, { range })]);
+      const result = paged(rows);
       return (
         <ReportTable
           columns={["When", "Ingredient", "Quantity", "Reason", "Est. cost"]}
-          pagination={pagination(result)}
+          pagination={pagination(result, totalItems)}
           rows={result.rows.map((r) => [formatBusinessDateTime(r.createdAt), r.ingredientName, r.quantityBaseUnits, r.reason, formatIDR(r.estimatedCost)])}
         />
       );
     }
     case "expenses": {
-      const result = paged(await listExpensesInRange(db, businessId, range, window));
+      const [rows, totalItems] = await Promise.all([listExpensesInRange(db, businessId, range, window), countExpensesInRange(db, businessId, range)]);
+      const result = paged(rows);
       return (
         <ReportTable
           columns={["Date", "Category", "Payee", "Amount"]}
-          pagination={pagination(result)}
+          pagination={pagination(result, totalItems)}
           rows={result.rows.map((r) => [r.expenseDate, r.category, r.payee ?? "—", formatIDR(r.amount)])}
         />
       );

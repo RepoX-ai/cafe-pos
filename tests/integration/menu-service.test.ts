@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   businesses,
   ingredients,
+  modifierGroups,
+  modifierOptions,
   menuItems,
   menuItemVariants,
   orderLines,
@@ -21,6 +23,8 @@ import {
   deleteCategory,
   deleteMenuItem,
   deleteVariant,
+  listModifierGroupsWithOptions,
+  saveModifierOptionRecipe,
   updateMenuItem,
 } from "@/server/services/menu-service";
 import { submitOrder } from "@/server/services/order-service";
@@ -268,5 +272,43 @@ describe.skipIf(!db)("permanent deletes leave order history intact (integration)
     ).rejects.toThrow(/not found/i);
 
     expect(await db!.select().from(menuItems).where(eq(menuItems.id, item.id))).toHaveLength(1);
+  });
+});
+
+describe.skipIf(!db)("saveModifierOptionRecipe (integration)", () => {
+  it("replaces an option's ingredient lines and reports its COGS", async () => {
+    const fx = await seedTestFixture(db!, { costPerBaseUnit: "10" });
+    const actor = { businessId: fx.business.id, userId: fx.user.id };
+    const [group] = await db!.insert(modifierGroups).values({ businessId: fx.business.id, name: "Add-on" }).returning();
+    const [egg] = await db!.insert(modifierOptions).values({ modifierGroupId: group.id, name: "Egg", priceAdjustment: 7_000 }).returning();
+
+    await saveModifierOptionRecipe(db!, actor, {
+      groupId: group.id,
+      optionId: egg.id,
+      lines: [{ ingredientId: fx.ingredient.id, quantityBaseUnits: 50, wastePercentage: 10 }],
+    });
+    let [listed] = await listModifierGroupsWithOptions(db!, fx.business.id);
+    expect(listed.options[0].recipeLines).toEqual([{ ingredientId: fx.ingredient.id, quantityBaseUnits: 50, wastePercentage: 10 }]);
+    expect(listed.options[0].cogs).toBe(550);
+
+    await saveModifierOptionRecipe(db!, actor, { groupId: group.id, optionId: egg.id, lines: [] });
+    [listed] = await listModifierGroupsWithOptions(db!, fx.business.id);
+    expect(listed.options[0].recipeLines).toEqual([]);
+    expect(listed.options[0].cogs).toBe(0);
+  });
+
+  it("rejects another business's ingredient", async () => {
+    const fx = await seedTestFixture(db!);
+    const other = await seedTestFixture(db!);
+    const [group] = await db!.insert(modifierGroups).values({ businessId: fx.business.id, name: "Add-on" }).returning();
+    const [egg] = await db!.insert(modifierOptions).values({ modifierGroupId: group.id, name: "Egg" }).returning();
+
+    await expect(
+      saveModifierOptionRecipe(db!, { businessId: fx.business.id, userId: fx.user.id }, {
+        groupId: group.id,
+        optionId: egg.id,
+        lines: [{ ingredientId: other.ingredient.id, quantityBaseUnits: 1, wastePercentage: 0 }],
+      }),
+    ).rejects.toThrow(/invalid/i);
   });
 });

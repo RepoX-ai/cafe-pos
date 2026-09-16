@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { adjustmentInputSchema } from "@/lib/validation/adjustment";
+import { flattenZodErrors } from "@/lib/validation/form-errors";
 import { stockCountInputSchema } from "@/lib/validation/stock-count";
 import { createManualAdjustment, InsufficientStockError } from "@/server/services/inventory-service";
 import { createAndSubmitStockCount } from "@/server/services/stock-count-service";
@@ -14,15 +15,6 @@ export type InventoryActionState =
   | { ok: true }
   | { ok: false; error: string; fieldErrors?: Record<string, string> }
   | undefined;
-
-function flattenZodErrors(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
-  const out: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = String(issue.path[0] ?? "form");
-    if (!out[key]) out[key] = issue.message;
-  }
-  return out;
-}
 
 export async function createManualAdjustmentAction(
   _prev: InventoryActionState,

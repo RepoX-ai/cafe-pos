@@ -5,10 +5,11 @@ import { redirect } from "next/navigation";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
+import { formatDisplayDateTime } from "@/lib/dates/dates";
 import { parsePageParam } from "@/lib/pagination";
 import { ServerPagination } from "@/components/ui/server-pagination";
 import { listOrders, listOrderItemSummaries } from "@/server/services/order-service";
-import type { BadgeTone } from "@/components/ui/badge";
+import { ORDER_STATUS_TONE, ORDER_STATUSES } from "@/lib/orders/order-status";
 import { Select } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
 import { Button } from "@/components/ui/button";
@@ -17,19 +18,6 @@ import { OrdersTable } from "@/components/orders-table";
 export const metadata: Metadata = {
   title: "Order history — CaféOps",
 };
-
-const STATUS_TONE: Record<string, BadgeTone> = {
-  SUBMITTED: "accent",
-  PRINT_PENDING: "warning",
-  PRINTED: "success",
-  COMPLETED: "success",
-  CANCELLED: "neutral",
-  REFUNDED: "danger",
-};
-
-function formatDate(value: Date) {
-  return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
-}
 
 /**
  * Cashier-facing order history, reachable from the POS (not the admin
@@ -80,7 +68,7 @@ export default async function PosOrderHistoryPage({
             </label>
             <Select id="status" name="status" defaultValue={status ?? ""}>
               <option value="">All statuses</option>
-              {["SUBMITTED", "PRINT_PENDING", "PRINTED", "COMPLETED", "CANCELLED", "REFUNDED"].map((s) => (
+              {ORDER_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
@@ -96,18 +84,18 @@ export default async function PosOrderHistoryPage({
           <OrdersTable
             basePath="/pos/orders"
             pagination={
-              <ServerPagination page={{ ...result, rowCount: orders.length }} basePath="/pos/orders" params={{ status, search }} />
+              <ServerPagination page={{ ...result, rowCount: orders.length }} totalItems={result.totalItems} basePath="/pos/orders" params={{ status, search }} />
             }
             orders={orders.map((o) => ({
               id: o.id,
               orderNumber: o.orderNumber,
-              placed: formatDate(o.createdAt),
+              placed: formatDisplayDateTime(o.createdAt),
               orderType: o.orderType,
               tableLabel: o.tableLabel ?? "—",
               items: itemsByOrder.get(o.id) ?? [],
               totalFormatted: formatIDR(o.total),
               status: o.status,
-              statusTone: STATUS_TONE[o.status] ?? "neutral",
+              statusTone: ORDER_STATUS_TONE[o.status] ?? "neutral",
             }))}
           />
         </div>

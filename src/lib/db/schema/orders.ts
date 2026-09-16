@@ -113,7 +113,12 @@ export const orderLines = pgTable("order_lines", {
   cogsSnapshot: integer("cogs_snapshot").notNull().default(0),
   grossProfitSnapshot: integer("gross_profit_snapshot").notNull().default(0),
   notes: text("notes"),
-}, (table) => [index("order_lines_order_id_idx").on(table.orderId)]);
+}, (table) => [
+  index("order_lines_order_id_idx").on(table.orderId),
+  // ON DELETE SET NULL scans when a menu item / variant is deleted.
+  index("order_lines_menu_item_id_idx").on(table.menuItemId),
+  index("order_lines_variant_id_idx").on(table.menuItemVariantId),
+]);
 
 export const orderLineModifiers = pgTable("order_line_modifiers", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -126,7 +131,10 @@ export const orderLineModifiers = pgTable("order_line_modifiers", {
   modifierNameSnapshot: text("modifier_name_snapshot").notNull(),
   priceAdjustmentSnapshot: integer("price_adjustment_snapshot").notNull().default(0),
   cogsAdjustmentSnapshot: integer("cogs_adjustment_snapshot").notNull().default(0),
-}, (table) => [index("order_line_modifiers_order_line_id_idx").on(table.orderLineId)]);
+}, (table) => [
+  index("order_line_modifiers_order_line_id_idx").on(table.orderLineId),
+  index("order_line_modifiers_option_id_idx").on(table.modifierOptionId),
+]);
 
 /**
  * Explicit audit trail of the recipe calculation behind an order: exactly
@@ -157,4 +165,10 @@ export const orderIngredientConsumption = pgTable("order_ingredient_consumption"
     () => inventoryMovements.id,
     { onDelete: "set null" },
   ),
-}, (table) => [index("order_ingredient_consumption_order_id_idx").on(table.orderId)]);
+}, (table) => [
+  index("order_ingredient_consumption_order_id_idx").on(table.orderId),
+  index("order_ingredient_consumption_order_line_id_idx").on(table.orderLineId),
+  index("order_ingredient_consumption_ingredient_id_idx").on(table.ingredientId),
+  // The inventory ledger looks up which order line caused each sale movement.
+  index("order_ingredient_consumption_movement_id_idx").on(table.inventoryMovementId),
+]);

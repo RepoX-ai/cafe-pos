@@ -3,6 +3,7 @@ import type { Database } from "@/lib/db/client";
 import { expenses, ingredients, orderLines, orders, printJobs, wasteRecords } from "@/lib/db/schema";
 import { BUSINESS_TIMEZONE, type BusinessDateRange } from "@/lib/dates/dates";
 import { averageRupiah, grossMarginPercentage, toSafeInteger } from "@/lib/money/money";
+import type { BaseUnit, DisplayUnit } from "@/lib/units/units";
 import { abandonedPrintClaim } from "./print-service";
 import { sumAsSafeInteger, withinBusinessDays, withinCalendarDates } from "./range-filters";
 
@@ -139,11 +140,19 @@ export async function getSalesByPaymentMethod(db: Database, businessId: string, 
 }
 
 /** Cancelled/refunded orders placed in the range, newest first. */
+function reversedOrdersInRange(businessId: string, range: DateRange) {
+  return and(ordersInRange(businessId, range), inArray(orders.status, [...REVERSED_ORDER_STATUSES]));
+}
+
+export async function countCancelledRefundedOrders(db: Database, businessId: string, range: DateRange) {
+  return db.$count(orders, reversedOrdersInRange(businessId, range));
+}
+
 export async function getCancelledRefundedOrders(db: Database, businessId: string, range: DateRange, window: RowWindow) {
   return db
     .select()
     .from(orders)
-    .where(and(ordersInRange(businessId, range), inArray(orders.status, [...REVERSED_ORDER_STATUSES])))
+    .where(reversedOrdersInRange(businessId, range))
     .orderBy(desc(orders.createdAt), desc(orders.id))
     .limit(window.limit)
     .offset(window.offset);
@@ -184,6 +193,8 @@ export type StockAlertRow = {
   name: string;
   currentQuantityBaseUnits: string;
   reorderLevelBaseUnits: string | null;
+  baseUnit: BaseUnit;
+  displayUnit: DisplayUnit | null;
 };
 
 /**
@@ -193,13 +204,15 @@ export type StockAlertRow = {
  */
 export async function getStockAlerts(db: Database, businessId: string, limit = 6) {
   const result = await db.execute<StockAlertRow & { kind: "low" | "out" }>(sql`
-    select kind, id, name, "currentQuantityBaseUnits", "reorderLevelBaseUnits"
+    select kind, id, name, "currentQuantityBaseUnits", "reorderLevelBaseUnits", "baseUnit", "displayUnit"
     from (
       select k.kind,
              ${ingredients.id} as id,
              ${ingredients.name} as name,
              ${ingredients.currentQuantityBaseUnits} as "currentQuantityBaseUnits",
              ${ingredients.reorderLevelBaseUnits} as "reorderLevelBaseUnits",
+             ${ingredients.baseUnit} as "baseUnit",
+             ${ingredients.displayUnit} as "displayUnit",
              row_number() over (partition by k.kind order by ${ingredients.name}, ${ingredients.id}) as position
       from ${ingredients}
       cross join (values ('low'), ('out')) as k(kind)
@@ -214,11 +227,13 @@ export async function getStockAlerts(db: Database, businessId: string, limit = 6
     where position <= ${limit}
     order by kind, position
   `);
-  const toRow = ({ id, name, currentQuantityBaseUnits, reorderLevelBaseUnits }: StockAlertRow): StockAlertRow => ({
+  const toRow = ({ id, name, currentQuantityBaseUnits, reorderLevelBaseUnits, baseUnit, displayUnit }: StockAlertRow): StockAlertRow => ({
     id,
     name,
     currentQuantityBaseUnits,
     reorderLevelBaseUnits,
+    baseUnit,
+    displayUnit,
   });
   return {
     lowStock: result.rows.filter((row) => row.kind === "low").map(toRow),

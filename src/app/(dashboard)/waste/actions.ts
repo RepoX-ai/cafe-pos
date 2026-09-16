@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { wasteInputSchema } from "@/lib/validation/waste";
+import { flattenZodErrors } from "@/lib/validation/form-errors";
 import { createWasteRecord } from "@/server/services/waste-service";
 import { InsufficientStockError } from "@/server/services/inventory-service";
 
@@ -27,12 +28,7 @@ export async function createWasteRecordAction(
     notes: formData.get("notes"),
   });
   if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      if (!fieldErrors[key]) fieldErrors[key] = issue.message;
-    }
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors };
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
   }
 
   try {

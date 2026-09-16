@@ -8,6 +8,13 @@ import { pgEnum } from "drizzle-orm/pg-core";
 
 export const baseUnitEnum = pgEnum("base_unit", ["gram", "millilitre", "piece"]);
 
+/**
+ * The unit an ingredient's stock is shown and typed in (kg of chicken, L of
+ * milk). Display only: every stored quantity stays in the base unit above,
+ * and a display unit must belong to the same class as its base unit.
+ */
+export const ingredientDisplayUnitEnum = pgEnum("ingredient_display_unit", ["kg", "g", "L", "ml", "pc"]);
+
 export const orderStatusEnum = pgEnum("order_status", [
   "DRAFT",
   "SUBMITTED",

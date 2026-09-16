@@ -5,6 +5,7 @@ import {
   getExpenseSummary,
   getExpensesByCategory,
   getExpensesByDay,
+  countExpensesInRange,
   listExpensesInRange,
 } from "@/server/services/expense-service";
 import {
@@ -54,8 +55,9 @@ export default async function ExpensesPage({
   const chartFromDate = shiftBusinessDate(toDate, -(CHART_DAYS - 1));
   const window = pageWindow(parsePageParam(page));
 
-  const [rows, summary, previousSummary, byCategory, byDay] = await Promise.all([
+  const [rows, totalItems, summary, previousSummary, byCategory, byDay] = await Promise.all([
     listExpensesInRange(db, user.businessId, range, window),
+    countExpensesInRange(db, user.businessId, range),
     getExpenseSummary(db, user.businessId, range),
     getExpenseSummary(db, user.businessId, previousRange),
     getExpensesByCategory(db, user.businessId, range),
@@ -82,6 +84,7 @@ export default async function ExpensesPage({
         pagination={
           <ServerPagination
             page={{ ...records, rowCount: records.rows.length }}
+            totalItems={totalItems}
             basePath="/expenses"
             params={{ from: fromDate, to: toDate }}
           />

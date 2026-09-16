@@ -35,6 +35,9 @@ export interface ModifierOptionRow {
   priceAdjustment: number;
   active: boolean;
   displayOrder: number;
+  recipeLines: Array<{ ingredientId: string; quantityBaseUnits: number; wastePercentage: number }>;
+  /** Recipe cost at current average ingredient cost; 0 with no recipe. */
+  cogs: number;
 }
 
 export interface ModifierGroupRow {

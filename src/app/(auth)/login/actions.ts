@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { login, logout } from "@/server/services/auth-service";
-import { createSession, SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import { createSession, deleteExpiredSessions, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getRequestMeta } from "@/lib/http/request-meta";
 import {
@@ -53,7 +53,9 @@ export async function loginAction(
   ];
 
   const blocked = await consumeRateLimits(db, checks);
-  if (claimRateLimitCleanupSlot()) after(() => deleteExpiredRateLimitBuckets(db).catch(() => undefined));
+  if (claimRateLimitCleanupSlot()) {
+    after(() => Promise.all([deleteExpiredRateLimitBuckets(db), deleteExpiredSessions(db)]).catch(() => undefined));
+  }
   if (blocked) {
     return { error: "Too many attempts. Wait a few minutes and try again." };
   }

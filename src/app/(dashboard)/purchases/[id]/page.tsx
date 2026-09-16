@@ -5,21 +5,14 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
+import { formatDisplayDateTime } from "@/lib/dates/dates";
+import { BASE_UNIT_LABEL } from "@/lib/units/units";
 import { getPurchaseWithLines } from "@/server/services/purchase-service";
 import { Badge } from "@/components/ui/badge";
 
 export const metadata: Metadata = {
   title: "Purchase — CaféOps",
 };
-
-type BaseUnit = "gram" | "millilitre" | "piece";
-
-const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
-
-
-function formatDateTime(value: Date) {
-  return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
-}
 
 export default async function PurchaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -69,7 +62,7 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
                 </td>
                 <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">
                   {Number(line.quantityBaseUnits).toLocaleString("id-ID", { maximumFractionDigits: 2 })}{" "}
-                  {UNIT_LABEL[line.ingredientBaseUnit as BaseUnit]}
+                  {BASE_UNIT_LABEL[line.ingredientBaseUnit]}
                 </td>
                 <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">
                   {formatIDRRate(line.costPerBaseUnit)}
@@ -87,8 +80,8 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
       </section>
 
       <p className="mt-4 text-xs text-[var(--color-text-muted)]">
-        Recorded {formatDateTime(purchase.createdAt)}
-        {purchase.finalizedAt ? ` · Finalized ${formatDateTime(purchase.finalizedAt)}` : ""}
+        Recorded {formatDisplayDateTime(purchase.createdAt)}
+        {purchase.finalizedAt ? ` · Finalized ${formatDisplayDateTime(purchase.finalizedAt)}` : ""}
       </p>
     </div>
   );

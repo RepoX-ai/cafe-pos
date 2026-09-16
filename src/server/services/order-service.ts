@@ -10,19 +10,20 @@ import {
   orders,
   printJobs,
 } from "@/lib/db/schema";
-import { microsToRupiah, multiplyQuantityByRate, sumRupiah } from "@/lib/money/money";
+import { apportionMicrosToRupiah, microsToRupiah, multiplyQuantityByRate, sumMicros, sumRupiah, type Micros } from "@/lib/money/money";
 import { configuredPrintProvider } from "@/printing";
 import { pageWindow, toPage, type Page } from "@/lib/pagination";
 import { calculateServiceCharge, calculateTax, parseTaxConfig } from "@/lib/settings/tax";
 import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
 import { ORDER_LIMITS, type SubmitOrderInput } from "@/lib/validation/order";
 import { recordAuditLog } from "./audit";
-import { lineDemandPerUnit, loadOrderCatalog, type OrderCatalog } from "./order-consumption";
+import { lineDemandPerUnit, loadOrderCatalog, optionDemandPerUnit, type OrderCatalog } from "./order-consumption";
 import {
   insertMovementsAndApplyStock,
   lockIngredientsForUpdate,
   InsufficientStockError,
-  type BulkMovementInput,
+  type LockedIngredient,
+  type MovementInput,
 } from "./inventory-service";
 import type { ActorContext } from "./ingredient-service";
 import { abandonedPrintClaim } from "./print-service";
@@ -125,13 +126,21 @@ export async function submitOrder(
   db: Database,
   actor: ActorContext,
   input: SubmitOrderInput,
+  opts: {
+    /**
+     * The caller already looked the key up and found nothing, so the
+     * in-transaction lookup is skipped. The unique index still catches a
+     * concurrent duplicate — that path returns the winner's order.
+     */
+    idempotencyKeyChecked?: boolean;
+  } = {},
 ): Promise<{ order: typeof orders.$inferSelect; idempotent: boolean }> {
   const MAX_ATTEMPTS = 3;
   let lastError: unknown;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      return await attemptSubmitOrder(db, actor, input, attempt > 0);
+      return await attemptSubmitOrder(db, actor, input, { resyncCounter: attempt > 0, checkIdempotencyKey: !opts.idempotencyKeyChecked });
     } catch (error) {
       if (isUniqueViolation(error, "orders_business_idempotency_key_idx")) {
         const existing = await findOrderByIdempotencyKey(db, actor.businessId, input.idempotencyKey);
@@ -211,6 +220,7 @@ function validateLine(catalog: OrderCatalog, line: SubmitOrderInput["lines"][num
   }
 
   const unitPrice = basePrice + sumRupiah(selectedOptions.map((m) => m.priceAdjustment));
+  const consumesStock = hasRecipe && !!line.menuItemVariantId;
   return {
     line,
     itemName,
@@ -219,18 +229,35 @@ function validateLine(catalog: OrderCatalog, line: SubmitOrderInput["lines"][num
     unitPrice,
     lineTotal: unitPrice * line.quantity,
     selectedOptions,
-    demandPerUnit:
-      hasRecipe && line.menuItemVariantId
-        ? lineDemandPerUnit(catalog, line.menuItemVariantId, line.modifierOptionIds)
-        : new Map<string, number>(),
+    consumesStock,
+    demandPerUnit: consumesStock
+      ? lineDemandPerUnit(catalog, line.menuItemVariantId!, line.modifierOptionIds)
+      : new Map<string, number>(),
   };
 }
 
-async function attemptSubmitOrder(db: Database, actor: ActorContext, input: SubmitOrderInput, resyncCounter: boolean) {
+/** Micro-Rupiah cost of a per-unit ingredient demand, priced from the locked ingredient rows. */
+function demandCostMicros(demand: Map<string, number>, locked: Map<string, LockedIngredient>): Micros {
+  return sumMicros(
+    [...demand].map(([ingredientId, quantity]) => multiplyQuantityByRate(quantity, locked.get(ingredientId)!.averageCostPerBaseUnit)),
+  );
+}
+
+/** numeric(6,2) holds ±9999.99; a heavily discounted, high-COGS order can exceed that. */
+const MARGIN_PERCENT_LIMIT = 9999.99;
+
+async function attemptSubmitOrder(
+  db: Database,
+  actor: ActorContext,
+  input: SubmitOrderInput,
+  { resyncCounter, checkIdempotencyKey }: { resyncCounter: boolean; checkIdempotencyKey: boolean },
+) {
   return db.transaction(async (tx) => {
-    const existing = await findOrderByIdempotencyKey(tx, actor.businessId, input.idempotencyKey);
-    if (existing) {
-      return { order: existing, idempotent: true };
+    if (checkIdempotencyKey) {
+      const existing = await findOrderByIdempotencyKey(tx, actor.businessId, input.idempotencyKey);
+      if (existing) {
+        return { order: existing, idempotent: true };
+      }
     }
 
     const [business] = await tx.select().from(businesses).where(eq(businesses.id, actor.businessId)).limit(1);
@@ -249,13 +276,17 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
 
     const needByIngredient = new Map<string, bigint>();
     const prepared: PreparedLine[] = validated.map((v) => {
+      // Line COGS is the exact micro-Rupiah cost of everything the line
+      // consumes, rounded once. The consumption rows are apportioned from
+      // that same total, so the ledger, the audit rows and the order line
+      // always add up to the same figure.
+      const costMicros: Micros[] = [];
       const consumption: PreparedLine["consumption"] = [];
-      let lineCogsPerUnit = 0;
       for (const [ingredientId, quantityPerUnit] of v.demandPerUnit) {
         const ingredient = locked.get(ingredientId)!;
         const totalQuantity = quantityPerUnit * v.line.quantity;
         const quantityUnits = toQuantityUnits(totalQuantity);
-        lineCogsPerUnit += microsToRupiah(multiplyQuantityByRate(quantityPerUnit, ingredient.averageCostPerBaseUnit));
+        costMicros.push(multiplyQuantityByRate(totalQuantity, ingredient.averageCostPerBaseUnit));
         consumption.push({
           movementId: randomUUID(),
           ingredientId,
@@ -263,11 +294,13 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
           baseUnit: ingredient.baseUnit,
           quantityUnits,
           unitCostSnapshot: ingredient.averageCostPerBaseUnit,
-          totalCost: microsToRupiah(multiplyQuantityByRate(totalQuantity, ingredient.averageCostPerBaseUnit)),
+          totalCost: 0,
         });
         needByIngredient.set(ingredientId, (needByIngredient.get(ingredientId) ?? 0n) + quantityUnits);
       }
-      const cogsSnapshot = lineCogsPerUnit * v.line.quantity;
+      const totals = apportionMicrosToRupiah(costMicros);
+      consumption.forEach((c, i) => (c.totalCost = totals[i]));
+      const cogsSnapshot = sumRupiah(totals);
       return {
         id: randomUUID(),
         menuItemId: v.line.menuItemId,
@@ -279,11 +312,14 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
         unitPriceSnapshot: v.unitPrice,
         lineTotal: v.lineTotal,
         notes: v.line.notes,
+        // Per-unit cost of the modifier's own recipe lines — the share of
+        // this line's COGS the modifier is responsible for. Informational:
+        // it is already inside cogsSnapshot, never added on top of it.
         modifiers: v.selectedOptions.map((m) => ({
           modifierOptionId: m.id,
           name: m.name,
           priceAdjustment: m.priceAdjustment,
-          cogsAdjustment: 0,
+          cogsAdjustment: v.consumesStock ? microsToRupiah(demandCostMicros(optionDemandPerUnit(catalog, m.id), locked)) : 0,
         })),
         cogsSnapshot,
         grossProfitSnapshot: v.lineTotal - cogsSnapshot,
@@ -315,7 +351,10 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
     const total = netSales + taxTotal + serviceChargeTotal;
     const cogsTotal = sumRupiah(prepared.map((l) => l.cogsSnapshot));
     const grossProfit = netSales - cogsTotal;
-    const grossMarginPercentage = netSales > 0 ? Math.round((grossProfit / netSales) * 100 * 100) / 100 : null;
+    const grossMarginPercentage =
+      netSales > 0
+        ? Math.max(-MARGIN_PERCENT_LIMIT, Math.min(MARGIN_PERCENT_LIMIT, Math.round((grossProfit / netSales) * 100 * 100) / 100))
+        : null;
 
     if ([subtotal, total, cogsTotal, ...prepared.map((l) => l.cogsSnapshot)].some((amount) => amount > ORDER_LIMITS.maxRupiah)) {
       throw new OrderValidationError("This order is too large to record. Split it into smaller orders.");
@@ -390,7 +429,7 @@ async function attemptSubmitOrder(db: Database, actor: ActorContext, input: Subm
     const consumption = prepared.flatMap((line) => line.consumption.map((c) => ({ line, c })));
     await insertMovementsAndApplyStock(
       tx,
-      consumption.map(({ c }): BulkMovementInput => ({
+      consumption.map(({ c }): MovementInput => ({
         id: c.movementId,
         businessId: actor.businessId,
         ingredientId: c.ingredientId,
@@ -519,6 +558,17 @@ export interface ListOrdersFilters {
   pageSize?: number;
 }
 
+type OrderStatus = (typeof orders.status.enumValues)[number];
+
+function isOrderStatus(value: string): value is OrderStatus {
+  return (orders.status.enumValues as readonly string[]).includes(value);
+}
+
+/** `%` and `_` typed into the search box match literally, not as wildcards. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
 export interface OrderItemSummary {
   name: string;
   quantity: number;
@@ -565,20 +615,20 @@ export async function listOrders(
   db: Database,
   businessId: string,
   filters: ListOrdersFilters = {},
-): Promise<Page<typeof orders.$inferSelect>> {
+): Promise<Page<typeof orders.$inferSelect> & { totalItems: number }> {
   const { page, pageSize, limit, offset } = pageWindow(filters.page, filters.pageSize);
   const conditions = [eq(orders.businessId, businessId)];
-  if (filters.status) conditions.push(eq(orders.status, filters.status as (typeof orders.$inferSelect)["status"]));
-  if (filters.search) conditions.push(sql`${orders.orderNumber} ILIKE ${"%" + filters.search + "%"}`);
+  // An unknown status (a mistyped URL) is ignored rather than sent to the
+  // enum column, which would fail the whole page.
+  if (filters.status && isOrderStatus(filters.status)) conditions.push(eq(orders.status, filters.status));
+  if (filters.search) conditions.push(sql`${orders.orderNumber} ILIKE ${"%" + escapeLikePattern(filters.search) + "%"} ESCAPE '\\'`);
 
-  const rows = await db
-    .select()
-    .from(orders)
-    .where(and(...conditions))
-    .orderBy(desc(orders.createdAt), desc(orders.id))
-    .limit(limit)
-    .offset(offset);
-  return toPage(rows, page, pageSize);
+  const where = and(...conditions);
+  const [rows, totalItems] = await Promise.all([
+    db.select().from(orders).where(where).orderBy(desc(orders.createdAt), desc(orders.id)).limit(limit).offset(offset),
+    db.$count(orders, where),
+  ]);
+  return { ...toPage(rows, page, pageSize), totalItems };
 }
 
 const REVERSALS = {

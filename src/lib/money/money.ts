@@ -67,6 +67,35 @@ export function sumMicros(values: Micros[]): Micros {
   return values.reduce((acc, v) => acc + v, 0n);
 }
 
+/**
+ * Splits a set of micro-Rupiah parts into whole-Rupiah amounts that add up
+ * to exactly `microsToRupiah(sum(parts))` — the total is rounded once, and
+ * the parts share it by largest remainder. Use this wherever one figure is
+ * stored both as a total and as its breakdown (an order line's COGS and its
+ * per-ingredient consumption rows), so the two always reconcile.
+ */
+export function apportionMicrosToRupiah(parts: Micros[]): Rupiah[] {
+  if (parts.length === 0) return [];
+  const total = microsToRupiah(sumMicros(parts));
+  const floors = parts.map((p) => {
+    const whole = p / MICROS_PER_RUPIAH;
+    // Floor toward negative infinity so remainders are always in [0, 1).
+    return p < 0n && p % MICROS_PER_RUPIAH !== 0n ? whole - 1n : whole;
+  });
+  const remainders = parts.map((p, i) => p - floors[i] * MICROS_PER_RUPIAH);
+  let leftover = total - floors.reduce((acc, f) => acc + Number(f), 0);
+  const order = remainders
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => (b.r === a.r ? a.i - b.i : b.r > a.r ? 1 : -1));
+  const result = floors.map((f) => Number(f));
+  for (const { i } of order) {
+    if (leftover <= 0) break;
+    result[i] += 1;
+    leftover -= 1;
+  }
+  return result;
+}
+
 export function sumRupiah(values: Rupiah[]): Rupiah {
   return values.reduce((acc, v) => acc + Math.round(v), 0);
 }
@@ -131,15 +160,8 @@ export function averageRupiah(total: Rupiah, count: number): Rupiah {
   return Number(numerator / (2n * BigInt(count)));
 }
 
-/** Safe division for margins: returns null when the denominator is zero. */
-export function safeDivide(numerator: number, denominator: number): number | null {
-  if (denominator === 0) return null;
-  return numerator / denominator;
-}
-
 /** Gross margin percentage, or null if net sales is zero (render as em dash). */
 export function grossMarginPercentage(grossProfit: Rupiah, netSales: Rupiah): number | null {
-  const ratio = safeDivide(grossProfit, netSales);
-  if (ratio === null) return null;
-  return Math.round(ratio * 100 * 100) / 100; // 2 decimal places
+  if (netSales === 0) return null;
+  return Math.round((grossProfit / netSales) * 100 * 100) / 100; // 2 decimal places
 }

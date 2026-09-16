@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Upload, X } from "lucide-react";
 import { Field } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
 
@@ -36,6 +37,12 @@ export function ImageField({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [objectUrl]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  function clearFile() {
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setFile(null);
+  }
 
   const preview = mode === "upload" ? objectUrl : urlValue || null;
   const previewError = preview !== null && preview === erroredPreview;
@@ -89,20 +96,49 @@ export function ImageField({
               value={urlValue}
               onChange={(e) => setUrlValue(e.target.value)}
               disabled={disabled}
-              className={inputClassName}
+              className={`${inputClassName} w-full`}
             />
           ) : (
             <>
               <input type="hidden" name="imageUrl" value={urlValue} />
+              {/* The native file input can't be styled consistently across
+                  browsers, so it stays visually hidden (still focusable and
+                  submitted with the form) behind a styled label. */}
               <input
+                ref={fileInputRef}
                 id="imageFile"
                 name="imageFile"
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 disabled={disabled}
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className={`${inputClassName} cursor-pointer file:mr-3 file:cursor-pointer file:rounded-[var(--radius-sm)] file:border-0 file:bg-[var(--color-page-bg)] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-[var(--color-text-primary)]`}
+                className="peer sr-only"
               />
+              <div className="flex h-10 w-full items-center gap-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] pl-1.5 pr-2 peer-focus-visible:border-[var(--color-accent-primary)]">
+                <label
+                  htmlFor="imageFile"
+                  className={`inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[calc(var(--radius-sm)-2px)] bg-[var(--color-page-bg)] px-3 text-xs font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-border)] ${
+                    disabled ? "pointer-events-none opacity-50" : "cursor-pointer"
+                  }`}
+                >
+                  <Upload size={14} aria-hidden="true" />
+                  {file ? "Change" : "Choose image"}
+                </label>
+                <span className={`min-w-0 flex-1 truncate text-sm ${file ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>
+                  {file ? file.name : "No file chosen"}
+                </span>
+                {file ? (
+                  <button
+                    type="button"
+                    onClick={clearFile}
+                    disabled={disabled}
+                    aria-label="Remove chosen file"
+                    className="shrink-0 rounded-[var(--radius-sm)] p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
+                  >
+                    <X size={14} />
+                  </button>
+                ) : null}
+              </div>
             </>
           )}
 

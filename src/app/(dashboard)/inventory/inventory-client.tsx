@@ -1,8 +1,10 @@
 "use client";
 
+import { formatDisplayDateTime } from "@/lib/dates/dates";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useActionState } from "react";
-import { ClipboardList, SlidersHorizontal } from "lucide-react";
+import Link from "next/link";
+import { ClipboardList, Minus, Plus, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,6 +12,12 @@ import { Modal } from "@/components/ui/modal";
 import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import { formatIDR } from "@/lib/money/money";
+import {
+  displayToBaseQuantity,
+  formatDisplayQuantity,
+  resolveDisplayUnit,
+  type DisplayUnit,
+} from "@/lib/units/units";
 import { createManualAdjustmentAction, submitStockCountAction, type InventoryActionState } from "./actions";
 import { useToast } from "@/components/ui/toast";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
@@ -20,6 +28,7 @@ interface IngredientRow {
   id: string;
   name: string;
   baseUnit: BaseUnit;
+  displayUnit: DisplayUnit | null;
   currentQuantityBaseUnits: string;
   reorderLevelBaseUnits: string | null;
 }
@@ -30,26 +39,29 @@ interface MovementRow {
   ingredientId: string | null;
   ingredientName: string;
   baseUnit: BaseUnit;
+  displayUnit: DisplayUnit | null;
   movementType: string;
   quantityBaseUnits: string;
   totalCost: number | null;
   sourceType: string;
   reason: string | null;
   createdAt: string | Date;
+  source: { kind: "order" | "purchase"; sourceId: string; label: string; reference: string | null } | null;
 }
 
-const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
-
-function formatQty(value: string, unit: BaseUnit) {
-  return `${Number(value).toLocaleString("id-ID", { maximumFractionDigits: 2 })} ${UNIT_LABEL[unit]}`;
+/** A base-unit quantity in the ingredient's chosen display unit (kg, L…). */
+function formatQty(value: string, row: { baseUnit: BaseUnit; displayUnit: DisplayUnit | null }) {
+  return formatDisplayQuantity(value, resolveDisplayUnit(row.baseUnit, row.displayUnit));
 }
 
-function formatDate(value: string | Date) {
-  return new Date(value).toLocaleString("id-ID", {
-    timeZone: "Asia/Jakarta",
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+/** A typed display-unit amount as a base-unit string, or "" when blank or not a number. */
+function toBaseOrBlank(value: string, unit: DisplayUnit): string {
+  if (value.trim() === "") return "";
+  try {
+    return displayToBaseQuantity(value, unit);
+  } catch {
+    return "";
+  }
 }
 
 const MOVEMENT_LABEL: Record<string, string> = {
@@ -68,12 +80,16 @@ export function InventoryClient({
   ingredients,
   movements,
   canAdjust,
+  canViewOrders,
+  canViewPurchases,
   ledgerPagination,
 }: {
   ingredients: IngredientRow[];
   /** One server-fetched page of the ledger. */
   movements: MovementRow[];
   canAdjust: boolean;
+  canViewOrders: boolean;
+  canViewPurchases: boolean;
   ledgerPagination?: ReactNode;
 }) {
   const [adjusting, setAdjusting] = useState(false);
@@ -127,57 +143,116 @@ export function InventoryClient({
         </Modal>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
-        <div className="lg:col-span-3">
-          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Ledger</h2>
-          <LedgerTab movements={movements} pagination={ledgerPagination} />
-        </div>
-        <div className="lg:col-span-1">
-          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">
-            Low stock{lowStock.length ? ` (${lowStock.length})` : ""}
-          </h2>
-          <LowStockPanel rows={lowStock} />
-        </div>
+      <LowStockStrip rows={lowStock} />
+
+      <div>
+        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Ledger</h2>
+        <LedgerTab movements={movements} canViewOrders={canViewOrders} canViewPurchases={canViewPurchases} pagination={ledgerPagination} />
       </div>
     </div>
   );
 }
 
-function LowStockPanel({ rows }: { rows: IngredientRow[] }) {
-  if (rows.length === 0) {
-    return (
-      <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-text-secondary)]">
-        Nothing below its reorder level.
-      </div>
-    );
-  }
+const LOW_STOCK_PREVIEW = 4;
+
+/** Only rendered when something is at or below its reorder level. */
+function LowStockStrip({ rows }: { rows: IngredientRow[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (rows.length === 0) return null;
+
+  const visible = expanded ? rows : rows.slice(0, LOW_STOCK_PREVIEW);
+  const hidden = rows.length - visible.length;
+
   return (
-    <div className="flex flex-col divide-y divide-[var(--color-border)] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      {rows.map((i) => (
-        <div key={i.id} className="flex flex-col gap-1 px-4 py-3">
-          <span className="text-sm font-medium text-[var(--color-text-primary)]">{i.name}</span>
-          <div className="flex items-center justify-between">
-            <Badge tone="warning">{formatQty(i.currentQuantityBaseUnits, i.baseUnit)}</Badge>
-            <span className="text-xs text-[var(--color-text-muted)]">
-              reorder at {formatQty(i.reorderLevelBaseUnits!, i.baseUnit)}
+    <div
+      role="status"
+      className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-[var(--color-warning)] bg-[var(--color-warning-bg)] px-4 py-3 sm:flex-row sm:items-center"
+    >
+      <div className="flex shrink-0 items-center gap-2 text-sm font-medium text-[var(--color-warning)]">
+        <TriangleAlert size={16} aria-hidden="true" />
+        {rows.length} {rows.length === 1 ? "ingredient" : "ingredients"} at or below reorder level
+      </div>
+      <ul className="flex flex-wrap items-center gap-2">
+        {visible.map((i) => (
+          <li
+            key={i.id}
+            className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs text-[var(--color-text-primary)]"
+          >
+            {i.name}{" "}
+            <span className="tabular-nums text-[var(--color-text-muted)]">
+              {formatQty(i.currentQuantityBaseUnits, i)} / {formatQty(i.reorderLevelBaseUnits!, i)}
             </span>
-          </div>
-        </div>
-      ))}
+          </li>
+        ))}
+        {rows.length > LOW_STOCK_PREVIEW ? (
+          <li>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="text-xs font-medium text-[var(--color-accent-primary)] hover:underline"
+            >
+              {expanded ? "Show less" : `+${hidden} more`}
+            </button>
+          </li>
+        ) : null}
+      </ul>
     </div>
   );
 }
 
-function LedgerTab({ movements, pagination }: { movements: MovementRow[]; pagination?: ReactNode }) {
+function MovementSourceCell({
+  source,
+  canViewOrders,
+  canViewPurchases,
+}: {
+  source: MovementRow["source"];
+  canViewOrders: boolean;
+  canViewPurchases: boolean;
+}) {
+  if (!source) return <span className="text-[var(--color-text-muted)]">—</span>;
+  const href =
+    source.kind === "order" && canViewOrders
+      ? `/orders/${source.sourceId}`
+      : source.kind === "purchase" && canViewPurchases
+        ? `/purchases/${source.sourceId}`
+        : null;
+  return (
+    <div className="flex flex-col">
+      <span className="text-[var(--color-text-primary)]">{source.label}</span>
+      {source.reference ? (
+        href ? (
+          <Link href={href} className="text-xs text-[var(--color-accent-primary)] hover:underline">
+            {source.reference}
+          </Link>
+        ) : (
+          <span className="text-xs text-[var(--color-text-muted)]">{source.reference}</span>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+function LedgerTab({
+  movements,
+  canViewOrders,
+  canViewPurchases,
+  pagination,
+}: {
+  movements: MovementRow[];
+  canViewOrders: boolean;
+  canViewPurchases: boolean;
+  pagination?: ReactNode;
+}) {
   return (
     <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="overflow-x-auto">
-      <table className="w-full min-w-[820px] border-collapse text-sm">
+      <table className="w-full min-w-[960px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
             <th className="px-4 py-3">When</th>
             <th className="px-4 py-3">Ingredient</th>
             <th className="px-4 py-3">Type</th>
+            <th className="px-4 py-3">Source</th>
             <th className="px-4 py-3">Quantity</th>
             <th className="px-4 py-3">Value</th>
             <th className="px-4 py-3">Reason</th>
@@ -186,7 +261,7 @@ function LedgerTab({ movements, pagination }: { movements: MovementRow[]; pagina
         <tbody>
           {movements.length === 0 ? (
             <tr>
-              <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+              <td colSpan={7} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                 No movements yet.
               </td>
             </tr>
@@ -195,14 +270,17 @@ function LedgerTab({ movements, pagination }: { movements: MovementRow[]; pagina
               const qty = Number(m.quantityBaseUnits);
               return (
                 <tr key={m.id} className="border-b border-[var(--color-border)] last:border-0">
-                  <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDate(m.createdAt)}</td>
+                  <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDisplayDateTime(m.createdAt)}</td>
                   <td className="px-4 py-3 text-[var(--color-text-primary)]">{m.ingredientName}</td>
                   <td className="px-4 py-3">
                     <Badge tone={qty >= 0 ? "success" : "danger"}>{MOVEMENT_LABEL[m.movementType] ?? m.movementType}</Badge>
                   </td>
+                  <td className="px-4 py-3">
+                    <MovementSourceCell source={m.source} canViewOrders={canViewOrders} canViewPurchases={canViewPurchases} />
+                  </td>
                   <td className={`px-4 py-3 tabular-nums ${qty >= 0 ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"}`}>
                     {qty >= 0 ? "+" : ""}
-                    {formatQty(m.quantityBaseUnits, m.baseUnit)}
+                    {formatQty(m.quantityBaseUnits, m)}
                   </td>
                   <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">
                     {m.totalCost !== null ? formatIDR(m.totalCost) : "—"}
@@ -227,6 +305,11 @@ function AdjustStockForm({ ingredients, onDone }: { ingredients: IngredientRow[]
   );
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Adjustment recorded.");
+  const [direction, setDirection] = useState<"in" | "out">("in");
+  const [ingredientId, setIngredientId] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const selectedIngredient = ingredients.find((i) => i.id === ingredientId);
+  const unit = selectedIngredient ? resolveDisplayUnit(selectedIngredient.baseUnit, selectedIngredient.displayUnit) : null;
 
   useEffect(() => {
     if (state?.ok) onDone();
@@ -235,24 +318,46 @@ function AdjustStockForm({ ingredients, onDone }: { ingredients: IngredientRow[]
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      <input type="hidden" name="direction" value={direction} />
+      <div
+        role="group"
+        aria-label="Direction"
+        className="flex gap-1 rounded-[var(--radius-sm)] bg-[var(--color-page-bg)] p-1"
+      >
+        {(
+          [
+            ["in", "Increase stock", Plus, "text-[var(--color-success)]"],
+            ["out", "Decrease stock", Minus, "text-[var(--color-danger)]"],
+          ] as const
+        ).map(([value, label, Icon, activeTone]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={direction === value}
+            onClick={() => setDirection(value)}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-[calc(var(--radius-sm)-2px)] px-3 py-2 text-sm font-medium transition-colors ${
+              direction === value
+                ? `bg-[var(--color-surface)] shadow-sm ${activeTone}`
+                : "text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+            }`}
+          >
+            <Icon size={16} aria-hidden="true" />
+            {label}
+          </button>
+        ))}
+      </div>
       <Field label="Ingredient" htmlFor="ingredientId" error={errorState?.fieldErrors?.ingredientId}>
-        <Select id="ingredientId" name="ingredientId" required>
+        <Select id="ingredientId" name="ingredientId" required value={ingredientId} onChange={setIngredientId}>
           <option value="">Select ingredient…</option>
           {ingredients.map((i) => (
             <option key={i.id} value={i.id}>
-              {i.name} ({formatQty(i.currentQuantityBaseUnits, i.baseUnit)})
+              {i.name} ({formatQty(i.currentQuantityBaseUnits, i)})
             </option>
           ))}
         </Select>
       </Field>
-      <Field label="Direction" htmlFor="direction">
-        <Select id="direction" name="direction">
-          <option value="in">Increase stock (in)</option>
-          <option value="out">Decrease stock (out)</option>
-        </Select>
-      </Field>
-      <Field label="Quantity" htmlFor="quantityBaseUnits" hint="In the ingredient's base unit" error={errorState?.fieldErrors?.quantityBaseUnits}>
-        <input id="quantityBaseUnits" name="quantityBaseUnits" type="number" min={0} step="any" required className={inputClassName} />
+      <Field label="Quantity" htmlFor="quantityBaseUnits" error={errorState?.fieldErrors?.quantityBaseUnits}>
+        <QuantityInput unit={unit} value={quantity} onChange={setQuantity} />
       </Field>
       <Field label="Reason" htmlFor="reason" error={errorState?.fieldErrors?.reason}>
         <input id="reason" name="reason" required placeholder="e.g. Correcting count error" className={inputClassName} />
@@ -278,6 +383,44 @@ function AdjustStockForm({ ingredients, onDone }: { ingredients: IngredientRow[]
   );
 }
 
+/**
+ * Number input with the ingredient's display unit fixed to its right edge.
+ * The typed amount is in that unit (2,5 kg); the hidden input submits it in
+ * base units (2500 g), which is what the action and the ledger work in.
+ */
+function QuantityInput({
+  unit,
+  value,
+  onChange,
+}: {
+  unit: DisplayUnit | null;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <>
+      <div className="relative">
+        <input
+          id="quantityBaseUnits"
+          type="number"
+          min={0}
+          step="any"
+          required
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={`${inputClassName} w-full pr-12`}
+        />
+        {unit ? (
+          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-[var(--color-text-muted)]">
+            {unit}
+          </span>
+        ) : null}
+      </div>
+      <input type="hidden" name="quantityBaseUnits" value={unit ? toBaseOrBlank(value, unit) : ""} />
+    </>
+  );
+}
+
 function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[]; onDone: () => void }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [counts, setCounts] = useState<Record<string, string>>({});
@@ -287,6 +430,10 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
   const showToast = useToast();
 
   const selectedIngredients = ingredients.filter((i) => selected.has(i.id));
+  // Counts are typed in each ingredient's display unit; everything compared
+  // or submitted is in base units.
+  const countedBase = (i: IngredientRow) =>
+    toBaseOrBlank(counts[i.id] ?? "", resolveDisplayUnit(i.baseUnit, i.displayUnit)) || "0";
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -302,7 +449,7 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
     setResult(null);
     const lines = selectedIngredients
       .filter((i) => counts[i.id] !== undefined && counts[i.id] !== "")
-      .map((i) => ({ ingredientId: i.id, countedQuantity: Number(counts[i.id]) }));
+      .map((i) => ({ ingredientId: i.id, countedQuantity: Number(countedBase(i)) }));
 
     const res = await submitStockCountAction({ lines });
     setIsPending(false);
@@ -336,23 +483,23 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
             </thead>
             <tbody>
               {selectedIngredients.map((i) => {
-                const counted = Number(counts[i.id] || 0);
+                const counted = countedBase(i);
                 const system = Number(i.currentQuantityBaseUnits);
-                const diff = counted - system;
+                const diff = Number(counted) - system;
                 return (
                   <tr key={i.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{i.name}</td>
                     <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">
-                      {formatQty(i.currentQuantityBaseUnits, i.baseUnit)}
+                      {formatQty(i.currentQuantityBaseUnits, i)}
                     </td>
-                    <td className="px-4 py-3 tabular-nums">{formatQty(String(counted), i.baseUnit)}</td>
+                    <td className="px-4 py-3 tabular-nums">{formatQty(counted, i)}</td>
                     <td
                       className={`px-4 py-3 text-right tabular-nums ${
                         diff === 0 ? "text-[var(--color-text-muted)]" : diff > 0 ? "text-[var(--color-success)]" : "text-[var(--color-danger)]"
                       }`}
                     >
                       {diff > 0 ? "+" : ""}
-                      {formatQty(String(diff), i.baseUnit)}
+                      {formatQty(diff.toFixed(4), i)}
                     </td>
                   </tr>
                 );
@@ -390,7 +537,7 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
             <Checkbox checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
             <span className="flex-1 text-sm text-[var(--color-text-primary)]">{i.name}</span>
             <span className="text-xs tabular-nums text-[var(--color-text-muted)]">
-              system: {formatQty(i.currentQuantityBaseUnits, i.baseUnit)}
+              system: {formatQty(i.currentQuantityBaseUnits, i)}
             </span>
             <input
               type="number"
@@ -399,7 +546,7 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
               disabled={!selected.has(i.id)}
               value={counts[i.id] ?? ""}
               onChange={(e) => setCounts((prev) => ({ ...prev, [i.id]: e.target.value }))}
-              placeholder="counted"
+              placeholder={`counted (${resolveDisplayUnit(i.baseUnit, i.displayUnit)})`}
               className={inputClassName + " w-28"}
             />
           </div>

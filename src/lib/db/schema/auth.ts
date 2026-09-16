@@ -30,7 +30,7 @@ export const users = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex("users_email_idx").on(table.email)],
+  (table) => [uniqueIndex("users_email_idx").on(table.email), index("users_business_id_idx").on(table.businessId)],
 );
 
 // Fixed catalog of roles. Seeded once; not user-editable in the MVP.
@@ -71,7 +71,11 @@ export const sessions = pgTable("sessions", {
   userAgent: text("user_agent"),
   ipAddress: text("ip_address"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("sessions_user_id_idx").on(table.userId)]);
+}, (table) => [
+  index("sessions_user_id_idx").on(table.userId),
+  // Expired-session sweep (see deleteExpiredSessions).
+  index("sessions_expires_at_idx").on(table.expiresAt),
+]);
 
 export const auditLogs = pgTable("audit_logs", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),

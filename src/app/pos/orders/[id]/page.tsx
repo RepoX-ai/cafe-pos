@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
+import { formatDisplayDateTime } from "@/lib/dates/dates";
 import { getOrderById } from "@/server/services/order-service";
 import { Badge } from "@/components/ui/badge";
 import { ReprintReceipt } from "./reprint-receipt";
@@ -13,10 +14,6 @@ import { ReprintReceipt } from "./reprint-receipt";
 export const metadata: Metadata = {
   title: "Order — CaféOps",
 };
-
-function formatDate(value: Date) {
-  return new Date(value).toLocaleString("id-ID", { timeZone: "Asia/Jakarta", dateStyle: "medium", timeStyle: "short" });
-}
 
 /**
  * Cashier-safe order detail (see page.tsx in the parent folder for why this
@@ -56,7 +53,7 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
           <div>
             <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{order.orderNumber}</h1>
             <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-              {formatDate(order.createdAt)} · {order.orderType} {order.tableLabel ? `· ${order.tableLabel}` : ""}
+              {formatDisplayDateTime(order.createdAt)} · {order.orderType} {order.tableLabel ? `· ${order.tableLabel}` : ""}
             </p>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -69,7 +66,7 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
 
         {order.status === "CANCELLED" ? (
           <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-page-bg)] p-3 text-sm text-[var(--color-text-secondary)]">
-            Cancelled {order.cancelledAt ? formatDate(order.cancelledAt) : ""} — {order.cancellationReason}
+            Cancelled {order.cancelledAt ? formatDisplayDateTime(order.cancelledAt) : ""} — {order.cancellationReason}
           </div>
         ) : null}
 

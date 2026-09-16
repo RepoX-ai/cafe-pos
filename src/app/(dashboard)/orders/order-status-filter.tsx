@@ -3,8 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef } from "react";
 import { Select } from "@/components/ui/form-field";
-
-const STATUSES = ["SUBMITTED", "PRINT_PENDING", "PRINTED", "COMPLETED", "CANCELLED", "REFUNDED"];
+import { ORDER_STATUSES } from "@/lib/orders/order-status";
 
 /**
  * Status dropdown that applies itself on change. Reads the rest of the
@@ -31,7 +30,7 @@ export function OrderStatusFilter({ status }: { status: string }) {
     <div ref={rootRef}>
       <Select id="status" name="status" defaultValue={status} onChange={applyStatus}>
         <option value="">All statuses</option>
-        {STATUSES.map((s) => (
+        {ORDER_STATUSES.map((s) => (
           <option key={s} value={s}>
             {s}
           </option>

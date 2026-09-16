@@ -4,7 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import { Plus } from "lucide-react";
 import { formatIDRRate, formatIDRRatePerPurchaseUnit } from "@/lib/money/money";
-import { purchaseScaleFor } from "@/lib/units/units";
+import {
+  baseToDisplayQuantity,
+  baseUnitOfDisplayUnit,
+  DISPLAY_UNIT_OPTIONS,
+  displayToBaseQuantity,
+  displayUnitsFor,
+  formatDisplayQuantity,
+  purchaseScaleFor,
+  resolveDisplayUnit,
+  type DisplayUnit,
+} from "@/lib/units/units";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +42,7 @@ export interface IngredientRow {
   sku: string | null;
   category: string | null;
   baseUnit: BaseUnit;
+  displayUnit: DisplayUnit | null;
   currentQuantityBaseUnits: string;
   reorderLevelBaseUnits: string | null;
   targetStockBaseUnits: string | null;
@@ -42,12 +53,14 @@ export interface IngredientRow {
   notes: string | null;
 }
 
-const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
-
-function formatQuantity(value: string | null, unit: BaseUnit) {
-  if (value === null) return "—";
-  const num = Number(value);
-  return `${num.toLocaleString("id-ID", { maximumFractionDigits: 2 })} ${UNIT_LABEL[unit]}`;
+/** A typed display-unit amount as a base-unit string, or "" when blank or not a number. */
+function toBaseOrBlank(value: string, unit: DisplayUnit): string {
+  if (value.trim() === "") return "";
+  try {
+    return displayToBaseQuantity(value, unit);
+  } catch {
+    return "";
+  }
 }
 
 
@@ -127,7 +140,7 @@ export function IngredientsClient({
                   <td className="px-4 py-3 text-[var(--color-text-secondary)]">{ing.category || "—"}</td>
                   <td className="px-4 py-3 tabular-nums">
                     <div className="flex items-center gap-2">
-                      <span>{formatQuantity(ing.currentQuantityBaseUnits, ing.baseUnit)}</span>
+                      <span>{formatDisplayQuantity(ing.currentQuantityBaseUnits, resolveDisplayUnit(ing.baseUnit, ing.displayUnit))}</span>
                       {lowStockIds.has(ing.id) ? <Badge tone="warning">Low stock</Badge> : null}
                     </div>
                   </td>
@@ -186,7 +199,39 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
   }, [state]);
 
   const errorState = state && !state.ok ? state : undefined;
-  const [baseUnit, setBaseUnit] = useState<BaseUnit>(existing?.baseUnit ?? "gram");
+  const [displayUnit, setDisplayUnit] = useState<DisplayUnit>(
+    existing ? resolveDisplayUnit(existing.baseUnit, existing.displayUnit) : "g",
+  );
+  const baseUnit = baseUnitOfDisplayUnit(displayUnit);
+  // Once created the class is fixed (every stored quantity is in it), so
+  // edit only offers the other unit of the same class: kg <-> g, L <-> ml.
+  const unitOptions = existing
+    ? DISPLAY_UNIT_OPTIONS.filter((o) => displayUnitsFor(existing.baseUnit).includes(o.value))
+    : DISPLAY_UNIT_OPTIONS;
+  // Reorder level and target stock are typed in the display unit and
+  // submitted as base units through the hidden inputs below.
+  const [reorderLevel, setReorderLevel] = useState(
+    existing?.reorderLevelBaseUnits ? baseToDisplayQuantity(existing.reorderLevelBaseUnits, displayUnit) : "",
+  );
+  const [targetStock, setTargetStock] = useState(
+    existing?.targetStockBaseUnits ? baseToDisplayQuantity(existing.targetStockBaseUnits, displayUnit) : "",
+  );
+
+  function changeDisplayUnit(next: DisplayUnit) {
+    // Keep the same physical amount: 0,5 kg becomes 500 g, not 0,5 g.
+    const convert = (value: string) => {
+      const base = toBaseOrBlank(value, displayUnit);
+      return base === "" ? value : baseToDisplayQuantity(base, next);
+    };
+    setReorderLevel(convert);
+    setTargetStock(convert);
+    setDisplayUnit(next);
+  }
+
+  const reorderLevelBase = toBaseOrBlank(reorderLevel, displayUnit);
+  const targetStockBase = toBaseOrBlank(targetStock, displayUnit);
+  const showsBaseEquivalent = displayUnit === "kg" || displayUnit === "L";
+  const smallUnit = resolveDisplayUnit(baseUnit, null);
   const scale = purchaseScaleFor(baseUnit);
   // Shown and entered per kg / L / pc, like the Avg. cost column. On edit
   // it's prefilled from the stored per-base-unit rate, and only submitted
@@ -194,7 +239,6 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
   const initialCost = existing ? String(Math.round(Number(existing.averageCostPerBaseUnit) * scale.baseUnitsPer)) : "";
   const [startingCost, setStartingCost] = useState(initialCost);
   const costEditable = !existing || !existing.hasStockHistory;
-  const unitLabel = UNIT_LABEL[baseUnit];
   const startingCostNumber = Number(startingCost);
 
   return (
@@ -225,23 +269,32 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
         </Field>
       </div>
 
-      <Field label="Base unit" htmlFor="baseUnit" error={errorState?.fieldErrors?.baseUnit}>
+      <Field
+        label="Unit"
+        htmlFor="displayUnit"
+        hint={
+          existing
+            ? unitOptions.length > 1
+              ? "Changes how stock is shown and entered. It can't switch to a different kind of unit."
+              : "Counted in pieces."
+            : "How stock is shown and entered. You can switch between kg and g (or L and ml) later."
+        }
+        error={errorState?.fieldErrors?.displayUnit ?? errorState?.fieldErrors?.baseUnit}
+      >
         <Select
-          id="baseUnit"
-          name="baseUnit"
-          value={baseUnit}
-          onChange={(value) => setBaseUnit(value as BaseUnit)}
-          disabled={!!existing}
+          id="displayUnit"
+          name="displayUnit"
+          value={displayUnit}
+          onChange={(value) => changeDisplayUnit(value as DisplayUnit)}
+          disabled={unitOptions.length < 2}
         >
-          <option value="gram">Gram (weight)</option>
-          <option value="millilitre">Millilitre (volume)</option>
-          <option value="piece">Piece (countable)</option>
+          {unitOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </Select>
-        {existing ? (
-          <p className="text-xs text-[var(--color-text-muted)]">
-            Base unit can&apos;t change once movements exist against it.
-          </p>
-        ) : null}
+        {!existing ? <input type="hidden" name="baseUnit" value={baseUnit} /> : null}
       </Field>
 
       {costEditable ? (
@@ -281,36 +334,46 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
 
       <div className="grid grid-cols-2 gap-4">
         <Field
-          label={`Reorder level (${unitLabel})`}
-          htmlFor="reorderLevelBaseUnits"
-          hint="Warn when stock falls to/below this"
+          label={`Reorder level (${displayUnit})`}
+          htmlFor="reorderLevel"
+          hint={
+            showsBaseEquivalent && reorderLevelBase
+              ? `= ${formatDisplayQuantity(reorderLevelBase, smallUnit)}. Warn when stock falls to/below this`
+              : "Warn when stock falls to/below this"
+          }
           error={errorState?.fieldErrors?.reorderLevelBaseUnits}
         >
           <input
-            id="reorderLevelBaseUnits"
-            name="reorderLevelBaseUnits"
+            id="reorderLevel"
             type="number"
             min={0}
             step="any"
-            defaultValue={existing?.reorderLevelBaseUnits ? Number(existing.reorderLevelBaseUnits) : ""}
+            value={reorderLevel}
+            onChange={(e) => setReorderLevel(e.target.value)}
             className={inputClassName}
           />
+          <input type="hidden" name="reorderLevelBaseUnits" value={reorderLevelBase} />
         </Field>
         <Field
-          label={`Target stock (${unitLabel})`}
-          htmlFor="targetStockBaseUnits"
-          hint="Optional restock target"
+          label={`Target stock (${displayUnit})`}
+          htmlFor="targetStock"
+          hint={
+            showsBaseEquivalent && targetStockBase
+              ? `= ${formatDisplayQuantity(targetStockBase, smallUnit)}. Optional restock target`
+              : "Optional restock target"
+          }
           error={errorState?.fieldErrors?.targetStockBaseUnits}
         >
           <input
-            id="targetStockBaseUnits"
-            name="targetStockBaseUnits"
+            id="targetStock"
             type="number"
             min={0}
             step="any"
-            defaultValue={existing?.targetStockBaseUnits ? Number(existing.targetStockBaseUnits) : ""}
+            value={targetStock}
+            onChange={(e) => setTargetStock(e.target.value)}
             className={inputClassName}
           />
+          <input type="hidden" name="targetStockBaseUnits" value={targetStockBase} />
         </Field>
       </div>
 

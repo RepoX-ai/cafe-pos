@@ -5,7 +5,7 @@ import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
 import { pageWindow, parsePageParam, toPage } from "@/lib/pagination";
 import { ServerPagination } from "@/components/ui/server-pagination";
-import { listAuditLogs } from "@/server/services/audit";
+import { countAuditLogs, listAuditLogs } from "@/server/services/audit";
 import { AuditLogTable } from "./audit-log-table";
 
 export const metadata: Metadata = {
@@ -15,7 +15,8 @@ export const metadata: Metadata = {
 export default async function AuditLogPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
   const user = await requirePageAccess("audit:read");
   const window = pageWindow(parsePageParam((await searchParams).page));
-  const logs = toPage(await listAuditLogs(db, user.businessId, window), window.page, window.pageSize);
+  const [rows, totalItems] = await Promise.all([listAuditLogs(db, user.businessId, window), countAuditLogs(db, user.businessId)]);
+  const logs = toPage(rows, window.page, window.pageSize);
 
   return (
     <div className="mx-auto max-w-[1440px]">
@@ -30,7 +31,7 @@ export default async function AuditLogPage({ searchParams }: { searchParams: Pro
 
       <AuditLogTable
         logs={logs.rows}
-        pagination={<ServerPagination page={{ ...logs, rowCount: logs.rows.length }} basePath="/settings/audit" />}
+        pagination={<ServerPagination page={{ ...logs, rowCount: logs.rows.length }} totalItems={totalItems} basePath="/settings/audit" />}
       />
     </div>
   );

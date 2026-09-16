@@ -5,7 +5,7 @@ import { pageWindow, parsePageParam, toPage } from "@/lib/pagination";
 import { ServerPagination } from "@/components/ui/server-pagination";
 import { listIngredients } from "@/server/services/ingredient-service";
 import { listSuppliers } from "@/server/services/supplier-service";
-import { listPurchases } from "@/server/services/purchase-service";
+import { countPurchases, listPurchases } from "@/server/services/purchase-service";
 import { PurchasesClient } from "./purchases-client";
 
 export const metadata: Metadata = {
@@ -21,10 +21,11 @@ export default async function PurchasesPage({
   const { tab, page } = await searchParams;
   const window = pageWindow(parsePageParam(page));
 
-  const [ingredients, suppliers, purchaseRows] = await Promise.all([
+  const [ingredients, suppliers, purchaseRows, totalItems] = await Promise.all([
     listIngredients(db, user.businessId),
     listSuppliers(db, user.businessId, { includeArchived: true }),
     listPurchases(db, user.businessId, window),
+    countPurchases(db, user.businessId),
   ]);
   const purchases = toPage(purchaseRows, window.page, window.pageSize);
 
@@ -44,6 +45,7 @@ export default async function PurchasesPage({
           historyPagination={
             <ServerPagination
               page={{ ...purchases, rowCount: purchases.rows.length }}
+              totalItems={totalItems}
               basePath="/purchases"
               params={{ tab: "history" }}
             />

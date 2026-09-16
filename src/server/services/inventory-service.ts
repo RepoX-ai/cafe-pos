@@ -1,6 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
-import { ingredients, inventoryMovements } from "@/lib/db/schema";
+import {
+  ingredients,
+  inventoryMovements,
+  orderIngredientConsumption,
+  orderLineModifiers,
+  orderLines,
+  orders,
+  purchases,
+  suppliers,
+} from "@/lib/db/schema";
 import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
 import type { BusinessDateRange } from "@/lib/dates/dates";
 import { recordAuditLog } from "./audit";
@@ -19,31 +29,18 @@ export class InsufficientStockError extends Error {
 
 type MovementType = (typeof inventoryMovements.movementType.enumValues)[number];
 
-/**
- * Locks the ingredient row for the remainder of the transaction (`SELECT
- * ... FOR UPDATE`) so two concurrent movements against the same ingredient
- * can't both read the same starting quantity and silently lose one
- * update (PRD §8: "Lock or safely re-read relevant ingredient rows").
- * Must be called inside `db.transaction(...)`.
- */
-export async function lockIngredientForUpdate(tx: Database, businessId: string, ingredientId: string) {
-  const [row] = await tx
-    .select()
-    .from(ingredients)
-    .where(and(eq(ingredients.id, ingredientId), eq(ingredients.businessId, businessId)))
-    .for("update");
-  if (!row) throw new Error("Ingredient not found");
-  return row;
-}
-
 export type LockedIngredient = typeof ingredients.$inferSelect;
 
 /**
- * Locks several ingredient rows in one statement, always in ingredient-id
- * order. Every multi-ingredient flow (checkout, cancellation/refund,
- * purchases, stock counts) takes its ingredient locks through here, so two
+ * Locks the ingredient rows for the remainder of the transaction (`SELECT
+ * ... FOR UPDATE`) so two concurrent movements against the same ingredient
+ * can't both read the same starting quantity and silently lose one update
+ * (PRD §8: "Lock or safely re-read relevant ingredient rows"). Always in
+ * ingredient-id order: every multi-ingredient flow (checkout, reversals,
+ * purchases, stock counts) takes its locks through here, so two
  * transactions can never hold them in opposite orders and deadlock.
  * Lock order across flows: order row -> ingredient rows (by id) -> order-number counter.
+ * Must be called inside `db.transaction(...)`.
  */
 export async function lockIngredientsForUpdate(
   tx: Database,
@@ -64,22 +61,38 @@ export async function lockIngredientsForUpdate(
   return locked;
 }
 
-export interface BulkMovementInput extends Omit<InsertMovementInput, "quantityBaseUnits"> {
+export interface MovementInput {
   id: string;
-  /** Signed ten-thousandths of a base unit (see `toQuantityUnits`). */
+  businessId: string;
+  locationId?: string | null;
+  ingredientId: string;
+  movementType: MovementType;
+  /** Signed ten-thousandths of a base unit (see `toQuantityUnits`): positive = inbound, negative = outbound. */
   quantityUnits: bigint;
+  unitCost?: string | null;
+  totalCost?: number | null;
+  sourceType: string;
+  sourceId?: string | null;
+  relatedMovementId?: string | null;
+  reason?: string | null;
+  notes?: string | null;
+  createdBy?: string | null;
 }
 
 /**
- * Batch form of `insertMovementAndApplyStock`: one INSERT for every ledger
- * row and one UPDATE for every touched ingredient's cached quantity. Every
- * ingredient must already be locked via `lockIngredientsForUpdate`; the new
- * quantity is the locked quantity plus the exact sum of its movements.
+ * The one way stock changes: one INSERT for every ledger row and one
+ * UPDATE for every touched ingredient's cached quantity (and, for
+ * purchases, its new average cost). Every ingredient must already be
+ * locked via `lockIngredientsForUpdate`; the new quantity is the locked
+ * quantity plus the exact sum of its movements. Each ledger row snapshots
+ * the ingredient's name and unit so it still reads correctly if the
+ * ingredient is deleted later (the FK then goes NULL).
  */
 export async function insertMovementsAndApplyStock(
   tx: Database,
-  movements: BulkMovementInput[],
+  movements: MovementInput[],
   locked: Map<string, LockedIngredient>,
+  opts: { averageCostPerBaseUnit?: Map<string, string> } = {},
 ): Promise<Map<string, bigint>> {
   const nextQuantity = new Map<string, bigint>();
   if (movements.length === 0) return nextQuantity;
@@ -116,117 +129,22 @@ export async function insertMovementsAndApplyStock(
   );
 
   const values = sql.join(
-    [...nextQuantity].map(([id, quantity]) => sql`(${id}::uuid, ${formatQuantityUnits(quantity)}::numeric)`),
+    [...nextQuantity].map(
+      ([id, quantity]) =>
+        sql`(${id}::uuid, ${formatQuantityUnits(quantity)}::numeric, ${opts.averageCostPerBaseUnit?.get(id) ?? null}::numeric)`,
+    ),
     sql`, `,
   );
   await tx.execute(sql`
     update ingredients
-    set current_quantity_base_units = v.quantity, updated_at = now()
-    from (values ${values}) as v(id, quantity)
+    set current_quantity_base_units = v.quantity,
+        average_cost_per_base_unit = coalesce(v.average_cost, ingredients.average_cost_per_base_unit),
+        updated_at = now()
+    from (values ${values}) as v(id, quantity, average_cost)
     where ingredients.id = v.id
   `);
 
   return nextQuantity;
-}
-
-export interface InsertMovementInput {
-  businessId: string;
-  locationId?: string | null;
-  ingredientId: string;
-  movementType: MovementType;
-  quantityBaseUnits: number; // signed: positive = inbound, negative = outbound
-  unitCost?: string | null;
-  totalCost?: number | null;
-  sourceType: string;
-  sourceId?: string | null;
-  relatedMovementId?: string | null;
-  reason?: string | null;
-  notes?: string | null;
-  createdBy?: string | null;
-}
-
-/**
- * Inserts the ledger row and applies the resulting quantity (and,
- * optionally, a new average cost) to the ingredient's cached fields, in
- * the same transaction. Callers must have already locked the ingredient
- * row via `lockIngredientForUpdate` and computed `newQuantity` from that
- * locked value — this function does not re-read or re-check stock itself.
- */
-export async function insertMovementAndApplyStock(
-  tx: Database,
-  input: InsertMovementInput,
-  effects: { newQuantityBaseUnits: number; newAverageCostPerBaseUnit?: number },
-) {
-  // Snapshot the ingredient's name/unit onto the ledger row, so the row
-  // still reads correctly if the ingredient is deleted later (the FK then
-  // goes NULL). Callers have already locked this row, so this is a read of
-  // a row this transaction is holding.
-  const [snapshot] = await tx
-    .select({ name: ingredients.name, baseUnit: ingredients.baseUnit })
-    .from(ingredients)
-    .where(eq(ingredients.id, input.ingredientId))
-    .limit(1);
-
-  const [movement] = await tx
-    .insert(inventoryMovements)
-    .values({
-      businessId: input.businessId,
-      locationId: input.locationId ?? null,
-      ingredientId: input.ingredientId,
-      ingredientNameSnapshot: snapshot?.name ?? null,
-      ingredientBaseUnitSnapshot: snapshot?.baseUnit ?? null,
-      movementType: input.movementType,
-      quantityBaseUnits: String(input.quantityBaseUnits),
-      unitCost: input.unitCost ?? null,
-      totalCost: input.totalCost ?? null,
-      sourceType: input.sourceType,
-      sourceId: input.sourceId ?? null,
-      relatedMovementId: input.relatedMovementId ?? null,
-      reason: input.reason ?? null,
-      notes: input.notes ?? null,
-      createdBy: input.createdBy ?? null,
-    })
-    .returning();
-
-  await tx
-    .update(ingredients)
-    .set({
-      currentQuantityBaseUnits: String(effects.newQuantityBaseUnits),
-      ...(effects.newAverageCostPerBaseUnit !== undefined
-        ? { averageCostPerBaseUnit: String(effects.newAverageCostPerBaseUnit) }
-        : {}),
-      updatedAt: new Date(),
-    })
-    .where(eq(ingredients.id, input.ingredientId));
-
-  return movement;
-}
-
-/**
- * Convenience wrapper for the common case (waste, manual adjustments,
- * stock-count corrections, sale consumption/reversal): lock, check
- * negative-stock policy, insert movement, update cached quantity — all in
- * one call. Purchases don't use this because they also need to update the
- * average cost in the same statement; see `purchase-service.ts`.
- */
-export async function applyStockMovement(
-  tx: Database,
-  actor: ActorContext,
-  input: Omit<InsertMovementInput, "businessId" | "createdBy">,
-  opts: { allowNegativeStock: boolean },
-) {
-  const locked = await lockIngredientForUpdate(tx, actor.businessId, input.ingredientId);
-  const newQuantity = Number(locked.currentQuantityBaseUnits) + input.quantityBaseUnits;
-
-  if (newQuantity < 0 && !opts.allowNegativeStock) {
-    throw new InsufficientStockError(locked.name, Math.abs(newQuantity));
-  }
-
-  return insertMovementAndApplyStock(
-    tx,
-    { ...input, businessId: actor.businessId, createdBy: actor.userId },
-    { newQuantityBaseUnits: newQuantity },
-  );
 }
 
 export interface ManualAdjustmentInput {
@@ -240,7 +158,8 @@ export interface ManualAdjustmentInput {
 /**
  * Manual stock adjustments (PRD movement types MANUAL_ADJUSTMENT_IN /
  * MANUAL_ADJUSTMENT_OUT) — for corrections outside the purchase, waste, or
- * stock-count flows. Every adjustment requires a reason and is audited.
+ * stock-count flows. Every adjustment requires a reason and is audited in
+ * the same transaction.
  */
 export async function createManualAdjustment(
   db: Database,
@@ -248,45 +167,66 @@ export async function createManualAdjustment(
   input: ManualAdjustmentInput,
   opts: { allowNegativeStock: boolean },
 ) {
-  const signedQuantity = input.direction === "in" ? input.quantityBaseUnits : -input.quantityBaseUnits;
+  return db.transaction(async (tx) => {
+    const locked = await lockIngredientsForUpdate(tx, actor.businessId, [input.ingredientId]);
+    const ingredient = locked.get(input.ingredientId)!;
+    const units = toQuantityUnits(input.quantityBaseUnits);
+    const quantityUnits = input.direction === "in" ? units : -units;
 
-  const movement = await db.transaction((tx) =>
-    applyStockMovement(
+    const remaining = toQuantityUnits(ingredient.currentQuantityBaseUnits) + quantityUnits;
+    if (remaining < 0n && !opts.allowNegativeStock) {
+      throw new InsufficientStockError(ingredient.name, Number(formatQuantityUnits(-remaining)));
+    }
+
+    const movementId = randomUUID();
+    await insertMovementsAndApplyStock(
       tx,
-      actor,
-      {
-        ingredientId: input.ingredientId,
-        movementType: input.direction === "in" ? "MANUAL_ADJUSTMENT_IN" : "MANUAL_ADJUSTMENT_OUT",
-        quantityBaseUnits: signedQuantity,
-        sourceType: "manual_adjustment",
-        reason: input.reason,
-        notes: input.notes ?? null,
-      },
-      opts,
-    ),
-  );
+      [
+        {
+          id: movementId,
+          businessId: actor.businessId,
+          ingredientId: input.ingredientId,
+          movementType: input.direction === "in" ? "MANUAL_ADJUSTMENT_IN" : "MANUAL_ADJUSTMENT_OUT",
+          quantityUnits,
+          sourceType: "manual_adjustment",
+          reason: input.reason,
+          notes: input.notes ?? null,
+          createdBy: actor.userId,
+        },
+      ],
+      locked,
+    );
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "inventory.manual_adjustment",
-    entityType: "inventory_movement",
-    entityId: movement.id,
-    metadata: input,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "inventory.manual_adjustment",
+      entityType: "inventory_movement",
+      entityId: movementId,
+      metadata: input,
+    });
+
+    return { id: movementId };
   });
-
-  return movement;
 }
 
 /** Ledger rows, newest first; `range` filters on created_at by Jakarta business day. */
+function movementFilter(businessId: string, opts: { ingredientId?: string; range?: BusinessDateRange }) {
+  const conditions = [eq(inventoryMovements.businessId, businessId)];
+  if (opts.ingredientId) conditions.push(eq(inventoryMovements.ingredientId, opts.ingredientId));
+  if (opts.range) conditions.push(withinBusinessDays(inventoryMovements.createdAt, opts.range));
+  return and(...conditions);
+}
+
+export async function countMovements(db: Database, businessId: string, opts: { ingredientId?: string; range?: BusinessDateRange } = {}) {
+  return db.$count(inventoryMovements, movementFilter(businessId, opts));
+}
+
 export async function listMovements(
   db: Database,
   businessId: string,
   opts: { ingredientId?: string; range?: BusinessDateRange; limit?: number; offset?: number } = {},
 ) {
-  const conditions = [eq(inventoryMovements.businessId, businessId)];
-  if (opts.ingredientId) conditions.push(eq(inventoryMovements.ingredientId, opts.ingredientId));
-  if (opts.range) conditions.push(withinBusinessDays(inventoryMovements.createdAt, opts.range));
 
   return db
     .select({
@@ -296,20 +236,124 @@ export async function listMovements(
       // the fallback is what a deleted ingredient's movements read as.
       ingredientName: sql<string>`coalesce(${ingredients.name}, ${inventoryMovements.ingredientNameSnapshot}, 'Deleted ingredient')`,
       baseUnit: sql<"gram" | "millilitre" | "piece">`coalesce(${ingredients.baseUnit}, ${inventoryMovements.ingredientBaseUnitSnapshot}, 'gram')`,
+      // Null for a deleted ingredient; the UI then falls back to the base unit.
+      displayUnit: ingredients.displayUnit,
       movementType: inventoryMovements.movementType,
       quantityBaseUnits: inventoryMovements.quantityBaseUnits,
       unitCost: inventoryMovements.unitCost,
       totalCost: inventoryMovements.totalCost,
       sourceType: inventoryMovements.sourceType,
       sourceId: inventoryMovements.sourceId,
+      relatedMovementId: inventoryMovements.relatedMovementId,
       reason: inventoryMovements.reason,
       notes: inventoryMovements.notes,
       createdAt: inventoryMovements.createdAt,
     })
     .from(inventoryMovements)
     .leftJoin(ingredients, eq(inventoryMovements.ingredientId, ingredients.id))
-    .where(and(...conditions))
+    .where(movementFilter(businessId, opts))
     .orderBy(desc(inventoryMovements.createdAt), desc(inventoryMovements.id))
     .limit(opts.limit ?? 200)
     .offset(opts.offset ?? 0);
+}
+
+export interface MovementSource {
+  /** What caused the movement, e.g. "Enoki (Large) ×2 + Egg" or a supplier name. */
+  label: string;
+  /** Order number or invoice number, when there is one. */
+  reference: string | null;
+  kind: "order" | "purchase";
+  sourceId: string;
+}
+
+/**
+ * Human-readable origin for a page of ledger rows, batched rather than per
+ * row. Sale movements are one per order line and ingredient, so each maps
+ * back to exactly one line; a cancellation/refund reversal points at the
+ * sale it undoes through `relatedMovementId`. Read from order snapshots, so
+ * a renamed or deleted menu item still shows as it was sold.
+ */
+export async function describeMovementSources(
+  db: Database,
+  businessId: string,
+  movements: Array<{ id: string; sourceType: string; sourceId: string | null; relatedMovementId: string | null }>,
+): Promise<Map<string, MovementSource>> {
+  const result = new Map<string, MovementSource>();
+
+  const saleMovementIdFor = new Map<string, string>();
+  for (const m of movements) {
+    if (m.sourceType === "order") saleMovementIdFor.set(m.id, m.relatedMovementId ?? m.id);
+  }
+  const purchaseIds = [...new Set(movements.filter((m) => m.sourceType === "purchase" && m.sourceId).map((m) => m.sourceId!))];
+
+  const [lineRows, purchaseRows] = await Promise.all([
+    saleMovementIdFor.size
+      ? db
+          .select({
+            movementId: orderIngredientConsumption.inventoryMovementId,
+            orderId: orders.id,
+            orderNumber: orders.orderNumber,
+            orderLineId: orderLines.id,
+            itemName: orderLines.itemNameSnapshot,
+            variantName: orderLines.variantNameSnapshot,
+            quantity: orderLines.quantity,
+          })
+          .from(orderIngredientConsumption)
+          .innerJoin(orderLines, eq(orderIngredientConsumption.orderLineId, orderLines.id))
+          .innerJoin(orders, eq(orderIngredientConsumption.orderId, orders.id))
+          .where(
+            and(
+              eq(orders.businessId, businessId),
+              inArray(orderIngredientConsumption.inventoryMovementId, [...new Set(saleMovementIdFor.values())]),
+            ),
+          )
+      : [],
+    purchaseIds.length
+      ? db
+          .select({ id: purchases.id, invoiceNumber: purchases.invoiceNumber, supplierName: suppliers.name })
+          .from(purchases)
+          .leftJoin(suppliers, eq(purchases.supplierId, suppliers.id))
+          .where(and(eq(purchases.businessId, businessId), inArray(purchases.id, purchaseIds)))
+      : [],
+  ]);
+
+  const modifierRows = lineRows.length
+    ? await db
+        .select({ orderLineId: orderLineModifiers.orderLineId, name: orderLineModifiers.modifierNameSnapshot })
+        .from(orderLineModifiers)
+        .where(inArray(orderLineModifiers.orderLineId, [...new Set(lineRows.map((r) => r.orderLineId))]))
+    : [];
+  const modifiersByLine = new Map<string, string[]>();
+  for (const row of modifierRows) {
+    modifiersByLine.set(row.orderLineId, [...(modifiersByLine.get(row.orderLineId) ?? []), row.name]);
+  }
+
+  const lineBySaleMovement = new Map(lineRows.map((r) => [r.movementId, r]));
+  const purchaseById = new Map(purchaseRows.map((r) => [r.id, r]));
+
+  for (const m of movements) {
+    if (m.sourceType === "order") {
+      const line = lineBySaleMovement.get(saleMovementIdFor.get(m.id)!);
+      if (!line) continue;
+      const item = line.variantName ? `${line.itemName} (${line.variantName})` : line.itemName;
+      const qty = line.quantity > 1 ? ` ×${line.quantity}` : "";
+      const modifiers = modifiersByLine.get(line.orderLineId) ?? [];
+      result.set(m.id, {
+        kind: "order",
+        sourceId: line.orderId,
+        label: [`${item}${qty}`, ...modifiers].join(" + "),
+        reference: line.orderNumber,
+      });
+    } else if (m.sourceType === "purchase" && m.sourceId) {
+      const purchase = purchaseById.get(m.sourceId);
+      if (!purchase) continue;
+      result.set(m.id, {
+        kind: "purchase",
+        sourceId: purchase.id,
+        label: purchase.supplierName ?? "Purchase",
+        reference: purchase.invoiceNumber,
+      });
+    }
+  }
+  return result;
 }

@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { businessSettingsInputSchema } from "@/lib/validation/settings";
+import { flattenZodErrors } from "@/lib/validation/form-errors";
 import { updateBusinessSettings } from "@/server/services/business-service";
 import { getPrinterProvider } from "@/printing";
 
@@ -33,12 +34,7 @@ export async function updateSettingsAction(
   });
 
   if (!parsed.success) {
-    const fieldErrors: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const key = String(issue.path[0] ?? "form");
-      if (!fieldErrors[key]) fieldErrors[key] = issue.message;
-    }
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors };
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
   }
 
   await updateBusinessSettings(db, { businessId: user.businessId, userId: user.id }, parsed.data);

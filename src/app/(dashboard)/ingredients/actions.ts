@@ -6,6 +6,7 @@ import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { getRequestMeta } from "@/lib/http/request-meta";
 import { ingredientInputSchema, ingredientUpdateSchema } from "@/lib/validation/ingredient";
+import { flattenZodErrors } from "@/lib/validation/form-errors";
 import {
   createIngredient,
   deleteIngredient,
@@ -25,6 +26,7 @@ function readIngredientForm(formData: FormData) {
     sku: formData.get("sku"),
     category: formData.get("category"),
     baseUnit: formData.get("baseUnit"),
+    displayUnit: formData.get("displayUnit") || undefined,
     reorderLevelBaseUnits: formData.get("reorderLevelBaseUnits") || undefined,
     targetStockBaseUnits: formData.get("targetStockBaseUnits") || undefined,
     startingCostPerPurchaseUnit: formData.get("startingCostPerPurchaseUnit") || undefined,
@@ -45,7 +47,12 @@ export async function createIngredientAction(
   }
 
   const meta = await getRequestMeta();
-  await createIngredient(db, { businessId: user.businessId, userId: user.id, ...meta }, parsed.data);
+  try {
+    await createIngredient(db, { businessId: user.businessId, userId: user.id, ...meta }, parsed.data);
+  } catch (error) {
+    if (error instanceof IngredientValidationError) return { ok: false, error: error.message };
+    throw error;
+  }
   revalidatePath("/ingredients");
   return { ok: true };
 }
@@ -108,13 +115,4 @@ export async function deleteIngredientAction(formData: FormData): Promise<void> 
   await deleteIngredient(db, { businessId: user.businessId, userId: user.id, ...meta }, id);
   revalidatePath("/ingredients");
   revalidatePath("/inventory");
-}
-
-function flattenZodErrors(error: { issues: Array<{ path: PropertyKey[]; message: string }> }) {
-  const out: Record<string, string> = {};
-  for (const issue of error.issues) {
-    const key = String(issue.path[0] ?? "form");
-    if (!out[key]) out[key] = issue.message;
-  }
-  return out;
 }

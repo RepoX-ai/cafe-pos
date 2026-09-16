@@ -1,7 +1,7 @@
 "use client";
 
 import { formatIDR } from "@/lib/money/money";
-import { purchaseUnitOptionsFor } from "@/lib/units/units";
+import { BASE_UNIT_LABEL, purchaseUnitOptionsFor } from "@/lib/units/units";
 import { useState } from "react";
 import { Info, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { inputClassName } from "@/components/ui/form-styles";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/components/ui/toast";
 import { createPurchaseAction } from "./actions";
-import { UNIT_LABEL, type IngredientOption, type LineDraft, type SupplierRow } from "./purchase-types";
+import type { IngredientOption, LineDraft, SupplierRow } from "./purchase-types";
 
 let keySeq = 0;
 function newKey() {
@@ -185,7 +185,7 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
               const cost = Number(line.unitPurchaseCost) || 0;
               const conversion = Number(line.conversionToBaseUnits) || 0;
               const ingredient = ingredients.find((i) => i.id === line.ingredientId);
-              const baseUnitLabel = ingredient ? UNIT_LABEL[ingredient.baseUnit] : "base unit";
+              const baseUnitLabel = ingredient ? BASE_UNIT_LABEL[ingredient.baseUnit] : "base unit";
               const unitOptions = ingredient ? purchaseUnitOptionsFor(ingredient.baseUnit) : [];
               return (
                 <tr key={line.key} className="border-b border-[var(--color-border)] align-top last:border-0">
@@ -278,13 +278,17 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
                       ) : null}
                     </div>
                   </td>
+                  {/* The row is align-top so the unit cell can grow a second line
+                      (custom pack); these two centre on the h-10 controls instead. */}
                   <td className="px-3 py-2 tabular-nums text-[var(--color-text-secondary)]">
-                    {formatIDR(Math.round(qty * cost))}
+                    <div className="flex h-10 items-center">{formatIDR(Math.round(qty * cost))}</div>
                   </td>
                   <td className="px-1.5 py-2 text-right">
-                    <button onClick={() => removeLine(line.key)} className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]">
-                      <Trash2 size={15} />
-                    </button>
+                    <div className="flex h-10 items-center justify-end">
+                      <button onClick={() => removeLine(line.key)} className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:text-[var(--color-danger)]">
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

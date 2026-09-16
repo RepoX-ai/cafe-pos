@@ -17,7 +17,6 @@ export const INIT = [ESC, 0x40];
 export const SELECT_CP437 = [ESC, 0x74, 0x00];
 export const ALIGN_LEFT = [ESC, 0x61, 0x00];
 export const ALIGN_CENTER = [ESC, 0x61, 0x01];
-export const ALIGN_RIGHT = [ESC, 0x61, 0x02];
 export const BOLD_ON = [ESC, 0x45, 0x01];
 export const BOLD_OFF = [ESC, 0x45, 0x00];
 /**

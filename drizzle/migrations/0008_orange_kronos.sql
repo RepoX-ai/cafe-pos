@@ -1,0 +1,24 @@
+CREATE INDEX "sessions_expires_at_idx" ON "sessions" USING btree ("expires_at");--> statement-breakpoint
+CREATE INDEX "users_business_id_idx" ON "users" USING btree ("business_id");--> statement-breakpoint
+CREATE INDEX "suppliers_business_id_idx" ON "suppliers" USING btree ("business_id");--> statement-breakpoint
+CREATE INDEX "ingredients_business_id_idx" ON "ingredients" USING btree ("business_id");--> statement-breakpoint
+CREATE INDEX "menu_categories_business_id_idx" ON "menu_categories" USING btree ("business_id");--> statement-breakpoint
+CREATE INDEX "menu_item_modifier_groups_menu_item_id_idx" ON "menu_item_modifier_groups" USING btree ("menu_item_id");--> statement-breakpoint
+CREATE INDEX "menu_item_modifier_groups_group_id_idx" ON "menu_item_modifier_groups" USING btree ("modifier_group_id");--> statement-breakpoint
+CREATE INDEX "menu_item_variants_menu_item_id_idx" ON "menu_item_variants" USING btree ("menu_item_id");--> statement-breakpoint
+CREATE INDEX "menu_items_business_id_idx" ON "menu_items" USING btree ("business_id");--> statement-breakpoint
+CREATE INDEX "modifier_groups_business_id_idx" ON "modifier_groups" USING btree ("business_id");--> statement-breakpoint
+CREATE INDEX "modifier_options_group_id_idx" ON "modifier_options" USING btree ("modifier_group_id");--> statement-breakpoint
+CREATE INDEX "modifier_recipe_lines_ingredient_id_idx" ON "modifier_recipe_lines" USING btree ("ingredient_id");--> statement-breakpoint
+CREATE INDEX "recipe_lines_ingredient_id_idx" ON "recipe_lines" USING btree ("ingredient_id");--> statement-breakpoint
+CREATE INDEX "recipes_variant_id_idx" ON "recipes" USING btree ("menu_item_variant_id");--> statement-breakpoint
+CREATE INDEX "purchase_lines_purchase_id_idx" ON "purchase_lines" USING btree ("purchase_id");--> statement-breakpoint
+CREATE INDEX "purchase_lines_ingredient_id_idx" ON "purchase_lines" USING btree ("ingredient_id");--> statement-breakpoint
+CREATE INDEX "stock_count_lines_stock_count_id_idx" ON "stock_count_lines" USING btree ("stock_count_id");--> statement-breakpoint
+CREATE INDEX "stock_count_lines_ingredient_id_idx" ON "stock_count_lines" USING btree ("ingredient_id");--> statement-breakpoint
+CREATE INDEX "waste_records_ingredient_id_idx" ON "waste_records" USING btree ("ingredient_id");--> statement-breakpoint
+CREATE INDEX "order_ingredient_consumption_order_line_id_idx" ON "order_ingredient_consumption" USING btree ("order_line_id");--> statement-breakpoint
+CREATE INDEX "order_ingredient_consumption_ingredient_id_idx" ON "order_ingredient_consumption" USING btree ("ingredient_id");--> statement-breakpoint
+CREATE INDEX "order_line_modifiers_option_id_idx" ON "order_line_modifiers" USING btree ("modifier_option_id");--> statement-breakpoint
+CREATE INDEX "order_lines_menu_item_id_idx" ON "order_lines" USING btree ("menu_item_id");--> statement-breakpoint
+CREATE INDEX "order_lines_variant_id_idx" ON "order_lines" USING btree ("menu_item_variant_id");

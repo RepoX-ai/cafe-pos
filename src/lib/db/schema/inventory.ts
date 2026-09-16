@@ -82,7 +82,10 @@ export const stockCountLines = pgTable("stock_count_lines", {
   systemQuantity: numeric("system_quantity", { precision: 16, scale: 4 }).notNull(),
   countedQuantity: numeric("counted_quantity", { precision: 16, scale: 4 }).notNull(),
   differenceQuantity: numeric("difference_quantity", { precision: 16, scale: 4 }).notNull(),
-});
+}, (table) => [
+  index("stock_count_lines_stock_count_id_idx").on(table.stockCountId),
+  index("stock_count_lines_ingredient_id_idx").on(table.ingredientId),
+]);
 
 export const wasteRecords = pgTable("waste_records", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -103,4 +106,7 @@ export const wasteRecords = pgTable("waste_records", {
   photoUrl: text("photo_url"),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("waste_records_business_created_at_idx").on(table.businessId, table.createdAt, table.id)]);
+}, (table) => [
+  index("waste_records_business_created_at_idx").on(table.businessId, table.createdAt, table.id),
+  index("waste_records_ingredient_id_idx").on(table.ingredientId),
+]);

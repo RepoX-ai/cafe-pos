@@ -1,8 +1,6 @@
 /** Shapes and labels shared by the purchases screens. */
 
-export type BaseUnit = "gram" | "millilitre" | "piece";
-
-export const UNIT_LABEL: Record<BaseUnit, string> = { gram: "g", millilitre: "ml", piece: "pc" };
+import type { BaseUnit } from "@/lib/units/units";
 
 export interface IngredientOption {
   id: string;

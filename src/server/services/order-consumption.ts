@@ -179,13 +179,22 @@ export type OrderCatalog = Awaited<ReturnType<typeof loadOrderCatalog>>;
  */
 export function lineDemandPerUnit(catalog: OrderCatalog, variantId: string, modifierOptionIds: string[]) {
   const demand = new Map<string, number>();
-  const add = (line: RecipeLineRow) => {
+  addDemand(demand, catalog.recipeLinesByVariant.get(variantId) ?? []);
+  for (const optionId of modifierOptionIds) {
+    addDemand(demand, catalog.modifierLinesByOption.get(optionId) ?? []);
+  }
+  return demand;
+}
+
+/** Per-unit ingredient demand of one modifier option alone (for its COGS snapshot). */
+export function optionDemandPerUnit(catalog: OrderCatalog, optionId: string) {
+  return addDemand(new Map<string, number>(), catalog.modifierLinesByOption.get(optionId) ?? []);
+}
+
+function addDemand(demand: Map<string, number>, lines: RecipeLineRow[]) {
+  for (const line of lines) {
     const quantity = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
     demand.set(line.ingredientId, (demand.get(line.ingredientId) ?? 0) + quantity);
-  };
-  for (const line of catalog.recipeLinesByVariant.get(variantId) ?? []) add(line);
-  for (const optionId of modifierOptionIds) {
-    for (const line of catalog.modifierLinesByOption.get(optionId) ?? []) add(line);
   }
   return demand;
 }
