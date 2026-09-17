@@ -23,6 +23,8 @@ export type SubmitOrderResult =
       receipt?: PrintJobPayload;
       /** Set when the receipt is the tablet's to print over Bluetooth. */
       devicePrintJobId?: string;
+      /** The attempt this response authorizes; sent back with the outcome. */
+      devicePrintToken?: string;
     }
   | { ok: false; error: string };
 
@@ -66,23 +68,29 @@ export async function submitOrderForUser(
     let printStatus = "QUEUED";
     let receipt: PrintJobPayload | undefined;
     let devicePrintJobId: string | undefined;
+    let devicePrintToken: string | undefined;
     // The job checkout itself queued is the oldest one; a retried submission
     // must not pick up a later reprint instead.
     const [job] = await db.select().from(printJobs).where(eq(printJobs.orderId, order.id)).orderBy(asc(printJobs.createdAt)).limit(1);
     if (job) {
       printStatus = job.status;
-      // Both of these providers print on the client, so the client needs the
-      // snapshot. A retried submission gets it too — the tablet may have
-      // lost the response before printing.
-      if (job.provider === "browser" || job.provider === "device") receipt = job.payloadSnapshot as PrintJobPayload;
-      if (job.provider === "device" && job.status !== "PRINTED" && job.status !== "CANCELLED") devicePrintJobId = job.id;
-      if (!idempotent) {
-        try {
-          const result = await processPrintJob(db, job.id);
-          printStatus = result.status;
-        } catch {
-          printStatus = "FAILED";
+      // Both the fresh and the retried submission go through the same claim:
+      // a retry whose response was lost may genuinely still need the receipt,
+      // but it must not be handed a second live authorization for a receipt
+      // another request is already printing. processPrintJob refuses that
+      // and reports the job's real status instead.
+      try {
+        const result = await processPrintJob(db, job.id, { deviceCapable: true });
+        printStatus = result.status;
+        // Both client-side providers need the snapshot to print from — and
+        // only get it as part of an authorization they actually hold.
+        if (result.requiresClientAction) receipt = result.payload;
+        if (result.requiresClientAction === "device_print") {
+          devicePrintJobId = result.printJobId;
+          devicePrintToken = result.attemptToken;
         }
+      } catch {
+        printStatus = "FAILED";
       }
     }
 
@@ -97,6 +105,7 @@ export async function submitOrderForUser(
       printStatus,
       receipt,
       devicePrintJobId,
+      devicePrintToken,
     };
   } catch (error) {
     if (error instanceof InsufficientStockError || error instanceof OrderValidationError) {

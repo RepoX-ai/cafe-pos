@@ -7,8 +7,10 @@ import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
 import { formatDisplayDateTime } from "@/lib/dates/dates";
+import { formatPaymentMethod } from "@/lib/orders/payment-method";
 import { getOrderById } from "@/server/services/order-service";
 import { Badge } from "@/components/ui/badge";
+import { TotalsPanel, TotalsRow } from "@/components/order-totals";
 import { ReprintReceipt } from "./reprint-receipt";
 
 export const metadata: Metadata = {
@@ -104,25 +106,19 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
           </table>
         </section>
 
-        <section className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Metric label="Subtotal" value={formatIDR(order.subtotal)} />
-          <Metric label="Discount" value={formatIDR(order.discountTotal)} />
-          <Metric label="Tax" value={formatIDR(order.taxTotal)} />
-          <Metric label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
-          <Metric label="Total" value={formatIDR(order.total)} />
-          {order.cashReceived !== null ? <Metric label="Cash received" value={formatIDR(order.cashReceived)} /> : null}
-          {order.changeDue !== null ? <Metric label="Change" value={formatIDR(order.changeDue)} /> : null}
+        <section className="mt-6">
+          <TotalsPanel caption="Payment">
+            <TotalsRow label="Subtotal" value={formatIDR(order.subtotal)} />
+            <TotalsRow label="Discount" value={formatIDR(order.discountTotal)} muted />
+            <TotalsRow label="Tax" value={formatIDR(order.taxTotal)} />
+            <TotalsRow label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
+            <TotalsRow label="Total" value={formatIDR(order.total)} emphasis />
+            <TotalsRow label="Payment method" value={formatPaymentMethod(order.paymentMethodLabel)} />
+            {order.cashReceived !== null ? <TotalsRow label="Cash received" value={formatIDR(order.cashReceived)} /> : null}
+            {order.changeDue !== null ? <TotalsRow label="Change" value={formatIDR(order.changeDue)} /> : null}
+          </TotalsPanel>
         </section>
       </div>
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">{label}</p>
-      <p className="mt-1 text-sm font-medium tabular-nums text-[var(--color-text-primary)]">{value}</p>
     </div>
   );
 }

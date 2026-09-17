@@ -234,14 +234,14 @@ export function AdminShell({
                 onClick={() => setUserMenuOpen((prev) => !prev)}
                 aria-haspopup="menu"
                 aria-expanded={userMenuOpen}
-                className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-2 pr-1.5 text-right hover:bg-[var(--color-page-bg)]"
+                className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-1.5 pr-1.5 text-left hover:bg-[var(--color-page-bg)]"
               >
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-selected-surface)] text-xs font-semibold text-[var(--color-accent-primary)]">
+                  {initials(userName)}
+                </div>
                 <div>
                   <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{userName}</p>
                   <p className="text-xs text-[var(--color-text-muted)]">{roleLabel}</p>
-                </div>
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-selected-surface)] text-xs font-semibold text-[var(--color-accent-primary)]">
-                  {initials(userName)}
                 </div>
                 <ChevronDown
                   size={16}

@@ -74,7 +74,7 @@ describe.skipIf(!dbA)("print job claims and recovery (PostgreSQL)", () => {
       .where(eq(schema.printJobs.id, job.id));
 
     // A worker can't claim it while it's still held, and nothing prints.
-    expect(await processPrintJob(dbA!, job.id)).toEqual({ status: "PROCESSING" });
+    expect(await processPrintJob(dbA!, job.id)).toMatchObject({ status: "PROCESSING", error: expect.stringMatching(/in progress/) });
     expect(printer.calls).toBe(0);
 
     const other = await seedTestFixture(dbA!);

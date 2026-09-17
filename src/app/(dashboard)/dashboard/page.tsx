@@ -19,8 +19,10 @@ import { db } from "@/lib/db/client";
 import {
   getFailedPrintJobs,
   getRecentOrders,
+  getSalesByCategoryWithModifiers,
   getSalesByDay,
-  getSalesByMenuItem,
+  getSalesByPaymentMethod,
+  getTopMenuItemRankings,
   getSalesSummary,
   getStockAlerts,
 } from "@/server/services/reports-service";
@@ -36,10 +38,14 @@ import { getMenuItemImages } from "@/server/services/menu-service";
 import { DateRangeForm } from "@/components/ui/date-range-form";
 import { StatCard as Card, computeTrend } from "@/components/ui/stat-card";
 import { TrendChart, type TrendPoint } from "@/components/ui/trend-chart";
+import { PieChart } from "@/components/ui/pie-chart";
 
 export const metadata: Metadata = {
   title: "Dashboard — CaféOps",
 };
+
+/** Rows per ranking widget. */
+const MENU_RANKING_ROWS = 5;
 
 export default async function DashboardPage({
   searchParams,
@@ -65,14 +71,18 @@ export default async function DashboardPage({
   // the day before).
   const previousRange = previousBusinessPeriod(range);
 
-  const [summary, previousSummary, stockAlerts, topItems, recentOrders, failedPrints, salesByDay] = await Promise.all([
+  const [summary, previousSummary, stockAlerts, rankings, recentOrders, failedPrints, salesByDay, salesByCategory, salesByPaymentMethod] = await Promise.all([
     getSalesSummary(db, user.businessId, range),
     getSalesSummary(db, user.businessId, previousRange),
     getStockAlerts(db, user.businessId, 6),
-    getSalesByMenuItem(db, user.businessId, range),
+    // Ranked and cut in SQL: the page gets at most five rows per widget
+    // rather than every menu item sold in the range.
+    getTopMenuItemRankings(db, user.businessId, range, MENU_RANKING_ROWS),
     getRecentOrders(db, user.businessId, 8),
     getFailedPrintJobs(db, user.businessId),
     getSalesByDay(db, user.businessId, chartRange),
+    getSalesByCategoryWithModifiers(db, user.businessId, range),
+    getSalesByPaymentMethod(db, user.businessId, range),
   ]);
 
   const salesByDayMap = new Map(salesByDay.map((d) => [d.day, d]));
@@ -83,8 +93,8 @@ export default async function DashboardPage({
   });
 
   const { lowStock, outOfStock } = stockAlerts;
-  const topSelling = [...topItems].sort((a, b) => b.quantitySold - a.quantitySold).slice(0, 5);
-  const highestCogs = [...topItems].sort((a, b) => b.cogs - a.cogs).slice(0, 5);
+  const { topSelling, highestCogs } = rankings;
+  // Only the items actually rendered below — at most ten distinct ids.
   const images = await getMenuItemImages(
     db,
     user.businessId,
@@ -227,7 +237,9 @@ export default async function DashboardPage({
             ))
           )}
         </Widget>
+      </div>
 
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Widget title="Recent orders">
           {recentOrders.length === 0 ? (
             <EmptyRow text="No orders yet." />
@@ -263,6 +275,34 @@ export default async function DashboardPage({
             ))
           )}
         </Widget>
+
+        <Widget title="Sales by category">
+          <PieChart
+            data={[
+              ...salesByCategory.categories.map((r) => ({ label: r.categoryName, value: r.revenue, caption: `${r.quantitySold} sold` })),
+              {
+                label: "Modifiers",
+                value: salesByCategory.modifiers.revenue,
+                caption: `${salesByCategory.modifiers.quantitySold} added`,
+                pinned: true,
+              },
+            ]}
+            ariaLabel="Share of revenue by menu category"
+            emptyText="No sales in this range yet."
+          />
+        </Widget>
+
+        <Widget title="Payment methods">
+          <PieChart
+            data={salesByPaymentMethod.map((r) => ({
+              label: r.paymentMethodLabel,
+              value: r.revenue,
+              caption: `${r.orderCount} ${r.orderCount === 1 ? "order" : "orders"}`,
+            }))}
+            ariaLabel="Share of revenue by payment method"
+            emptyText="No sales in this range yet."
+          />
+        </Widget>
       </div>
     </div>
   );
@@ -274,7 +314,7 @@ function Widget({ title, children, className }: { title: string; children: React
     // each other's height instead of each shrink-wrapping its own row count.
     <div className={`flex h-full flex-col rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 ${className ?? ""}`}>
       <h2 className="mb-2 text-sm font-semibold text-[var(--color-text-primary)]">{title}</h2>
-      <div className="flex flex-col divide-y divide-[var(--color-border)]">{children}</div>
+      <div className="flex flex-1 flex-col divide-y divide-[var(--color-border)]">{children}</div>
     </div>
   );
 }

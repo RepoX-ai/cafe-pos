@@ -38,6 +38,13 @@
   --color-warning-bg: #fffaeb;
   --color-danger-bg: #fef3f2;
 
+  /* Categorical chart slots, assigned in this fixed order (validated for
+     colour-blind separation against --color-surface in each theme). */
+  --color-chart-1: #2a78d6;
+  --color-chart-2: #eb6834;
+  --color-chart-3: #1baf7a;
+  --color-chart-4: #eda100;
+  --color-chart-5: #e87ba4;
   /* 8px spacing rhythm */
   --space-1: 4px;
   --space-2: 8px;
@@ -75,6 +82,11 @@
   --color-success-bg: rgba(23, 178, 106, 0.12);
   --color-warning-bg: rgba(247, 144, 9, 0.12);
   --color-danger-bg: rgba(240, 68, 56, 0.12);
+  --color-chart-1: #3987e5;
+  --color-chart-2: #d95926;
+  --color-chart-3: #199e70;
+  --color-chart-4: #c98500;
+  --color-chart-5: #d55181;
   --brand-logo-filter: invert(1);
 }
 
@@ -95,6 +107,11 @@
   --color-success-bg: #ecfdf3;
   --color-warning-bg: #fffaeb;
   --color-danger-bg: #fef3f2;
+  --color-chart-1: #2a78d6;
+  --color-chart-2: #eb6834;
+  --color-chart-3: #1baf7a;
+  --color-chart-4: #eda100;
+  --color-chart-5: #e87ba4;
   --brand-logo-filter: none;
 }
 

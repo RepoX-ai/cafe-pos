@@ -13,6 +13,7 @@ export interface OrderRow {
   tableLabel: string;
   items: Array<{ name: string; quantity: number }>;
   totalFormatted: string;
+  paymentMethod: string;
   status: string;
   statusTone: BadgeTone;
 }
@@ -42,7 +43,7 @@ export function OrdersTable({
   if (orders.length === 0) {
     return (
       <div>
-        <table className="w-full min-w-[1100px] border-collapse text-sm">
+        <table className="w-full min-w-[880px] border-collapse text-sm">
           <tbody>
             <tr>
               <td className="px-4 py-10 text-center text-[var(--color-text-secondary)]">No orders found.</td>
@@ -56,7 +57,7 @@ export function OrdersTable({
 
   return (
     <div>
-      <table className="w-full min-w-[1100px] border-collapse text-sm">
+      <table className="w-full min-w-[880px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
             <th className="whitespace-nowrap px-4 py-3">Order #</th>
@@ -65,6 +66,7 @@ export function OrdersTable({
             <th className="whitespace-nowrap px-4 py-3">Table</th>
             <th className="px-4 py-3">Items</th>
             <th className="w-[1%] whitespace-nowrap px-3 py-3">Total</th>
+            <th className="whitespace-nowrap px-4 py-3">Payment</th>
             <th className="whitespace-nowrap px-4 py-3">Status</th>
           </tr>
         </thead>
@@ -87,11 +89,11 @@ export function OrdersTable({
               <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">{o.placed}</td>
               <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">{o.orderType}</td>
               <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">{o.tableLabel}</td>
-              <td className="px-4 py-3">
+              <td className="w-full max-w-0 px-4 py-3">
                 {o.items.length === 0 ? (
                   <span className="text-[var(--color-text-secondary)]">&mdash;</span>
                 ) : (
-                  <div className="flex max-w-[480px] items-baseline gap-1.5" title={o.items.map(formatItem).join(", ")}>
+                  <div className="flex items-baseline gap-1.5" title={o.items.map(formatItem).join(", ")}>
                     <span className="truncate text-[var(--color-text-secondary)]">
                       {o.items.slice(0, MAX_VISIBLE_ITEMS).map(formatItem).join(", ")}
                     </span>
@@ -104,6 +106,7 @@ export function OrdersTable({
                 )}
               </td>
               <td className="w-[1%] whitespace-nowrap px-3 py-3 tabular-nums">{o.totalFormatted}</td>
+              <td className="whitespace-nowrap px-4 py-3 text-[var(--color-text-secondary)]">{o.paymentMethod}</td>
               <td className="whitespace-nowrap px-4 py-3">
                 <Badge tone={o.statusTone}>{o.status}</Badge>
               </td>

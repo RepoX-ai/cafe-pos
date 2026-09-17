@@ -6,6 +6,7 @@ import { formatDisplayDateTime } from "@/lib/dates/dates";
 import { parsePageParam } from "@/lib/pagination";
 import { ServerPagination } from "@/components/ui/server-pagination";
 import { listOrders, listOrderItemSummaries } from "@/server/services/order-service";
+import { formatPaymentMethod } from "@/lib/orders/payment-method";
 import { ORDER_STATUS_TONE } from "@/lib/orders/order-status";
 import { inputClassName } from "@/components/ui/form-styles";
 import { OrdersTable } from "@/components/orders-table";
@@ -64,6 +65,7 @@ export default async function OrdersPage({
             tableLabel: o.tableLabel ?? "—",
             items: itemsByOrder.get(o.id) ?? [],
             totalFormatted: formatIDR(o.total),
+            paymentMethod: formatPaymentMethod(o.paymentMethodLabel),
             status: o.status,
             statusTone: ORDER_STATUS_TONE[o.status] ?? "neutral",
           }))}

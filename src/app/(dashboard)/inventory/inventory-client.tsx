@@ -249,9 +249,9 @@ function LedgerTab({
       <table className="w-full min-w-[960px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-            <th className="px-4 py-3">When</th>
+            <th className="whitespace-nowrap px-4 py-3">When</th>
             <th className="px-4 py-3">Ingredient</th>
-            <th className="px-4 py-3">Type</th>
+            <th className="whitespace-nowrap px-4 py-3">Type</th>
             <th className="px-4 py-3">Source</th>
             <th className="px-4 py-3">Quantity</th>
             <th className="px-4 py-3">Value</th>
@@ -270,9 +270,9 @@ function LedgerTab({
               const qty = Number(m.quantityBaseUnits);
               return (
                 <tr key={m.id} className="border-b border-[var(--color-border)] last:border-0">
-                  <td className="px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDisplayDateTime(m.createdAt)}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs text-[var(--color-text-muted)]">{formatDisplayDateTime(m.createdAt)}</td>
                   <td className="px-4 py-3 text-[var(--color-text-primary)]">{m.ingredientName}</td>
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3">
                     <Badge tone={qty >= 0 ? "success" : "danger"}>{MOVEMENT_LABEL[m.movementType] ?? m.movementType}</Badge>
                   </td>
                   <td className="px-4 py-3">

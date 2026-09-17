@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { reprintReceiptAction, reportDevicePrintResultAction } from "@/app/pos/actions";
 import { useBluetoothPrinter } from "@/app/pos/use-bluetooth-printer";
 
-type State = "idle" | "working" | "printed" | "failed";
+/** `unknown`: bytes went out, the outcome never got recorded. Not a success, not a failure. */
+type State = "idle" | "working" | "printed" | "failed" | "unknown";
 
 /**
  * Reprints a past receipt from POS order history. The receipt comes from
@@ -34,8 +35,10 @@ export function ReprintReceipt({ orderId }: { orderId: string }) {
     }
 
     // Server-side providers finish on the server; only the tablet's own
-    // printer needs us to send the bytes and report back.
-    if (!queued.devicePrintJobId || !queued.payload) {
+    // printer needs us to send the bytes and report back. Without a live
+    // attempt token this tap holds no authorization to send anything —
+    // another attempt for this receipt is in flight, or it is already done.
+    if (!queued.devicePrintJobId || !queued.devicePrintToken || !queued.payload) {
       requestKey.current = null;
       const printed = queued.status === "PRINTED";
       setState(printed ? "printed" : "failed");
@@ -54,8 +57,13 @@ export function ReprintReceipt({ orderId }: { orderId: string }) {
     }
 
     const result = await printer.printReceipt(queued.payload);
-    await reportDevicePrintResultAction(queued.devicePrintJobId, result);
+    const reported = await reportDevicePrintResultAction(queued.devicePrintJobId, queued.devicePrintToken, result);
     requestKey.current = null;
+    if (reported.status === "UNKNOWN") {
+      setState("unknown");
+      setMessage("The receipt was sent but the result could not be recorded. Check the printer before reprinting.");
+      return;
+    }
     setState(result.ok ? "printed" : "failed");
     setMessage(result.ok ? null : (result.error ?? "The printer did not accept the receipt."));
   }
@@ -68,6 +76,9 @@ export function ReprintReceipt({ orderId }: { orderId: string }) {
       </Button>
       {state === "printed" ? (
         <p className="text-xs text-[var(--color-success)]">Sent to the printer.</p>
+      ) : null}
+      {state === "unknown" && message ? (
+        <p className="max-w-[280px] text-right text-xs text-[var(--color-warning)]">{message}</p>
       ) : null}
       {state === "failed" && message ? (
         <p className="max-w-[280px] text-right text-xs text-[var(--color-danger)]">{message}</p>

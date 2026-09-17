@@ -9,9 +9,12 @@ import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
 import { formatDisplayDateTime } from "@/lib/dates/dates";
+import { formatPaymentMethod } from "@/lib/orders/payment-method";
 import { getOrderById } from "@/server/services/order-service";
 import { recoverAbandonedPrintJobs } from "@/server/services/print-service";
+import { configuredPrintProvider } from "@/printing";
 import { Badge } from "@/components/ui/badge";
+import { TotalsPanel, TotalsRow } from "@/components/order-totals";
 import { OrderActionButton } from "./order-action-button";
 import { PrintJobsPanel } from "./print-jobs-panel";
 
@@ -125,6 +128,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <TotalsRow label="Tax" value={formatIDR(order.taxTotal)} />
           <TotalsRow label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
           <TotalsRow label="Total" value={formatIDR(order.total)} emphasis />
+          <TotalsRow label="Payment method" value={formatPaymentMethod(order.paymentMethodLabel)} />
           {order.cashReceived !== null ? <TotalsRow label="Cash received" value={formatIDR(order.cashReceived)} /> : null}
           {order.changeDue !== null ? <TotalsRow label="Change" value={formatIDR(order.changeDue)} /> : null}
         </TotalsPanel>
@@ -181,6 +185,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           canManagePrinter={canManagePrinter}
           canReprint={canReprint}
           orderCancelled={order.status === "CANCELLED"}
+          devicePrinting={configuredPrintProvider() === "device"}
         />
       </section>
 
@@ -191,60 +196,5 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         </div>
       ) : null}
     </div>
-  );
-}
-
-function TotalsPanel({ caption, children }: { caption: string; children: React.ReactNode }) {
-  return (
-    <div className="self-start overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <table className="w-full border-collapse text-sm">
-        <caption className="border-b border-[var(--color-border)] px-4 py-3 text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-          {caption}
-        </caption>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  );
-}
-
-function TotalsRow({
-  label,
-  value,
-  emphasis = false,
-  muted = false,
-}: {
-  label: string;
-  value: string;
-  emphasis?: boolean;
-  muted?: boolean;
-}) {
-  return (
-    <tr
-      className={
-        emphasis
-          ? "border-t border-[var(--color-text-primary)]"
-          : "border-t border-[var(--color-border)] first:border-t-0"
-      }
-    >
-      <th
-        scope="row"
-        className={`px-4 py-2.5 text-left ${
-          emphasis ? "font-semibold text-[var(--color-text-primary)]" : "font-normal text-[var(--color-text-secondary)]"
-        }`}
-      >
-        {label}
-      </th>
-      <td
-        className={`px-4 py-2.5 text-right tabular-nums ${
-          emphasis
-            ? "font-semibold text-[var(--color-text-primary)]"
-            : muted
-              ? "text-[var(--color-text-secondary)]"
-              : "text-[var(--color-text-primary)]"
-        }`}
-      >
-        {value}
-      </td>
-    </tr>
   );
 }

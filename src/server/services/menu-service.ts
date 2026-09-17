@@ -820,60 +820,93 @@ export interface PosCategory {
   name: string;
 }
 
+/**
+ * The POS catalog, in three dependency stages. Everything inside a stage is
+ * independent, so the stages are what actually have to happen in sequence —
+ * the reads within one run concurrently instead of queueing behind each
+ * other:
+ *
+ *   1. categories, items, variants, modifier-group assignments — each needs
+ *      only `businessId` (variants and assignments join `menu_items`
+ *      themselves rather than waiting for the item list)
+ *   2. modifier options (needs the group ids), active recipes (needs the
+ *      variant ids)
+ *   3. recipe lines (needs the recipe ids), modifier recipe lines (needs the
+ *      option ids)
+ *
+ * Every read stays one batched statement over an id list — no per-item,
+ * per-variant or per-ingredient queries — so the widest stage takes four
+ * connections, which fits the default pool (DATABASE_POOL_MAX=5) without
+ * starving the rest of the request.
+ */
 export async function getPosMenu(
   db: Database,
   businessId: string,
   opts: { allowNegativeStock: boolean },
 ): Promise<{ categories: PosCategory[]; items: PosMenuItem[] }> {
-  const categories = await db
-    .select({ id: menuCategories.id, name: menuCategories.name })
-    .from(menuCategories)
-    .where(and(eq(menuCategories.businessId, businessId), eq(menuCategories.active, true)))
-    .orderBy(asc(menuCategories.displayOrder), asc(menuCategories.name));
+  // Stock availability (PRD §6.5/§7.8) mirrors the submit-time gate in
+  // order-service.ts: skipped entirely when the business allows negative
+  // stock (nothing to warn the cashier about ahead of time), and — per
+  // variant/option, since that's what's actually gated at submit time —
+  // skipped for items with tracksInventory off, since no consumption (and
+  // therefore no stock check) happens for those either way.
+  const checkStock = !opts.allowNegativeStock;
 
-  const items = await db
-    .select({
-      id: menuItems.id,
-      name: menuItems.name,
-      description: menuItems.description,
-      imageUrl: menuItems.imageUrl,
-      categoryId: menuItems.categoryId,
-      basePrice: menuItems.basePrice,
-      tracksInventory: menuItems.tracksInventory,
-    })
-    .from(menuItems)
-    .where(and(eq(menuItems.businessId, businessId), eq(menuItems.active, true)))
-    .orderBy(asc(menuItems.displayOrder), asc(menuItems.name));
+  // --- Stage 1: independent, tenant-scoped reads --------------------------
+  const [categories, items, variants, assignments] = await Promise.all([
+    db
+      .select({ id: menuCategories.id, name: menuCategories.name })
+      .from(menuCategories)
+      .where(and(eq(menuCategories.businessId, businessId), eq(menuCategories.active, true)))
+      .orderBy(asc(menuCategories.displayOrder), asc(menuCategories.name)),
 
-  const variants = await db
-    .select({
-      id: menuItemVariants.id,
-      name: menuItemVariants.name,
-      price: menuItemVariants.price,
-      menuItemId: menuItemVariants.menuItemId,
-    })
-    .from(menuItemVariants)
-    .innerJoin(menuItems, eq(menuItemVariants.menuItemId, menuItems.id))
-    .where(and(eq(menuItems.businessId, businessId), eq(menuItemVariants.active, true)));
+    db
+      .select({
+        id: menuItems.id,
+        name: menuItems.name,
+        description: menuItems.description,
+        imageUrl: menuItems.imageUrl,
+        categoryId: menuItems.categoryId,
+        basePrice: menuItems.basePrice,
+        tracksInventory: menuItems.tracksInventory,
+      })
+      .from(menuItems)
+      .where(and(eq(menuItems.businessId, businessId), eq(menuItems.active, true)))
+      .orderBy(asc(menuItems.displayOrder), asc(menuItems.name)),
 
-  const assignments = await db
-    .select({
-      menuItemId: menuItemModifierGroups.menuItemId,
-      groupId: modifierGroups.id,
-      groupName: modifierGroups.name,
-      required: modifierGroups.required,
-      minSelections: modifierGroups.minSelections,
-      maxSelections: modifierGroups.maxSelections,
-    })
-    .from(menuItemModifierGroups)
-    .innerJoin(modifierGroups, eq(menuItemModifierGroups.modifierGroupId, modifierGroups.id))
-    .innerJoin(menuItems, eq(menuItemModifierGroups.menuItemId, menuItems.id))
-    .where(and(eq(menuItems.businessId, businessId), eq(modifierGroups.active, true)));
+    db
+      .select({
+        id: menuItemVariants.id,
+        name: menuItemVariants.name,
+        price: menuItemVariants.price,
+        menuItemId: menuItemVariants.menuItemId,
+      })
+      .from(menuItemVariants)
+      .innerJoin(menuItems, eq(menuItemVariants.menuItemId, menuItems.id))
+      .where(and(eq(menuItems.businessId, businessId), eq(menuItemVariants.active, true))),
 
+    db
+      .select({
+        menuItemId: menuItemModifierGroups.menuItemId,
+        groupId: modifierGroups.id,
+        groupName: modifierGroups.name,
+        required: modifierGroups.required,
+        minSelections: modifierGroups.minSelections,
+        maxSelections: modifierGroups.maxSelections,
+      })
+      .from(menuItemModifierGroups)
+      .innerJoin(modifierGroups, eq(menuItemModifierGroups.modifierGroupId, modifierGroups.id))
+      .innerJoin(menuItems, eq(menuItemModifierGroups.menuItemId, menuItems.id))
+      .where(and(eq(menuItems.businessId, businessId), eq(modifierGroups.active, true))),
+  ]);
+
+  // --- Stage 2: one id list each from stage 1 -----------------------------
   const groupIds = [...new Set(assignments.map((a) => a.groupId))];
-  const options =
+  const variantIds = variants.map((v) => v.id);
+
+  const [options, activeRecipes] = await Promise.all([
     groupIds.length > 0
-      ? await db
+      ? db
           .select({
             id: modifierOptions.id,
             name: modifierOptions.name,
@@ -882,7 +915,75 @@ export async function getPosMenu(
           })
           .from(modifierOptions)
           .where(and(inArray(modifierOptions.modifierGroupId, groupIds), eq(modifierOptions.active, true)))
-      : [];
+      : [],
+
+    checkStock && variantIds.length > 0
+      ? db
+          .select({ id: recipes.id, variantId: recipes.menuItemVariantId, version: recipes.version })
+          .from(recipes)
+          .where(and(inArray(recipes.menuItemVariantId, variantIds), eq(recipes.active, true)))
+          .orderBy(desc(recipes.version))
+      : [],
+  ]);
+
+  // Keep only the latest active recipe per variant (a variant can only have
+  // one, but this is defensive in case of a data anomaly).
+  const recipeIdToVariantId = new Map<string, string>();
+  const seenVariant = new Set<string>();
+  for (const r of activeRecipes) {
+    if (seenVariant.has(r.variantId)) continue;
+    seenVariant.add(r.variantId);
+    recipeIdToVariantId.set(r.id, r.variantId);
+  }
+  const recipeIds = [...recipeIdToVariantId.keys()];
+  const optionIds = options.map((o) => o.id);
+
+  // --- Stage 3: the availability reads, each keyed by a stage-2 id list ---
+  const [lines, modLines] = await Promise.all([
+    recipeIds.length > 0
+      ? db
+          .select({
+            recipeId: recipeLines.recipeId,
+            quantityBaseUnits: recipeLines.quantityBaseUnits,
+            wastePercentage: recipeLines.wastePercentage,
+            currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
+          })
+          .from(recipeLines)
+          .innerJoin(ingredients, eq(recipeLines.ingredientId, ingredients.id))
+          .where(inArray(recipeLines.recipeId, recipeIds))
+      : [],
+
+    checkStock && optionIds.length > 0
+      ? db
+          .select({
+            modifierOptionId: modifierRecipeLines.modifierOptionId,
+            quantityBaseUnits: modifierRecipeLines.quantityBaseUnits,
+            wastePercentage: modifierRecipeLines.wastePercentage,
+            currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
+          })
+          .from(modifierRecipeLines)
+          .innerJoin(ingredients, eq(modifierRecipeLines.ingredientId, ingredients.id))
+          .where(inArray(modifierRecipeLines.modifierOptionId, optionIds))
+      : [],
+  ]);
+
+  const variantAvailability = new Map<string, boolean>();
+  for (const line of lines) {
+    const variantId = recipeIdToVariantId.get(line.recipeId);
+    if (!variantId) continue;
+    const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
+    if (needed > Number(line.currentQuantityBaseUnits)) {
+      variantAvailability.set(variantId, false);
+    }
+  }
+
+  const optionAvailability = new Map<string, boolean>();
+  for (const line of modLines) {
+    const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
+    if (needed > Number(line.currentQuantityBaseUnits)) {
+      optionAvailability.set(line.modifierOptionId, false);
+    }
+  }
 
   const variantsByItem = new Map<string, PosVariant[]>();
   for (const v of variants) {
@@ -910,82 +1011,6 @@ export async function getPosMenu(
       options: optionsByGroup.get(a.groupId) ?? [],
     });
     groupsByItem.set(a.menuItemId, list);
-  }
-
-  // --- Stock availability (PRD §6.5/§7.8) ---------------------------------
-  // Mirrors the submit-time gate in order-service.ts: skipped entirely when
-  // the business allows negative stock (nothing to warn the cashier about
-  // ahead of time), and — per variant/option, since that's what's actually
-  // gated at submit time — skipped for items with tracksInventory off,
-  // since no consumption (and therefore no stock check) happens for those
-  // either way.
-  const variantAvailability = new Map<string, boolean>();
-  const optionAvailability = new Map<string, boolean>();
-
-  if (!opts.allowNegativeStock) {
-    const variantIds = variants.map((v) => v.id);
-    if (variantIds.length > 0) {
-      const activeRecipes = await db
-        .select({ id: recipes.id, variantId: recipes.menuItemVariantId, version: recipes.version })
-        .from(recipes)
-        .where(and(inArray(recipes.menuItemVariantId, variantIds), eq(recipes.active, true)))
-        .orderBy(desc(recipes.version));
-
-      // Keep only the latest active recipe per variant (a variant can only
-      // have one, but this is defensive in case of a data anomaly).
-      const recipeIdToVariantId = new Map<string, string>();
-      const seenVariant = new Set<string>();
-      for (const r of activeRecipes) {
-        if (seenVariant.has(r.variantId)) continue;
-        seenVariant.add(r.variantId);
-        recipeIdToVariantId.set(r.id, r.variantId);
-      }
-
-      const recipeIds = [...recipeIdToVariantId.keys()];
-      const lines =
-        recipeIds.length > 0
-          ? await db
-              .select({
-                recipeId: recipeLines.recipeId,
-                quantityBaseUnits: recipeLines.quantityBaseUnits,
-                wastePercentage: recipeLines.wastePercentage,
-                currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
-              })
-              .from(recipeLines)
-              .innerJoin(ingredients, eq(recipeLines.ingredientId, ingredients.id))
-              .where(inArray(recipeLines.recipeId, recipeIds))
-          : [];
-
-      for (const line of lines) {
-        const variantId = recipeIdToVariantId.get(line.recipeId);
-        if (!variantId) continue;
-        const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
-        if (needed > Number(line.currentQuantityBaseUnits)) {
-          variantAvailability.set(variantId, false);
-        }
-      }
-    }
-
-    const optionIds = options.map((o) => o.id);
-    if (optionIds.length > 0) {
-      const modLines = await db
-        .select({
-          modifierOptionId: modifierRecipeLines.modifierOptionId,
-          quantityBaseUnits: modifierRecipeLines.quantityBaseUnits,
-          wastePercentage: modifierRecipeLines.wastePercentage,
-          currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
-        })
-        .from(modifierRecipeLines)
-        .innerJoin(ingredients, eq(modifierRecipeLines.ingredientId, ingredients.id))
-        .where(inArray(modifierRecipeLines.modifierOptionId, optionIds));
-
-      for (const line of modLines) {
-        const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
-        if (needed > Number(line.currentQuantityBaseUnits)) {
-          optionAvailability.set(line.modifierOptionId, false);
-        }
-      }
-    }
   }
 
   // Items with no active variant are still orderable — sold directly off

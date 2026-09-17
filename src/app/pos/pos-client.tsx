@@ -98,6 +98,7 @@ export function PosClient({
     printStatus: string;
     receipt?: PrintJobPayload;
     devicePrintJobId?: string;
+    devicePrintToken?: string;
   } | null>(null);
   const printer = useBluetoothPrinter();
   const [isOnline, setIsOnline] = useState(true);
@@ -337,6 +338,7 @@ export function PosClient({
           printStatus: result.printStatus,
           receipt: result.receipt,
           devicePrintJobId: result.devicePrintJobId,
+          devicePrintToken: result.devicePrintToken,
         });
         setCart([]);
         setTableLabel("");
@@ -412,14 +414,14 @@ export function PosClient({
               onClick={() => setUserMenuOpen((prev) => !prev)}
               aria-haspopup="menu"
               aria-expanded={userMenuOpen}
-              className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-2 pr-1.5 text-right hover:bg-[var(--color-selected-surface)]"
+              className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-1.5 pr-1.5 text-left hover:bg-[var(--color-selected-surface)]"
             >
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-selected-surface)] text-xs font-semibold text-[var(--color-accent-primary)]">
+                {initials(userName)}
+              </div>
               <div>
                 <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{userName}</p>
                 <p className="text-xs text-[var(--color-text-muted)]">{roleLabel}</p>
-              </div>
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-selected-surface)] text-xs font-semibold text-[var(--color-accent-primary)]">
-                {initials(userName)}
               </div>
               <ChevronDown
                 size={16}

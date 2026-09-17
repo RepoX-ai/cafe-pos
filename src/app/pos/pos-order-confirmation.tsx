@@ -5,7 +5,7 @@ import { BrowserReceipt } from "@/components/browser-receipt";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 import { Button } from "@/components/ui/button";
 import { formatIDR } from "@/lib/money/money";
-import { reportDevicePrintResultAction } from "./actions";
+import { reportDevicePrintResultAction, retryDevicePrintAction } from "./actions";
 import type { PosPrinter } from "./use-bluetooth-printer";
 
 type Confirmation = {
@@ -16,9 +16,15 @@ type Confirmation = {
   printStatus: string;
   receipt?: PrintJobPayload;
   devicePrintJobId?: string;
+  devicePrintToken?: string;
 };
 
-type DevicePrintState = "idle" | "printing" | "printed" | "failed";
+/**
+ * `unknown` is its own outcome: the bytes went out but the server never
+ * recorded what happened, so nobody can say whether paper came out. Staff
+ * decide whether to send it again — nothing resends on its own.
+ */
+type DevicePrintState = "idle" | "printing" | "printed" | "failed" | "unknown";
 
 /** Full-screen result after a successful submission; "New order" resets the POS. */
 export function PosOrderConfirmation({
@@ -30,41 +36,71 @@ export function PosOrderConfirmation({
   resetOrder: () => void;
   printer: PosPrinter;
 }) {
-  const { devicePrintJobId, receipt } = confirmation;
-  const isDeviceJob = Boolean(devicePrintJobId && receipt);
+  const { devicePrintJobId, devicePrintToken, receipt } = confirmation;
+  const isDeviceJob = Boolean(devicePrintJobId && devicePrintToken && receipt);
   const canAutoPrint = isDeviceJob && printer.isConnected;
 
   const [state, setState] = useState<DevicePrintState>(canAutoPrint ? "printing" : "idle");
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
 
-  const sendToPrinter = useCallback(async () => {
-    if (!devicePrintJobId || !receipt) return;
-    setState("printing");
-    setError(null);
-    const result = await printer.printReceipt(receipt);
-    // Record the outcome even on failure, so the order screen shows a
-    // receipt that needs attention rather than a silent gap.
-    await reportDevicePrintResultAction(devicePrintJobId, result);
-    setState(result.ok ? "printed" : "failed");
-    setError(result.ok ? null : (result.error ?? "The printer did not accept the receipt."));
-  }, [devicePrintJobId, receipt, printer]);
+  /**
+   * Sends one authorized attempt. `authorization` is the claim the server
+   * handed out — the one from checkout the first time, a freshly claimed one
+   * for every retry. Bytes are never sent twice against the same claim.
+   */
+  const sendAuthorizedAttempt = useCallback(
+    async (authorization: { printJobId: string; attemptToken: string; payload: PrintJobPayload }) => {
+      setState("printing");
+      setError(null);
+      const result = await printer.printReceipt(authorization.payload);
+      // Record the outcome even on failure, so the order screen shows a
+      // receipt that needs attention rather than a silent gap.
+      const reported = await reportDevicePrintResultAction(authorization.printJobId, authorization.attemptToken, result);
+      if (reported.status === "UNKNOWN") {
+        // The bytes went out; the result never landed. Saying "printed" or
+        // "failed" here would both be guesses.
+        setState("unknown");
+        setError("The receipt was sent but the result could not be recorded. Check the printer before sending it again.");
+        return;
+      }
+      setState(result.ok ? "printed" : "failed");
+      setError(result.ok ? null : (result.error ?? "The printer did not accept the receipt."));
+    },
+    [printer],
+  );
 
   useEffect(() => {
     if (!canAutoPrint || started.current) return;
     started.current = true;
-    void sendToPrinter();
-  }, [canAutoPrint, sendToPrinter]);
+    void sendAuthorizedAttempt({ printJobId: devicePrintJobId!, attemptToken: devicePrintToken!, payload: receipt! });
+  }, [canAutoPrint, devicePrintJobId, devicePrintToken, receipt, sendAuthorizedAttempt]);
 
-  async function connectThenPrint() {
-    try {
-      await printer.connect();
-    } catch (connectError) {
-      setState("failed");
-      setError(connectError instanceof Error ? connectError.message : "Could not connect to the printer.");
+  /**
+   * A deliberate staff retry. It re-authorizes first: the previous attempt
+   * is closed (or expired) by now, and re-using its token would resend bytes
+   * nothing is tracking.
+   */
+  async function retryPrint() {
+    if (!devicePrintJobId) return;
+    if (!printer.isConnected) {
+      try {
+        await printer.connect();
+      } catch (connectError) {
+        setState("failed");
+        setError(connectError instanceof Error ? connectError.message : "Could not connect to the printer.");
+        return;
+      }
+    }
+    setState("printing");
+    setError(null);
+    const authorization = await retryDevicePrintAction(devicePrintJobId);
+    if (!authorization.ok) {
+      setState(authorization.status === "PRINTED" ? "printed" : "failed");
+      setError(authorization.status === "PRINTED" ? null : authorization.error);
       return;
     }
-    await sendToPrinter();
+    await sendAuthorizedAttempt(authorization);
   }
 
   const serverStatus = confirmation.printStatus === "FAILED" ? "Failed — needs attention" : confirmation.printStatus.toLowerCase();
@@ -96,12 +132,22 @@ export function PosOrderConfirmation({
               className={
                 state === "failed"
                   ? "font-medium text-[var(--color-danger)]"
-                  : state === "printed"
-                    ? "font-medium text-[var(--color-success)]"
-                    : "font-medium text-[var(--color-text-primary)]"
+                  : state === "unknown"
+                    ? "font-medium text-[var(--color-warning)]"
+                    : state === "printed"
+                      ? "font-medium text-[var(--color-success)]"
+                      : "font-medium text-[var(--color-text-primary)]"
               }
             >
-              {state === "printing" ? "printing…" : state === "printed" ? "printed" : state === "failed" ? "not printed" : "waiting for printer"}
+              {state === "printing"
+                ? "printing…"
+                : state === "printed"
+                  ? "printed"
+                  : state === "failed"
+                    ? "not printed"
+                    : state === "unknown"
+                      ? "outcome unknown"
+                      : "waiting for printer"}
             </span>
           </p>
           {printer.isSimulated && state === "printed" && printer.lastSimulatedReceipt ? (
@@ -116,12 +162,18 @@ export function PosOrderConfirmation({
           ) : null}
           {state !== "printing" && state !== "printed" ? (
             <div className="flex flex-col items-center gap-2">
-              {error ? <p className="max-w-xs text-xs text-[var(--color-danger)]">{error}</p> : null}
+              {error ? (
+                <p className={`max-w-xs text-xs ${state === "unknown" ? "text-[var(--color-warning)]" : "text-[var(--color-danger)]"}`}>{error}</p>
+              ) : null}
               <p className="max-w-xs text-xs text-[var(--color-text-muted)]">
                 The order is saved either way. Reprint it from the order&apos;s detail page if needed.
               </p>
-              <Button variant="secondary" onClick={printer.isConnected ? sendToPrinter : connectThenPrint}>
-                {printer.isConnected ? "Print receipt" : "Connect printer and print"}
+              <Button variant="secondary" onClick={retryPrint}>
+                {state === "unknown"
+                  ? "Send again anyway"
+                  : printer.isConnected
+                    ? "Print receipt"
+                    : "Connect printer and print"}
               </Button>
             </div>
           ) : null}
