@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
 import { Field } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
+import { formatBytes, prepareImageUpload, setInputFile, type PreparedImage } from "@/lib/images/prepare-image";
 
 /**
  * Shared "Image" field for the menu item create/edit forms: a tab toggle
@@ -14,7 +15,17 @@ import { inputClassName } from "@/components/ui/form-styles";
  * — only choosing a file, or typing in the URL tab, changes the image.
  * The server action (resolveImageUrl in actions.ts) prefers an uploaded
  * file over the URL field when both are present.
+ *
+ * A chosen file is resized and re-encoded to WebP in the browser, and the
+ * input's own FileList is swapped for that smaller copy — so this plain
+ * `<form action={...}>` submits the compressed image without the form
+ * knowing anything about it. A 3MB phone photo becomes a couple of hundred
+ * kilobytes, which is the difference between a café's menu costing
+ * megabytes or gigabytes on a small VPS disk.
  */
+
+/** Big enough for a full-bleed menu photo on a retina tablet. */
+const MENU_IMAGE_MAX_EDGE = 1200;
 export function ImageField({
   defaultUrl,
   error,
@@ -26,12 +37,14 @@ export function ImageField({
 }) {
   const [mode, setMode] = useState<"url" | "upload">(defaultUrl ? "url" : "upload");
   const [urlValue, setUrlValue] = useState(defaultUrl ?? "");
-  const [file, setFile] = useState<File | null>(null);
+  const [prepared, setPrepared] = useState<PreparedImage | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [prepareError, setPrepareError] = useState<string | null>(null);
   // Tracks which preview source last failed to load, rather than a plain
   // boolean, so switching sources doesn't carry a stale error forward.
   const [erroredPreview, setErroredPreview] = useState<string | null>(null);
 
-  const objectUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  const objectUrl = prepared?.previewUrl ?? null;
   useEffect(() => {
     return () => {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -41,7 +54,35 @@ export function ImageField({
   const fileInputRef = useRef<HTMLInputElement>(null);
   function clearFile() {
     if (fileInputRef.current) fileInputRef.current.value = "";
-    setFile(null);
+    setPrepared(null);
+    setPrepareError(null);
+  }
+
+  async function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const chosen = input.files?.[0] ?? null;
+    setPrepareError(null);
+    setPrepared(null);
+    if (!chosen) return;
+
+    setPreparing(true);
+    const result = await prepareImageUpload(chosen, {
+      maxWidth: MENU_IMAGE_MAX_EDGE,
+      maxHeight: MENU_IMAGE_MAX_EDGE,
+    });
+    setPreparing(false);
+
+    if (!result.ok) {
+      // Leave the original in the input: the server still enforces its own
+      // size and format checks, so a browser that cannot process the image
+      // is not blocked from uploading a reasonable one.
+      setPrepareError(result.error);
+      return;
+    }
+    // If the swap fails (very old browser), the original file is still in
+    // the input and uploads as before — just larger.
+    setInputFile(input, result.image.file);
+    setPrepared(result.image);
   }
 
   const preview = mode === "upload" ? objectUrl : urlValue || null;
@@ -111,7 +152,7 @@ export function ImageField({
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 disabled={disabled}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                onChange={onFileChange}
                 className="peer sr-only"
               />
               <div className="flex h-10 w-full items-center gap-3 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] pl-1.5 pr-2 peer-focus-visible:border-[var(--color-accent-primary)]">
@@ -122,12 +163,12 @@ export function ImageField({
                   }`}
                 >
                   <Upload size={14} aria-hidden="true" />
-                  {file ? "Change" : "Choose image"}
+                  {prepared ? "Change" : "Choose image"}
                 </label>
-                <span className={`min-w-0 flex-1 truncate text-sm ${file ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>
-                  {file ? file.name : "No file chosen"}
+                <span className={`min-w-0 flex-1 truncate text-sm ${prepared ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-muted)]"}`}>
+                  {preparing ? "Compressing…" : prepared ? prepared.file.name : "No file chosen"}
                 </span>
-                {file ? (
+                {prepared ? (
                   <button
                     type="button"
                     onClick={clearFile}
@@ -144,9 +185,18 @@ export function ImageField({
 
           {previewError && preview ? (
             <p className="mt-1 text-xs text-[var(--color-danger)]">Couldn&apos;t load that image — the cashier will see the name only.</p>
+          ) : prepareError ? (
+            <p className="mt-1 text-xs text-[var(--color-warning)]">{prepareError}</p>
+          ) : prepared?.recompressed ? (
+            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+              Resized to {prepared.width}×{prepared.height} and compressed: {formatBytes(prepared.originalBytes)} →{" "}
+              {formatBytes(prepared.bytes)}.
+            </p>
           ) : (
             <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              {mode === "upload" ? "JPG, PNG, or WebP, up to 3MB." : "Shown on the POS grid so cashiers can spot items faster."}
+              {mode === "upload"
+                ? "JPG, PNG, or WebP. Large photos are resized and compressed in your browser before upload."
+                : "Shown on the POS grid so cashiers can spot items faster."}
             </p>
           )}
         </div>

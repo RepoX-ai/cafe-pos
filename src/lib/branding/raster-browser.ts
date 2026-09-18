@@ -7,6 +7,7 @@ import {
   packBits,
   type StoredLogoRaster,
 } from "./raster";
+import { prepareImageUpload } from "@/lib/images/prepare-image";
 
 /**
  * Turns an uploaded logo file into the 1-bit raster a thermal printer
@@ -52,7 +53,7 @@ export type RasterizeResult =
   | { ok: true; raster: StoredLogoRaster; previewDataUrl: string }
   | { ok: false; error: string };
 
-/** Plenty for a logo at 2x on any screen it appears on. */
+/** Plenty for a logo at 2x anywhere it appears in the shell. */
 const MAX_DISPLAY_WIDTH = 800;
 
 export type PreparedLogo = {
@@ -63,6 +64,8 @@ export type PreparedLogo = {
   rasterError: string | null;
   previewDataUrl: string | null;
   displayUrl: string;
+  originalBytes: number;
+  bytes: number;
 };
 
 /**
@@ -152,72 +155,41 @@ export async function rasterizeLogoFile(file: File): Promise<RasterizeResult> {
   }
 }
 
-function loadBitmap(file: File): Promise<ImageBitmap | HTMLImageElement> {
-  if (typeof createImageBitmap === "function") return createImageBitmap(file);
-  const url = URL.createObjectURL(file);
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(image);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error("decode failed"));
-    };
-    image.src = url;
-  });
-}
-
 /**
- * Prepares a chosen logo for upload: downscales and re-encodes it, and
- * produces the receipt raster from the same file.
+ * Prepares a chosen logo for upload: resizes and re-encodes it to WebP,
+ * and builds the receipt raster from the same prepared file.
  *
- * Downscaling is not a nicety. A photo straight off a phone is routinely
+ * Resizing is not a nicety. A photo straight off a phone is routinely
  * 4-8MB, which blows past the Server Action body limit before any
  * server-side size check can run — the browser just reports "Failed to
- * fetch". Re-encoding to at most 800px wide puts every realistic logo
- * comfortably inside the limit and keeps the VPS disk small.
+ * fetch". See src/lib/images/prepare-image.ts.
  */
-export async function prepareLogoUpload(file: File): Promise<{ ok: true; logo: PreparedLogo } | { ok: false; error: string }> {
-  let bitmap: ImageBitmap | HTMLImageElement;
-  try {
-    bitmap = await loadBitmap(file);
-  } catch {
-    return { ok: false, error: "That image couldn't be read. Try a PNG, JPG or WebP." };
-  }
+export async function prepareLogoUpload(
+  file: File,
+): Promise<{ ok: true; logo: PreparedLogo } | { ok: false; error: string }> {
+  const prepared = await prepareImageUpload(file, {
+    maxWidth: MAX_DISPLAY_WIDTH,
+    maxHeight: MAX_DISPLAY_WIDTH,
+    // A logo is flat colour with hard edges; a little more quality than
+    // the default keeps a wordmark crisp and still costs only a few KB.
+    quality: 0.9,
+  });
+  if (!prepared.ok) return prepared;
 
-  const sourceWidth = bitmap.width;
-  const sourceHeight = bitmap.height;
-  if (!sourceWidth || !sourceHeight) return { ok: false, error: "That image appears to be empty." };
-
-  const scale = Math.min(MAX_DISPLAY_WIDTH / sourceWidth, 1);
-  const width = Math.max(1, Math.round(sourceWidth * scale));
-  const height = Math.max(1, Math.round(sourceHeight * scale));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) return { ok: false, error: "This browser can't prepare the logo." };
-  context.drawImage(bitmap as CanvasImageSource, 0, 0, width, height);
-  if ("close" in bitmap && typeof bitmap.close === "function") bitmap.close();
-
-  // PNG keeps transparency, which a wordmark usually relies on.
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-  if (!blob) return { ok: false, error: "This browser can't prepare the logo." };
-
-  const prepared = new File([blob], "logo.png", { type: "image/png" });
-  const rasterResult = await rasterizeLogoFile(prepared);
+  // The receipt raster is built from the prepared copy, not the original,
+  // so what prints matches what is shown.
+  const rasterResult = await rasterizeLogoFile(prepared.image.file);
 
   return {
     ok: true,
     logo: {
-      file: prepared,
+      file: prepared.image.file,
       raster: rasterResult.ok ? rasterResult.raster : null,
       rasterError: rasterResult.ok ? null : rasterResult.error,
       previewDataUrl: rasterResult.ok ? rasterResult.previewDataUrl : null,
-      displayUrl: canvas.toDataURL("image/png"),
+      displayUrl: prepared.image.previewUrl,
+      originalBytes: prepared.image.originalBytes,
+      bytes: prepared.image.bytes,
     },
   };
 }
