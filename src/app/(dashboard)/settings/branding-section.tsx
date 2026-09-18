@@ -9,7 +9,6 @@ import { inputClassName } from "@/components/ui/form-styles";
 import { useToast } from "@/components/ui/toast";
 import { accentTokens, meetsAaOnAccent, normalizeHexColor } from "@/lib/branding/branding";
 import { prepareLogoUpload } from "@/lib/branding/raster-browser";
-import { formatBytes } from "@/lib/images/prepare-image";
 import { updateBrandingAction } from "./actions";
 
 export interface BrandingValues {
@@ -41,7 +40,6 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
   const [rasterError, setRasterError] = useState<string | null>(null);
   const [removeLogo, setRemoveLogo] = useState(false);
   const [preparing, setPreparing] = useState(false);
-  const [savings, setSavings] = useState<{ from: number; to: number } | null>(null);
   // The downscaled, re-encoded file that actually gets uploaded — never
   // the raw one the owner picked, which can be many megabytes.
   const uploadRef = useRef<File | null>(null);
@@ -71,7 +69,6 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
     }
 
     uploadRef.current = result.logo.file;
-    setSavings({ from: result.logo.originalBytes, to: result.logo.bytes });
     setLogoPreview(result.logo.displayUrl);
     setRaster(result.logo.raster);
     setReceiptPreview(result.logo.previewDataUrl);
@@ -110,7 +107,6 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
 
   function clearLogo() {
     uploadRef.current = null;
-    setSavings(null);
     setRemoveLogo(true);
     setLogoPreview(null);
     setReceiptPreview(null);
@@ -161,9 +157,7 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
             {preparing
               ? "Preparing…"
-              : savings
-                ? `Resized and converted to WebP: ${formatBytes(savings.from)} → ${formatBytes(savings.to)}.`
-                : "PNG, JPG or WebP. Large images are resized and compressed in your browser before upload, so a photo straight off a phone is fine."}
+              : "PNG, JPG or WebP. Large images are resized and compressed in your browser before upload, so a photo straight off a phone is fine."}
           </p>
         </Field>
 
