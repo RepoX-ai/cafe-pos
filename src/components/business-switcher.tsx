@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Check, Store } from "lucide-react";
 import { switchBusinessAction } from "@/app/(auth)/switch-business/actions";
 import { useToast } from "@/components/ui/toast";
@@ -33,7 +32,6 @@ export function BusinessSwitcher({
 }) {
   const [isPending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
-  const router = useRouter();
   const showToast = useToast();
 
   function switchTo(option: BusinessOption) {
@@ -48,10 +46,13 @@ export function BusinessSwitcher({
         showToast("error", result.error);
         return;
       }
-      // Everything on screen belongs to the business we just left, so go
-      // back to the landing route and let it re-resolve from scratch.
-      router.replace("/");
-      router.refresh();
+      // A full load, not a client-side navigation: everything on screen
+      // belongs to the business we just left, including the shell's logo
+      // and accent, and re-rendering that tree on the client is what makes
+      // React trip over next-themes' inline <script>. The landing route
+      // re-resolves which screen this account should see.
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- a client-side push is exactly what we are avoiding here
+      window.location.assign("/");
     });
   }
 

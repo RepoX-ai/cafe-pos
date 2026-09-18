@@ -3,14 +3,13 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useRef, useState } from "react";
-import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
-import { useActionResultToast } from "@/components/ui/use-action-toast";
+import { useToast } from "@/components/ui/toast";
 import { accentTokens, meetsAaOnAccent, normalizeHexColor } from "@/lib/branding/branding";
-import { rasterizeLogoFile } from "@/lib/branding/raster-browser";
-import { updateBrandingAction, type BrandingActionState } from "./actions";
+import { prepareLogoUpload } from "@/lib/branding/raster-browser";
+import { updateBrandingAction } from "./actions";
 
 export interface BrandingValues {
   logoUrl: string | null;
@@ -30,12 +29,9 @@ const DEFAULT_ACCENT = "#a5502b";
  * see exactly what will print before saving.
  */
 export function BrandingSection({ branding }: { branding: BrandingValues }) {
-  const [state, formAction, isPending] = useActionState<BrandingActionState, FormData>(
-    updateBrandingAction,
-    undefined,
-  );
-  const errorState = state && !state.ok ? state : undefined;
-  useActionResultToast(state, "Branding saved.");
+  const [isPending, setIsPending] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const showToast = useToast();
 
   const [color, setColor] = useState(branding.brandColor ?? DEFAULT_ACCENT);
   const [logoPreview, setLogoPreview] = useState<string | null>(branding.logoUrl);
@@ -43,6 +39,10 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
   const [raster, setRaster] = useState<{ base64: string; width: number; height: number } | null>(null);
   const [rasterError, setRasterError] = useState<string | null>(null);
   const [removeLogo, setRemoveLogo] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  // The downscaled, re-encoded file that actually gets uploaded — never
+  // the raw one the owner picked, which can be many megabytes.
+  const uploadRef = useRef<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const normalized = normalizeHexColor(color);
@@ -54,22 +54,59 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
     setRasterError(null);
     setReceiptPreview(null);
     setRaster(null);
+    setFieldErrors({});
+    uploadRef.current = null;
     if (!file) return;
 
     setRemoveLogo(false);
-    setLogoPreview(URL.createObjectURL(file));
-
-    const result = await rasterizeLogoFile(file);
+    setPreparing(true);
+    const result = await prepareLogoUpload(file);
+    setPreparing(false);
     if (!result.ok) {
-      // The on-screen logo still saves; only the receipt copy is missing.
-      setRasterError(result.error);
+      setFieldErrors({ logoFile: result.error });
+      showToast("error", result.error);
       return;
     }
-    setRaster(result.raster);
-    setReceiptPreview(result.previewDataUrl);
+
+    uploadRef.current = result.logo.file;
+    setLogoPreview(result.logo.displayUrl);
+    setRaster(result.logo.raster);
+    setReceiptPreview(result.logo.previewDataUrl);
+    // The on-screen logo still saves; only the receipt copy is missing.
+    setRasterError(result.logo.rasterError);
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (preparing) return;
+    setIsPending(true);
+    setFieldErrors({});
+
+    const form = new FormData();
+    form.set("brandColor", color);
+    form.set("removeLogo", removeLogo ? "on" : "");
+    if (uploadRef.current) form.set("logoFile", uploadRef.current);
+    if (raster) {
+      form.set("logoRasterBase64", raster.base64);
+      form.set("logoRasterWidth", String(raster.width));
+      form.set("logoRasterHeight", String(raster.height));
+    }
+
+    const result = await updateBrandingAction(form);
+    if (!result.ok) {
+      setIsPending(false);
+      setFieldErrors(result.fieldErrors ?? {});
+      showToast("error", result.error);
+      return;
+    }
+    // A full load rather than an RSC refresh: the logo and accent live in
+    // the shell above this page, and re-rendering that tree on the client
+    // is what makes React trip over next-themes' inline <script>.
+    window.location.reload();
   }
 
   function clearLogo() {
+    uploadRef.current = null;
     setRemoveLogo(true);
     setLogoPreview(null);
     setReceiptPreview(null);
@@ -79,7 +116,7 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
   }
 
   return (
-    <form action={formAction} className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+    <form onSubmit={submit} className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
       <h2 className="mb-1 text-sm font-semibold text-[var(--color-text-primary)]">Branding</h2>
       <p className="mb-4 text-sm text-[var(--color-text-secondary)]">
         The logo and accent colour for this business only. Each business you run keeps its own, so a restaurant and a
@@ -87,7 +124,7 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
       </p>
 
       <div className="flex flex-col gap-5">
-        <Field label="Logo" htmlFor="logoFile" error={errorState?.fieldErrors?.logoFile}>
+        <Field label="Logo" htmlFor="logoFile" error={fieldErrors.logoFile}>
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex h-16 w-40 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-page-bg)] p-2">
               {logoPreview ? (
@@ -117,9 +154,10 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
               ) : null}
             </div>
           </div>
-          <input type="hidden" name="removeLogo" value={removeLogo ? "on" : ""} />
           <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-            PNG, JPG or WebP, up to 3MB. A wide wordmark on a transparent or white background works best.
+            {preparing
+              ? "Preparing…"
+              : "PNG, JPG or WebP. Large images are resized in your browser before upload, so a photo straight off a phone is fine."}
           </p>
         </Field>
 
@@ -147,16 +185,10 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
                 : "Choose a logo above and a black-and-white preview of the printed version appears here."}
             </p>
           )}
-          {raster ? (
-            <>
-              <input type="hidden" name="logoRasterBase64" value={raster.base64} />
-              <input type="hidden" name="logoRasterWidth" value={raster.width} />
-              <input type="hidden" name="logoRasterHeight" value={raster.height} />
-            </>
-          ) : null}
+
         </div>
 
-        <Field label="Accent colour" htmlFor="brandColor" error={errorState?.fieldErrors?.brandColor}>
+        <Field label="Accent colour" htmlFor="brandColor" error={fieldErrors.brandColor}>
           <div className="flex items-center gap-3">
             <input
               type="color"
@@ -192,7 +224,7 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
       </div>
 
       <div className="mt-6 flex justify-end">
-        <Button type="submit" disabled={isPending}>
+        <Button type="submit" disabled={isPending || preparing}>
           {isPending ? "Saving…" : "Save branding"}
         </Button>
       </div>

@@ -85,10 +85,9 @@ export async function createBusinessAction(input: unknown): Promise<CreateBusine
   return { ok: true, businessName: parsed.data.name };
 }
 
-export type BrandingActionState =
+export type BrandingResult =
   | { ok: true }
-  | { ok: false; error: string; fieldErrors?: Record<string, string> }
-  | undefined;
+  | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
 /**
  * Saves the current business's logo and accent colour.
@@ -98,10 +97,7 @@ export type BrandingActionState =
  * with it — see `src/lib/branding/raster-browser.ts` for why that happens
  * client-side.
  */
-export async function updateBrandingAction(
-  _prev: BrandingActionState,
-  formData: FormData,
-): Promise<BrandingActionState> {
+export async function updateBrandingAction(formData: FormData): Promise<BrandingResult> {
   const user = await requireCurrentUser();
   requirePermission(user.roles, "settings:write");
 

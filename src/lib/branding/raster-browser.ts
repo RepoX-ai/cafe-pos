@@ -52,6 +52,19 @@ export type RasterizeResult =
   | { ok: true; raster: StoredLogoRaster; previewDataUrl: string }
   | { ok: false; error: string };
 
+/** Plenty for a logo at 2x on any screen it appears on. */
+const MAX_DISPLAY_WIDTH = 800;
+
+export type PreparedLogo = {
+  /** Re-encoded, downscaled image to upload in place of the original. */
+  file: File;
+  raster: StoredLogoRaster | null;
+  /** Null when the image could not be rasterised for the printer. */
+  rasterError: string | null;
+  previewDataUrl: string | null;
+  displayUrl: string;
+};
+
 /**
  * Loads the file, fits it inside the paper width, converts to 1-bit and
  * returns both the packed bytes to store and a preview of exactly what
@@ -137,4 +150,74 @@ export async function rasterizeLogoFile(file: File): Promise<RasterizeResult> {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     if ("close" in bitmap && typeof bitmap.close === "function") bitmap.close();
   }
+}
+
+function loadBitmap(file: File): Promise<ImageBitmap | HTMLImageElement> {
+  if (typeof createImageBitmap === "function") return createImageBitmap(file);
+  const url = URL.createObjectURL(file);
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("decode failed"));
+    };
+    image.src = url;
+  });
+}
+
+/**
+ * Prepares a chosen logo for upload: downscales and re-encodes it, and
+ * produces the receipt raster from the same file.
+ *
+ * Downscaling is not a nicety. A photo straight off a phone is routinely
+ * 4-8MB, which blows past the Server Action body limit before any
+ * server-side size check can run — the browser just reports "Failed to
+ * fetch". Re-encoding to at most 800px wide puts every realistic logo
+ * comfortably inside the limit and keeps the VPS disk small.
+ */
+export async function prepareLogoUpload(file: File): Promise<{ ok: true; logo: PreparedLogo } | { ok: false; error: string }> {
+  let bitmap: ImageBitmap | HTMLImageElement;
+  try {
+    bitmap = await loadBitmap(file);
+  } catch {
+    return { ok: false, error: "That image couldn't be read. Try a PNG, JPG or WebP." };
+  }
+
+  const sourceWidth = bitmap.width;
+  const sourceHeight = bitmap.height;
+  if (!sourceWidth || !sourceHeight) return { ok: false, error: "That image appears to be empty." };
+
+  const scale = Math.min(MAX_DISPLAY_WIDTH / sourceWidth, 1);
+  const width = Math.max(1, Math.round(sourceWidth * scale));
+  const height = Math.max(1, Math.round(sourceHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) return { ok: false, error: "This browser can't prepare the logo." };
+  context.drawImage(bitmap as CanvasImageSource, 0, 0, width, height);
+  if ("close" in bitmap && typeof bitmap.close === "function") bitmap.close();
+
+  // PNG keeps transparency, which a wordmark usually relies on.
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) return { ok: false, error: "This browser can't prepare the logo." };
+
+  const prepared = new File([blob], "logo.png", { type: "image/png" });
+  const rasterResult = await rasterizeLogoFile(prepared);
+
+  return {
+    ok: true,
+    logo: {
+      file: prepared,
+      raster: rasterResult.ok ? rasterResult.raster : null,
+      rasterError: rasterResult.ok ? null : rasterResult.error,
+      previewDataUrl: rasterResult.ok ? rasterResult.previewDataUrl : null,
+      displayUrl: canvas.toDataURL("image/png"),
+    },
+  };
 }
