@@ -13,8 +13,8 @@ import { test, expect } from "@playwright/test";
 test.describe("POS checkout prints to the tablet printer", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill("cashier@dev.local");
-    await page.getByLabel("Password").fill("ChangeMe123!");
+    await page.getByLabel("Email", { exact: true }).fill("cashier@dev.local");
+    await page.getByLabel("Password", { exact: true }).fill("ChangeMe123!");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/pos$/);
   });

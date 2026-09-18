@@ -5,6 +5,13 @@ import { businesses, membershipRoles, memberships, roles, sessions, users } from
 import type { RoleName } from "@/lib/permissions/permissions";
 
 export const SESSION_COOKIE_NAME = "cafe_pos_session";
+/**
+ * Holds only the identifier a returning user asked us to prefill — never
+ * a credential, and httpOnly because nothing client-side reads it: the
+ * login page renders the field already filled.
+ */
+export const REMEMBERED_EMAIL_COOKIE_NAME = "cafe_pos_remembered_email";
+export const REMEMBERED_EMAIL_DURATION_S = 60 * 60 * 24 * 365; // 1 year
 const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
 
 /**

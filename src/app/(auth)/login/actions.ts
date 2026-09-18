@@ -10,6 +10,8 @@ import { login, logout } from "@/server/services/auth-service";
 import {
   createSession,
   deleteExpiredSessions,
+  REMEMBERED_EMAIL_COOKIE_NAME,
+  REMEMBERED_EMAIL_DURATION_S,
   resolveDefaultMembership,
   SESSION_COOKIE_NAME,
 } from "@/lib/auth/session";
@@ -38,6 +40,7 @@ export async function loginAction(
 ): Promise<LoginFormState> {
   const identifier = String(formData.get("identifier") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  const rememberEmail = formData.get("remember") === "on";
 
   if (!identifier || !password) {
     return { error: "Enter your email and password." };
@@ -94,6 +97,20 @@ export async function loginAction(
     path: "/",
     expires: result.expiresAt,
   });
+
+  // Only the identifier, and only once it has proven to be a real account,
+  // so an unchecked box on a shared tablet also clears whoever came before.
+  if (rememberEmail) {
+    cookieStore.set(REMEMBERED_EMAIL_COOKIE_NAME, account, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: REMEMBERED_EMAIL_DURATION_S,
+    });
+  } else {
+    cookieStore.delete(REMEMBERED_EMAIL_COOKIE_NAME);
+  }
 
   redirect("/");
 }

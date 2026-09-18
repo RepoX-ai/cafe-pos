@@ -7,8 +7,8 @@ import { test, expect } from "@playwright/test";
 test.describe("login", () => {
   test("rejects bad credentials with a visible error, no redirect", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill("owner@dev.local");
-    await page.getByLabel("Password").fill("wrong-password");
+    await page.getByLabel("Email", { exact: true }).fill("owner@dev.local");
+    await page.getByLabel("Password", { exact: true }).fill("wrong-password");
     await page.getByRole("button", { name: "Sign in" }).click();
 
     // Next.js's own route-announcer div also carries role="alert", so
@@ -19,8 +19,8 @@ test.describe("login", () => {
 
   test("owner logs in and lands on the dashboard", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill("owner@dev.local");
-    await page.getByLabel("Password").fill("ChangeMe123!");
+    await page.getByLabel("Email", { exact: true }).fill("owner@dev.local");
+    await page.getByLabel("Password", { exact: true }).fill("ChangeMe123!");
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await expect(page).toHaveURL(/\/dashboard$/);
@@ -29,8 +29,8 @@ test.describe("login", () => {
 
   test("cashier logs in and lands on the POS, not the dashboard", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill("cashier@dev.local");
-    await page.getByLabel("Password").fill("ChangeMe123!");
+    await page.getByLabel("Email", { exact: true }).fill("cashier@dev.local");
+    await page.getByLabel("Password", { exact: true }).fill("ChangeMe123!");
     await page.getByRole("button", { name: "Sign in" }).click();
 
     await expect(page).toHaveURL(/\/pos$/);
@@ -38,8 +38,8 @@ test.describe("login", () => {
 
   test("cashier cannot reach the dashboard by typing the URL", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill("cashier@dev.local");
-    await page.getByLabel("Password").fill("ChangeMe123!");
+    await page.getByLabel("Email", { exact: true }).fill("cashier@dev.local");
+    await page.getByLabel("Password", { exact: true }).fill("ChangeMe123!");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/pos$/);
 
@@ -49,8 +49,8 @@ test.describe("login", () => {
 
   test("cashier cannot reach the menu/recipe admin section (regression: menu:read must not leak COGS to cashiers)", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Email").fill("cashier@dev.local");
-    await page.getByLabel("Password").fill("ChangeMe123!");
+    await page.getByLabel("Email", { exact: true }).fill("cashier@dev.local");
+    await page.getByLabel("Password", { exact: true }).fill("ChangeMe123!");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/pos$/);
 

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { REMEMBERED_EMAIL_COOKIE_NAME } from "@/lib/auth/session";
 import { BrandLogo } from "@/components/brand-logo";
 import { LoginForm } from "./login-form";
 import { QuickLoginPanel } from "./quick-login-panel";
@@ -15,6 +17,8 @@ export default async function LoginPage() {
     redirect("/");
   }
 
+  const rememberedEmail = (await cookies()).get(REMEMBERED_EMAIL_COOKIE_NAME)?.value ?? "";
+
   return (
     <div className="force-light-theme flex min-h-screen flex-col items-center justify-center bg-[var(--color-page-bg)] px-6">
       <h1 className="mb-8 flex justify-center">
@@ -25,7 +29,7 @@ export default async function LoginPage() {
           Sign in to continue.
         </p>
         <div className="mt-6">
-          <LoginForm />
+          <LoginForm rememberedEmail={rememberedEmail} />
         </div>
         {process.env.NODE_ENV !== "production" ? <QuickLoginPanel /> : null}
       </div>
