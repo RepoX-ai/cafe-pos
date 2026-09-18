@@ -5,9 +5,10 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { businessSettingsInputSchema } from "@/lib/validation/settings";
-import { createBusinessInputSchema } from "@/lib/validation/business";
+import { brandingInputSchema, createBusinessInputSchema } from "@/lib/validation/business";
 import { flattenZodErrors } from "@/lib/validation/form-errors";
-import { createBusiness, updateBusinessSettings } from "@/server/services/business-service";
+import { createBusiness, updateBranding, updateBusinessSettings } from "@/server/services/business-service";
+import { saveBusinessLogo } from "@/server/services/menu-image-upload";
 import { getPrinterProvider } from "@/printing";
 
 export type SettingsActionState =
@@ -82,4 +83,51 @@ export async function createBusinessAction(input: unknown): Promise<CreateBusine
   revalidatePath("/settings");
   revalidatePath("/", "layout");
   return { ok: true, businessName: parsed.data.name };
+}
+
+export type BrandingActionState =
+  | { ok: true }
+  | { ok: false; error: string; fieldErrors?: Record<string, string> }
+  | undefined;
+
+/**
+ * Saves the current business's logo and accent colour.
+ *
+ * The logo file is stored under this business's own folder, and the 1-bit
+ * receipt raster that the browser produced from the same file is saved
+ * with it — see `src/lib/branding/raster-browser.ts` for why that happens
+ * client-side.
+ */
+export async function updateBrandingAction(
+  _prev: BrandingActionState,
+  formData: FormData,
+): Promise<BrandingActionState> {
+  const user = await requireCurrentUser();
+  requirePermission(user.roles, "settings:write");
+
+  const parsed = brandingInputSchema.safeParse({
+    brandColor: formData.get("brandColor") || "",
+    logoRasterBase64: formData.get("logoRasterBase64") || "",
+    logoRasterWidth: formData.get("logoRasterWidth") || undefined,
+    logoRasterHeight: formData.get("logoRasterHeight") || undefined,
+    removeLogo: formData.get("removeLogo") === "on",
+  });
+  if (!parsed.success) {
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
+  }
+
+  let logoUrl: string | null = null;
+  const file = formData.get("logoFile");
+  if (file instanceof File && file.size > 0) {
+    const saved = await saveBusinessLogo(file, user.businessId);
+    if (!saved.ok) return { ok: false, error: saved.error, fieldErrors: { logoFile: saved.error } };
+    logoUrl = saved.url;
+  }
+
+  await updateBranding(db, { businessId: user.businessId, userId: user.id }, { ...parsed.data, logoUrl });
+
+  // The logo and accent live in the shell, not just this page.
+  revalidatePath("/", "layout");
+  revalidatePath("/settings");
+  return { ok: true };
 }

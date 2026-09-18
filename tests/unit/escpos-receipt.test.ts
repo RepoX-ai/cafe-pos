@@ -3,6 +3,7 @@ import { renderReceipt, renderReceiptText } from "@/printing/escpos/receipt";
 import { toPrintableAscii } from "@/printing/escpos/commands";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 import { createSimulatedPrinter, decodeEscPos } from "@/printing/ble/simulated-printer";
+import { bytesToBase64 } from "@/lib/branding/raster";
 
 const payload: PrintJobPayload = {
   orderId: "o1",
@@ -150,5 +151,46 @@ describe("simulated printer", () => {
     await printer.write(renderReceipt({ ...payload, orderNumber: "ORD-00043" }));
     expect(printer.history()).toHaveLength(2);
     expect(printer.history()[1]).toContain("ORD-00043");
+  });
+});
+
+describe("business logo on the receipt", () => {
+  // 16x2 dots: enough to assert the command, small enough to read here.
+  const logoRaster = { base64: bytesToBase64(new Uint8Array([0x80, 0x01, 0xff, 0x00])), width: 16, height: 2 };
+  const withLogo: PrintJobPayload = { ...payload, logoRaster };
+
+  it("emits GS v 0 with the stored raster, centred", () => {
+    const bytes = Array.from(renderReceipt(withLogo));
+    const at = bytes.findIndex((_, i) => bytes[i] === 0x1d && bytes[i + 1] === 0x76 && bytes[i + 2] === 0x30);
+    expect(at).toBeGreaterThan(-1);
+    expect(bytes.slice(at, at + 8)).toEqual([0x1d, 0x76, 0x30, 0x00, 2, 0, 2, 0]);
+    expect(bytes.slice(at + 8, at + 12)).toEqual([0x80, 0x01, 0xff, 0x00]);
+    // ESC a 1 (centre) is set before the image.
+    expect(bytes.slice(0, at)).toEqual(expect.arrayContaining([0x1b, 0x61, 0x01]));
+  });
+
+  it("replaces the business name in the header, and only there", () => {
+    const text = renderReceiptText(withLogo);
+    expect(lines(text)[0].trim()).toBe("[logo]");
+    expect(text).not.toContain("Matsudon");
+    // Everything else about the receipt is unchanged.
+    expect(text).toContain("ORD-00042");
+    expect(text).toContain("Terima kasih");
+  });
+
+  it("falls back to the business name when there is no logo", () => {
+    expect(renderReceiptText(payload)).toContain("Matsudon");
+    expect(Array.from(renderReceipt(payload))).not.toEqual(expect.arrayContaining([0x1d, 0x76, 0x30]));
+  });
+
+  it("ignores a corrupt raster rather than printing garbage", () => {
+    const corrupt: PrintJobPayload = { ...payload, logoRaster: { ...logoRaster, height: 99 } };
+    expect(renderReceiptText(corrupt)).toContain("Matsudon");
+  });
+
+  it("never puts a logo on a kitchen ticket", () => {
+    const text = renderReceiptText(withLogo, { destination: "KITCHEN_TICKET" });
+    expect(text).toContain("KITCHEN");
+    expect(text).not.toContain("[logo]");
   });
 });

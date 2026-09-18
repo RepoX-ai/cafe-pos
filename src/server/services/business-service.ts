@@ -3,7 +3,8 @@ import type { Database } from "@/lib/db/client";
 import { businesses, locations, membershipRoles, memberships, roles } from "@/lib/db/schema";
 import { serializeTaxConfig } from "@/lib/settings/tax";
 import type { BusinessSettingsInput } from "@/lib/validation/settings";
-import type { CreateBusinessInput } from "@/lib/validation/business";
+import type { BrandingInput, CreateBusinessInput } from "@/lib/validation/business";
+import { normalizeHexColor } from "@/lib/branding/branding";
 import { recordAuditLog } from "./audit";
 import type { ActorContext } from "./ingredient-service";
 
@@ -146,4 +147,57 @@ export async function createBusiness(
 
     return { businessId: business.id, membershipId: membership.id };
   });
+}
+
+/**
+ * Saves the business's visual identity: the accent colour, the logo shown
+ * on screen, and the 1-bit copy of that logo the thermal printer uses.
+ *
+ * The screen logo and the receipt raster are written together or not at
+ * all, so a receipt can never print last month's logo next to this
+ * month's on screen. Clearing the logo clears both.
+ */
+export async function updateBranding(
+  db: Database,
+  actor: ActorContext,
+  input: BrandingInput & { logoUrl?: string | null },
+) {
+  const before = await getBusinessById(db, actor.businessId);
+
+  const clearing = input.removeLogo;
+  const hasNewLogo = Boolean(input.logoUrl);
+  const hasRaster = Boolean(input.logoRasterBase64 && input.logoRasterWidth && input.logoRasterHeight);
+
+  const [row] = await db
+    .update(businesses)
+    .set({
+      brandColor: normalizeHexColor(input.brandColor ?? null),
+      ...(clearing
+        ? { logoUrl: null, logoRasterBase64: null, logoRasterWidth: null, logoRasterHeight: null }
+        : hasNewLogo
+          ? {
+              logoUrl: input.logoUrl,
+              // A browser too old to rasterise still gets the on-screen
+              // logo; the receipt simply keeps printing the name.
+              logoRasterBase64: hasRaster ? input.logoRasterBase64 : null,
+              logoRasterWidth: hasRaster ? input.logoRasterWidth : null,
+              logoRasterHeight: hasRaster ? input.logoRasterHeight : null,
+            }
+          : {}),
+      updatedAt: new Date(),
+    })
+    .where(eq(businesses.id, actor.businessId))
+    .returning();
+
+  await recordAuditLog(db, {
+    businessId: actor.businessId,
+    actorUserId: actor.userId,
+    action: "branding.updated",
+    entityType: "business",
+    entityId: actor.businessId,
+    before: { brandColor: before?.brandColor ?? null, logoUrl: before?.logoUrl ?? null },
+    after: { brandColor: row.brandColor, logoUrl: row.logoUrl },
+  });
+
+  return row;
 }

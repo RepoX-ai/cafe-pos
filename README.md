@@ -263,6 +263,52 @@ The backfill also fills the `business_id` columns added to `recipes`,
 to reach their tenant only by joining (variant → item, job → order), which
 every query had to remember; they now carry it directly.
 
+### Per-business branding
+
+Each business has its own logo and accent colour, set in **Settings →
+Branding**, so a restaurant and a coffee shop on the same install don't
+have to look alike.
+
+- **Logo** replaces the wordmark in the admin sidebar and the POS header.
+  Stored under that business's own folder (`/media/brand/<businessId>/…`),
+  so one café's assets can be exported or deleted as a unit. The bundled
+  wordmark is the fallback when none is set.
+- **Accent colour** is one hex value. The hover shade and the text colour
+  that sits on top of it are *derived* from it at render time
+  (`src/lib/branding/branding.ts`) rather than stored, so they cannot drift
+  apart — and the foreground is picked by WCAG contrast, so a pale accent
+  gets black text instead of unreadable white. The form warns when neither
+  black nor white clears 4.5:1, but still saves: it's the owner's brand.
+  Applied as `--color-accent-*` custom properties on the shell, so nothing
+  hardcodes a hex.
+- **Receipt logo** prints on thermal receipts as a 1-bit `GS v 0` raster.
+
+The login page keeps the bundled wordmark: there is no session yet, so the
+tenant is unknown at that point.
+
+#### Why the receipt logo is rasterised in the browser
+
+A thermal printer takes a packed 1-bit bitmap, not a PNG. The conversion
+happens **once, in the browser, when the logo is uploaded** — a canvas
+scales it to the paper's 384-dot width and dithers it (Floyd–Steinberg, so
+photos and gradients survive) — and the packed bytes are stored on the
+business row.
+
+That keeps every print path free of an image decoder: no `sharp` on the
+server, nothing extra on the Android tablet printing over Bluetooth, and no
+receipt that depends on fetching and decoding a PNG mid-sale. The owner
+also sees a preview of exactly what will print before saving.
+
+The raster is snapshotted onto each print job like every other payload
+field, so a reprint months later shows the logo that was current when the
+order was rung up. Kitchen tickets never get one.
+
+#### Uploads need storage configured
+
+Logo and menu-photo uploads are inert unless `STORAGE_PROVIDER` is set —
+`local` for a VPS or dev machine with durable disk, `s3` for anything
+serverless. With neither, the UI says so and offers a pasted URL instead.
+
 ### Not done here
 
 Row-level security. Tenant isolation is enforced in application code, and

@@ -7,6 +7,7 @@ import { parseTaxConfig } from "@/lib/settings/tax";
 import { SettingsForm } from "./settings-form";
 import { PrinterSection } from "./printer-section";
 import { BusinessesSection } from "./businesses-section";
+import { BrandingSection } from "./branding-section";
 
 export const metadata: Metadata = {
   title: "Settings — CaféOps",
@@ -27,11 +28,18 @@ export default async function SettingsPage() {
     <div className="mx-auto max-w-[700px]">
       <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Settings</h1>
       <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-        Business details, tax, service charge, and inventory behavior.
+        Branding, business details, tax, service charge, and inventory behavior.
       </p>
 
       <div className="mt-8 flex flex-col gap-6">
         {canCreateBusiness ? <BusinessesSection businesses={ownedBusinesses} /> : null}
+        <BrandingSection
+          branding={{
+            logoUrl: business.logoUrl,
+            brandColor: business.brandColor,
+            hasReceiptLogo: Boolean(business.logoRasterBase64),
+          }}
+        />
         <PrinterSection providerName={process.env.PRINT_PROVIDER || "mock"} />
         <SettingsForm
           business={{

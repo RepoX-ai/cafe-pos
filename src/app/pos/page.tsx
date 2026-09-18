@@ -6,6 +6,7 @@ import { db } from "@/lib/db/client";
 import { getPosMenu } from "@/server/services/menu-service";
 import { getBusinessById } from "@/server/services/business-service";
 import { listMemberships } from "@/lib/auth/session";
+import { brandStyle } from "@/lib/branding/branding";
 import { parseTaxConfig } from "@/lib/settings/tax";
 import { PosClient } from "./pos-client";
 
@@ -35,6 +36,8 @@ export default async function PosPage() {
       userName={user.name}
       roleLabel={formatRoles(user.roles)}
       businessName={business?.name ?? "CaféOps"}
+      logoUrl={business?.logoUrl ?? null}
+      brandStyle={brandStyle(business?.brandColor)}
       activeMembershipId={user.membershipId}
       businessOptions={memberships.map((membership) => ({
         membershipId: membership.membershipId,

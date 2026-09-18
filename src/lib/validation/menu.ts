@@ -20,7 +20,7 @@ const menuImageUrlSchema = z
   // Two upload shapes are accepted: the flat legacy path, and the
   // business-scoped one written since multi-tenancy. Both are UUID
   // filenames; the optional first segment is the owning business.
-  .refine((v) => isHttpUrl(v) || /^\/(?:uploads|media)\/menu\/(?:[a-zA-Z0-9-]+\/)?[a-zA-Z0-9-]+\.(?:jpg|jpeg|png|webp)$/.test(v) || /^\/images\/menu\/matsudon\/[a-z0-9-]+\.webp$/.test(v), "Must be a valid URL")
+  .refine((v) => isHttpUrl(v) || /^\/(?:uploads|media)\/(?:menu|brand)\/(?:[a-zA-Z0-9-]+\/)?[a-zA-Z0-9-]+\.(?:jpg|jpeg|png|webp)$/.test(v) || /^\/images\/menu\/matsudon\/[a-z0-9-]+\.webp$/.test(v), "Must be a valid URL")
   .optional()
   .or(z.literal(""));
 

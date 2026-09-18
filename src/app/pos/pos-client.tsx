@@ -51,6 +51,8 @@ export function PosClient({
   userName,
   roleLabel,
   businessName,
+  logoUrl,
+  brandStyle,
   businessOptions,
   activeMembershipId,
   categories,
@@ -63,6 +65,8 @@ export function PosClient({
   userName: string;
   roleLabel: string;
   businessName: string;
+  logoUrl: string | null;
+  brandStyle?: React.CSSProperties;
   businessOptions: BusinessOption[];
   activeMembershipId: string;
   categories: PosCategory[];
@@ -414,7 +418,7 @@ export function PosClient({
   }
 
   return (
-    <div className="force-light-theme flex h-screen flex-col bg-[var(--color-page-bg)]">
+    <div style={brandStyle} className="force-light-theme flex h-screen flex-col bg-[var(--color-page-bg)]">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6">
         <div className="flex items-center gap-3">
           {businessOptions.length > 1 ? (
@@ -426,7 +430,7 @@ export function PosClient({
                 aria-expanded={storeMenuOpen}
                 className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1 pl-1 pr-2 text-left hover:bg-[var(--color-selected-surface)]"
               >
-                <BrandLogo className="h-9" />
+                <BrandLogo className="h-9" alt={businessName} src={logoUrl} />
                 <span className="min-w-0 max-w-[13rem]">
                   <span className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
                     {businessName}
@@ -453,7 +457,7 @@ export function PosClient({
               ) : null}
             </div>
           ) : (
-            <BrandLogo className="h-9" />
+            <BrandLogo className="h-9" alt={businessName} src={logoUrl} />
           )}
           {!isOnline ? (
             <span className="flex items-center gap-1.5 rounded-full bg-[var(--color-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--color-danger)]">

@@ -1,6 +1,7 @@
 import { formatBusinessDateTime } from "@/lib/dates/dates";
 import { formatIDR } from "@/lib/money/money";
 import type { PrintJobPayload } from "../printer-provider";
+import { rasterImageCommand, storedRasterToLogo } from "@/lib/branding/raster";
 import {
   ALIGN_CENTER,
   ALIGN_LEFT,
@@ -29,7 +30,8 @@ type Align = "left" | "center" | "right";
 
 type Block =
   | { kind: "line"; text: string; align: Align; bold?: boolean; tall?: boolean }
-  | { kind: "feed"; lines: number };
+  | { kind: "feed"; lines: number }
+  | { kind: "raster"; data: number[] };
 
 const DEFAULTS = { destination: "CUSTOMER_RECEIPT" as ReceiptDestination, columns: 32, feedLines: 4 };
 
@@ -87,7 +89,14 @@ function buildBlocks(payload: PrintJobPayload, options: ReceiptOptions = {}): Bl
   };
 
   if (isKitchen) push("KITCHEN", "center", { bold: true, tall: true });
-  else push(payload.locationName, "center", { bold: true, tall: true });
+  else {
+    // The logo replaces the name only when it actually rasterised; a
+    // kitchen ticket never gets one, since it is thrown away in minutes
+    // and the paper is better spent on the items.
+    const logo = storedRasterToLogo(payload.logoRaster ?? {});
+    if (logo) blocks.push({ kind: "raster", data: rasterImageCommand(logo) });
+    else push(payload.locationName, "center", { bold: true, tall: true });
+  }
 
   push(payload.orderNumber, "center", { bold: true, tall: isKitchen });
   push(formatBusinessDateTime(new Date(payload.createdAt), "dd MMM yyyy HH:mm"), "center");
@@ -156,6 +165,9 @@ export function renderReceiptText(payload: PrintJobPayload, options: ReceiptOpti
   return buildBlocks(payload, options)
     .flatMap((block) => {
       if (block.kind === "feed") return Array.from({ length: block.lines }, () => "");
+      // The preview is text, so stand in for the image rather than
+      // dropping the header line entirely.
+      if (block.kind === "raster") return ["[logo]"];
       if (block.align === "center") {
         const pad = Math.max(0, Math.floor((columns - block.text.length) / 2));
         return [" ".repeat(pad) + block.text];
@@ -176,6 +188,16 @@ export function renderReceipt(payload: PrintJobPayload, options: ReceiptOptions 
   for (const block of buildBlocks(payload, options)) {
     if (block.kind === "feed") {
       bytes.push(...feed(block.lines));
+      continue;
+    }
+    if (block.kind === "raster") {
+      // Centre it, emit the image, then let the next block re-assert its
+      // own alignment — the printer keeps whatever was set last.
+      if (align !== "center") {
+        bytes.push(...ALIGN_CENTER);
+        align = "center";
+      }
+      bytes.push(...block.data, ...LF);
       continue;
     }
     if (block.align !== align) {

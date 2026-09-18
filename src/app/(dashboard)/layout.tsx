@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
 import { getBusinessById } from "@/server/services/business-service";
 import { listMemberships } from "@/lib/auth/session";
+import { brandStyle } from "@/lib/branding/branding";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { formatRoles } from "@/lib/permissions/role-labels";
 import { AdminShell } from "@/components/admin-shell";
@@ -37,6 +38,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
       userName={user.name}
       roleLabel={formatRoles(user.roles)}
       businessName={business?.name ?? "CaféOps"}
+      logoUrl={business?.logoUrl ?? null}
+      brandStyle={brandStyle(business?.brandColor)}
       visibleNavItems={visibleNavItems}
       canUsePos={hasAnyRolePermission(user.roles, "orders:create")}
       activeMembershipId={user.membershipId}

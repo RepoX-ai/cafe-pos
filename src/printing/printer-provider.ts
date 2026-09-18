@@ -9,6 +9,13 @@ export type PrintJobPayload = {
   orderId: string;
   orderNumber: string;
   locationName: string;
+  /**
+   * The business's logo as a 1-bit raster, snapshotted onto the job like
+   * every other payload field — so a reprint shows the logo that was
+   * current when the order was placed, not whatever was uploaded since.
+   * Absent means the receipt just prints the business name, as before.
+   */
+  logoRaster?: { base64: string; width: number; height: number };
   createdAt: string;
   orderType?: string;
   tableLabel?: string;

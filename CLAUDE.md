@@ -79,7 +79,10 @@ a `"use client"` component file.
 Colors, spacing, and radii are CSS custom properties in
 `src/app/globals.css` (`--color-*`, `--space-*`, `--radius-*`) — light
 theme only for the MVP per the PRD; don't hardcode hex values in
-components. Font is Geist (already wired in `layout.tsx`).
+components. The `--color-accent-*` trio is additionally overridden
+per-business at the shell root from `businesses.brand_color` (see
+`src/lib/branding`), so anything that hardcodes the rust accent instead of
+reading the token will fail to re-theme when the user switches café. Font is Geist (already wired in `layout.tsx`).
 
 ## Where things live
 

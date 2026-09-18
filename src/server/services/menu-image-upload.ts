@@ -4,8 +4,22 @@ import path from "node:path";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 const MENU_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+
+/** Folders under the upload root. Both are business-scoped; see saveImage. */
+export type ImageFolder = "menu" | "brand";
+/**
+ * Root of the local upload tree. Named for the env var that has always
+ * configured it, which points at the `menu` folder's parent in practice —
+ * `uploadDirectory("menu")` therefore resolves exactly where menu photos
+ * already live, and brand logos sit beside them.
+ */
 export function menuImageDirectory() {
   return process.env.MENU_IMAGE_DIR || path.join(process.cwd(), "var", "uploads", "menu");
+}
+
+/** `<root>/<folder>` for everything except menu, which *is* the root. */
+export function uploadDirectory(folder: ImageFolder) {
+  return folder === "menu" ? menuImageDirectory() : path.join(menuImageDirectory(), folder);
 }
 export type SaveMenuImageResult = { ok: true; url: string } | { ok: false; error: string };
 
@@ -27,6 +41,15 @@ export function imageExtension(buffer: Buffer, mime: string): string | null {
  * under src/app/media/menu.
  */
 export async function saveMenuImage(file: File, businessId: string): Promise<SaveMenuImageResult> {
+  return saveImage(file, businessId, "menu");
+}
+
+/** The business's own logo, shown in the app shell and the POS header. */
+export async function saveBusinessLogo(file: File, businessId: string): Promise<SaveMenuImageResult> {
+  return saveImage(file, businessId, "brand");
+}
+
+async function saveImage(file: File, businessId: string, folder: ImageFolder): Promise<SaveMenuImageResult> {
   if (file.size === 0 || file.size > MENU_IMAGE_MAX_BYTES) return { ok: false, error: "Image must be between 1 byte and 3MB." };
   const buffer = Buffer.from(await file.arrayBuffer());
   const ext = imageExtension(buffer, file.type);
@@ -34,10 +57,10 @@ export async function saveMenuImage(file: File, businessId: string): Promise<Sav
   const filename = `${randomUUID()}.${ext}`;
   const provider = process.env.STORAGE_PROVIDER;
   if (provider === "local" && !process.env.VERCEL) {
-    const directory = path.join(menuImageDirectory(), businessId);
+    const directory = path.join(uploadDirectory(folder), businessId);
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, filename), buffer, { flag: "wx" });
-    return { ok: true, url: `/media/menu/${businessId}/${filename}` };
+    return { ok: true, url: `/media/${folder}/${businessId}/${filename}` };
   }
   if (provider !== "s3") return { ok: false, error: "Photo uploads need storage configuration. You can paste an image URL instead." };
   const { STORAGE_BUCKET: bucket, STORAGE_ACCESS_KEY: accessKeyId, STORAGE_SECRET_KEY: secretAccessKey, STORAGE_PUBLIC_URL: publicUrl } = process.env;
@@ -47,7 +70,7 @@ export async function saveMenuImage(file: File, businessId: string): Promise<Sav
   const client = new S3Client({ endpoint: process.env.STORAGE_ENDPOINT || undefined,
     region: process.env.STORAGE_REGION || "auto", forcePathStyle: process.env.STORAGE_FORCE_PATH_STYLE === "true",
     credentials: { accessKeyId, secretAccessKey } });
-  const key = `menu/${businessId}/${filename}`;
+  const key = `${folder}/${businessId}/${filename}`;
   try {
     await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: buffer, ContentType: file.type,
       CacheControl: "public, max-age=31536000, immutable" }));

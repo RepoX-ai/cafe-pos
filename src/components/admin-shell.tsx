@@ -57,6 +57,10 @@ interface AdminShellProps {
   userName: string;
   roleLabel: string;
   businessName: string;
+  /** This business's own logo; null falls back to the bundled wordmark. */
+  logoUrl: string | null;
+  /** Inline custom properties that re-theme the shell — see lib/branding. */
+  brandStyle?: React.CSSProperties;
   visibleNavItems: NavItem[];
   canUsePos: boolean;
   /** Every business this account can act in; one entry means no switcher. */
@@ -69,6 +73,8 @@ export function AdminShell({
   userName,
   roleLabel,
   businessName,
+  logoUrl,
+  brandStyle,
   visibleNavItems,
   canUsePos,
   businessOptions,
@@ -142,7 +148,7 @@ export function AdminShell({
     // a subtree), so globals.css additionally pins those routes back to
     // light via `.force-light-theme` as a belt-and-suspenders guard.
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-      <div className="flex h-screen overflow-hidden bg-[var(--color-page-bg)]">
+      <div style={brandStyle} className="flex h-screen overflow-hidden bg-[var(--color-page-bg)]">
         <aside
           className={`flex h-screen shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] transition-[width] duration-150 ${
             collapsed ? "w-[68px]" : "w-[220px]"
@@ -156,7 +162,7 @@ export function AdminShell({
             {!collapsed ? (
               <>
                 <div className="flex min-w-0 items-center">
-                  <BrandLogo className="h-8" alt={businessName} />
+                  <BrandLogo className="h-8" alt={businessName} src={logoUrl} />
                 </div>
                 <button
                   onClick={toggleCollapsed}
