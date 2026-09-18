@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:migrate-to": "tsx scripts/migrate-to.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:studio": "drizzle-kit studio",
     "db:backfill-default-variants": "tsx scripts/backfill-default-variants.ts",

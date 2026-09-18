@@ -70,6 +70,7 @@ data only — never run the seed script against a production database.
 | `npm run test:e2e` | End-to-end tests (Playwright, needs a running seeded app) |
 | `npm run db:generate` | Generate a new migration from schema changes |
 | `npm run db:migrate` | Apply migrations to `DATABASE_URL` |
+| `npm run db:migrate-to <tag>` | Apply migrations up to one tag and stop (for upgrades with a data step in the middle) |
 | `npm run db:seed` | Insert development seed data (idempotent) |
 | `npm run db:create-owner` | Create a business + owner account (run again for each additional café) |
 | `npm run db:backfill-memberships` | One-off: move `users.business_id` / `user_roles` onto `memberships` (see Multi-tenancy) |
@@ -216,10 +217,17 @@ takes three steps in this order — the middle one is a data migration that
 `drizzle-kit` cannot generate:
 
 ```bash
-npm run db:migrate                 # 0010 — additive, safe to run while the app is up
-npm run db:backfill-memberships    # moves the data across, then clears all sessions
-npm run db:migrate                 # 0011 — drops users.business_id and user_roles
+npm run db:migrate-to 0010_add_memberships_and_tenant_columns   # additive; safe while the app is up
+npm run db:backfill-memberships                                 # moves the data across, clears sessions
+npm run db:migrate                                              # 0011 — drops the old columns
 ```
+
+The first step is `db:migrate-to`, not `db:migrate`, and that matters:
+`db:migrate` runs *every* pending migration in one transaction, so on an
+install that is more than one migration behind it would reach 0011 before
+the backfill has run, fail its `NOT NULL` checks, and roll 0010 back with
+it. `db:migrate-to` stops at the tag you name and records it exactly the
+way drizzle does, so the final `db:migrate` picks up cleanly from there.
 
 Everyone signs in again once afterwards; that is deliberate, and it is why
 no half-migrated session can resolve to the wrong business. Deploy the new
