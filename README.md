@@ -71,7 +71,8 @@ data only — never run the seed script against a production database.
 | `npm run db:generate` | Generate a new migration from schema changes |
 | `npm run db:migrate` | Apply migrations to `DATABASE_URL` |
 | `npm run db:seed` | Insert development seed data (idempotent) |
-| `npm run db:create-owner` | Create the first business + owner account on a fresh/production database |
+| `npm run db:create-owner` | Create a business + owner account (run again for each additional café) |
+| `npm run db:backfill-memberships` | One-off: move `users.business_id` / `user_roles` onto `memberships` (see Multi-tenancy) |
 | `npm run db:cleanup-rate-limits` | Delete expired rate-limit buckets (optional cron; the app also cleans up after requests) |
 | `npm run db:studio` | Drizzle Studio (browse the database) |
 
@@ -96,6 +97,13 @@ data only — never run the seed script against a production database.
   SHA-256 hash of the session token lives in Postgres, and every request
   re-validates it (including the user's `active` flag) so deactivation
   takes effect immediately.
+- **One install serves several independent cafés.** Every tenant-owned row
+  carries `business_id`, and a request's business comes from its session
+  row — never from a URL, form field or header — so no request can name
+  its own tenant. Access is a `memberships` row (user × business, with the
+  roles for that business), so one person can own café A and cash up at
+  café B under a single login, switching from the account menu. See
+  **Multi-tenancy** below.
 - **Concurrency**: checkout, cancellation/refund, purchases and stock counts
   lock ingredient rows in ingredient-id order (reversals lock the order row
   first), so competing requests serialize instead of double-applying stock.
@@ -159,6 +167,78 @@ Tracking the PRD's phased plan (§18):
       production deploy are operational steps for the café's team to run
       against real infrastructure — see the checklists in
       [docs/deployment.md](docs/deployment.md) and PRD §19.
+
+## Multi-tenancy
+
+One deployment, one database, several independent cafés. Nothing is shared
+between them but the `roles` catalogue and the login page.
+
+### How a request finds its tenant
+
+`sessions.active_membership_id` points at one `memberships` row, and that
+row names the business. `validateSessionToken` joins through it and returns
+`SessionUser.businessId`, which every page, action and service already
+takes as "the tenant for this request". The client never supplies it, so
+there is no request in which a caller can aim at a business they don't
+belong to — including the business switcher, which re-checks the
+membership against the session's own user before moving anything.
+
+Revoking access is `memberships.active = false`. Sessions pinned to that
+membership stop validating on the very next request, and the same person's
+sessions at their *other* cafés are untouched.
+
+### Adding a café
+
+```bash
+npm run db:create-owner      # prompts, or BUSINESS_NAME/OWNER_EMAIL/... in a non-TTY
+```
+
+Run it once per café. If the owner's email already has a CaféOps account
+it is linked to the new business instead of duplicated — one login, one
+password they control, an owner role per café.
+
+### Shared accounts
+
+Someone who works at two cafés has **one** `users` row and two
+memberships. Their role, their active/suspended state and their history
+are per-café; their name, email and password are not, and belong to them.
+So the staff screen refuses to let café A rename, re-email or reset the
+password of an account that also works at café B (the role is still café
+A's to set), and "remove" takes away the membership rather than deleting a
+login café A doesn't own. Those rules are in
+`src/server/services/staff-service.ts` and covered by
+`tests/integration/multi-tenancy.test.ts`.
+
+### Upgrading an existing single-tenant install
+
+Access used to live on `users.business_id`. Moving it to `memberships`
+takes three steps in this order — the middle one is a data migration that
+`drizzle-kit` cannot generate:
+
+```bash
+npm run db:migrate                 # 0010 — additive, safe to run while the app is up
+npm run db:backfill-memberships    # moves the data across, then clears all sessions
+npm run db:migrate                 # 0011 — drops users.business_id and user_roles
+```
+
+Everyone signs in again once afterwards; that is deliberate, and it is why
+no half-migrated session can resolve to the wrong business. Deploy the new
+code together with step 3 — between the backfill and 0011 the old code
+still runs, but after 0011 it cannot.
+
+The backfill also fills the `business_id` columns added to `recipes`,
+`recipe_lines`, `modifier_recipe_lines` and `print_jobs`. Those four used
+to reach their tenant only by joining (variant → item, job → order), which
+every query had to remember; they now carry it directly.
+
+### Not done here
+
+Row-level security. Tenant isolation is enforced in application code, and
+every tenant table now has a `business_id` for a Postgres RLS policy to
+key off — but the policies and the `set local app.business_id` wrapper
+aren't written. Until they are, a service function that forgets its
+`.where(eq(..., businessId))` is a cross-tenant leak that nothing below it
+would catch.
 
 ## Known limitations / deliberately out of scope
 

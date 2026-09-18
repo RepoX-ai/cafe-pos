@@ -104,7 +104,7 @@ describe.skipIf(!dbA)("order reversal concurrency (PostgreSQL)", () => {
       .values({ businessId: fixture.business.id, name: `Milk ${randomUUID()}`, baseUnit: "millilitre", currentQuantityBaseUnits: "1000", averageCostPerBaseUnit: "1" })
       .returning();
     const [recipe] = await dbA!.select().from(schema.recipes).where(eq(schema.recipes.menuItemVariantId, fixture.variant.id));
-    await dbA!.insert(schema.recipeLines).values({ recipeId: recipe.id, ingredientId: second.id, quantityBaseUnits: "50" });
+    await dbA!.insert(schema.recipeLines).values({ businessId: fixture.business.id, recipeId: recipe.id, ingredientId: second.id, quantityBaseUnits: "50" });
     const { order } = await submitOrder(dbA!, actor, {
       idempotencyKey: randomUUID(),
       orderType: "dine_in",
@@ -199,16 +199,16 @@ describe.skipIf(!dbA)("order submission concurrency (PostgreSQL)", () => {
       .values({ businessId: fixture.business.id, name: `Sugar ${suffix}`, baseUnit: "gram", currentQuantityBaseUnits: "500", averageCostPerBaseUnit: "4" })
       .returning();
     const [recipe] = await dbA!.select().from(schema.recipes).where(eq(schema.recipes.menuItemVariantId, fixture.variant.id));
-    await dbA!.insert(schema.recipeLines).values({ recipeId: recipe.id, ingredientId: beans.id, quantityBaseUnits: "5" });
+    await dbA!.insert(schema.recipeLines).values({ businessId: fixture.business.id, recipeId: recipe.id, ingredientId: beans.id, quantityBaseUnits: "5" });
 
     const [tea] = await dbA!.insert(schema.menuItems).values({ businessId: fixture.business.id, name: `Tea ${suffix}`, basePrice: 15_000 }).returning();
     const [teaVariant] = await dbA!.insert(schema.menuItemVariants).values({ menuItemId: tea.id, name: "Regular", price: 15_000 }).returning();
-    const [teaRecipe] = await dbA!.insert(schema.recipes).values({ menuItemVariantId: teaVariant.id }).returning();
-    await dbA!.insert(schema.recipeLines).values({ recipeId: teaRecipe.id, ingredientId: fixture.ingredient.id, quantityBaseUnits: "10" });
+    const [teaRecipe] = await dbA!.insert(schema.recipes).values({ businessId: fixture.business.id, menuItemVariantId: teaVariant.id }).returning();
+    await dbA!.insert(schema.recipeLines).values({ businessId: fixture.business.id, recipeId: teaRecipe.id, ingredientId: fixture.ingredient.id, quantityBaseUnits: "10" });
 
     const [group] = await dbA!.insert(schema.modifierGroups).values({ businessId: fixture.business.id, name: "Extra", maxSelections: 1 }).returning();
     const [extra] = await dbA!.insert(schema.modifierOptions).values({ modifierGroupId: group.id, name: "Extra shot", priceAdjustment: 3_000 }).returning();
-    await dbA!.insert(schema.modifierRecipeLines).values({ modifierOptionId: extra.id, ingredientId: fixture.ingredient.id, quantityBaseUnits: "7" });
+    await dbA!.insert(schema.modifierRecipeLines).values({ businessId: fixture.business.id, modifierOptionId: extra.id, ingredientId: fixture.ingredient.id, quantityBaseUnits: "7" });
     await dbA!.insert(schema.menuItemModifierGroups).values([
       { menuItemId: fixture.menuItem.id, modifierGroupId: group.id },
       { menuItemId: tea.id, modifierGroupId: group.id },

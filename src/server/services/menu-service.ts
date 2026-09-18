@@ -578,6 +578,7 @@ export async function saveModifierOptionRecipe(db: Database, actor: ActorContext
           .insert(modifierRecipeLines)
           .values(
             input.lines.map((line) => ({
+              businessId: actor.businessId,
               modifierOptionId: input.optionId,
               ingredientId: line.ingredientId,
               quantityBaseUnits: String(line.quantityBaseUnits),

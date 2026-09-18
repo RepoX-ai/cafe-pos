@@ -88,16 +88,20 @@ async function main() {
     const [user] = await db
       .insert(schema.users)
       .values({
-        businessId: business.id,
         name: person.name,
         email: person.email,
         passwordHash,
       })
       .returning();
 
+    const [membership] = await db
+      .insert(schema.memberships)
+      .values({ userId: user.id, businessId: business.id })
+      .returning();
+
     const roleId = roleIdByName.get(person.role);
     if (!roleId) throw new Error(`Missing role: ${person.role}`);
-    await db.insert(schema.userRoles).values({ userId: user.id, roleId });
+    await db.insert(schema.membershipRoles).values({ membershipId: membership.id, roleId });
   }
 
   // --- Ingredients (base units per PRD §1.7) --------------------------------
@@ -203,7 +207,7 @@ async function main() {
 
     const [recipe] = await db
       .insert(schema.recipes)
-      .values({ menuItemVariantId: variant.id, version: 1 })
+      .values({ businessId: business.id, menuItemVariantId: variant.id, version: 1 })
       .returning();
 
     await db.insert(schema.recipeLines).values(
@@ -211,6 +215,7 @@ async function main() {
         const ingredientId = ingredientIdByName.get(line.ingredient);
         if (!ingredientId) throw new Error(`Unknown seed ingredient: ${line.ingredient}`);
         return {
+          businessId: business.id,
           recipeId: recipe.id,
           ingredientId,
           quantityBaseUnits: line.quantity,

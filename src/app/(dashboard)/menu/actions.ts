@@ -54,10 +54,13 @@ async function actor() {
  * yet, `imageFile` is absent and the hidden `imageUrl` field carries the
  * item's existing URL through unchanged — never a silent clear.
  */
-async function resolveImageUrl(formData: FormData): Promise<{ ok: true; imageUrl: string } | { ok: false; error: string }> {
+async function resolveImageUrl(
+  formData: FormData,
+  businessId: string,
+): Promise<{ ok: true; imageUrl: string } | { ok: false; error: string }> {
   const file = formData.get("imageFile");
   if (file instanceof File && file.size > 0) {
-    const saved = await saveMenuImage(file);
+    const saved = await saveMenuImage(file, businessId);
     if (!saved.ok) return { ok: false, error: saved.error };
     return { ok: true, imageUrl: saved.url };
   }
@@ -104,7 +107,7 @@ export async function deleteCategoryAction(formData: FormData): Promise<void> {
 export async function createMenuItemAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
   const { user, actor: ctx } = await actor();
   requirePermission(user.roles, "menu:write");
-  const image = await resolveImageUrl(formData);
+  const image = await resolveImageUrl(formData, ctx.businessId);
   if (!image.ok) return { ok: false, error: image.error, fieldErrors: { imageUrl: image.error } };
   const parsed = menuItemInputSchema.safeParse({
     name: formData.get("name"),
@@ -130,7 +133,7 @@ export async function updateMenuItemAction(_prev: FormActionState, formData: For
   const { user, actor: ctx } = await actor();
   requirePermission(user.roles, "menu:write");
   const id = String(formData.get("id") ?? "");
-  const image = await resolveImageUrl(formData);
+  const image = await resolveImageUrl(formData, ctx.businessId);
   if (!image.ok) return { ok: false, error: image.error, fieldErrors: { imageUrl: image.error } };
   const parsed = menuItemInputSchema.safeParse({
     name: formData.get("name"),

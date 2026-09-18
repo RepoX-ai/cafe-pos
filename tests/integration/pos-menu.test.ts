@@ -74,6 +74,7 @@ describe.skipIf(!db)("POS menu stock availability (integration)", () => {
     await db!.insert(menuItemModifierGroups).values({ menuItemId: menuItem.id, modifierGroupId: group.id });
     // Ingredient only has 1000g; the modifier alone asks for more than that.
     await db!.insert(modifierRecipeLines).values({
+      businessId: business.id,
       modifierOptionId: option.id,
       ingredientId: ingredient.id,
       quantityBaseUnits: "5000",
@@ -141,8 +142,8 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
         { menuItemId: menuItem.id, name: "Retired", price: 1, active: false },
       ])
       .returning();
-    const [largeRecipe] = await db!.insert(recipes).values({ menuItemVariantId: large.id }).returning();
-    await db!.insert(recipeLines).values({ recipeId: largeRecipe.id, ingredientId: short.id, quantityBaseUnits: "5" });
+    const [largeRecipe] = await db!.insert(recipes).values({ businessId: business.id, menuItemVariantId: large.id }).returning();
+    await db!.insert(recipeLines).values({ businessId: business.id, recipeId: largeRecipe.id, ingredientId: short.id, quantityBaseUnits: "5" });
 
     const [plain, untracked] = await db!
       .insert(menuItems)
@@ -153,8 +154,8 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
       ])
       .returning();
     const [waterVariant] = await db!.insert(menuItemVariants).values({ menuItemId: untracked.id, name: "Bottle", price: 5_000 }).returning();
-    const [waterRecipe] = await db!.insert(recipes).values({ menuItemVariantId: waterVariant.id }).returning();
-    await db!.insert(recipeLines).values({ recipeId: waterRecipe.id, ingredientId: short.id, quantityBaseUnits: "5" });
+    const [waterRecipe] = await db!.insert(recipes).values({ businessId: business.id, menuItemVariantId: waterVariant.id }).returning();
+    await db!.insert(recipeLines).values({ businessId: business.id, recipeId: waterRecipe.id, ingredientId: short.id, quantityBaseUnits: "5" });
 
     const [group] = await db!
       .insert(modifierGroups)
@@ -168,7 +169,7 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
         { modifierGroupId: group.id, name: "Gone", active: false },
       ])
       .returning();
-    await db!.insert(modifierRecipeLines).values({ modifierOptionId: extraSugar.id, ingredientId: short.id, quantityBaseUnits: "5" });
+    await db!.insert(modifierRecipeLines).values({ businessId: business.id, modifierOptionId: extraSugar.id, ingredientId: short.id, quantityBaseUnits: "5" });
     await db!.insert(menuItemModifierGroups).values([
       { menuItemId: menuItem.id, modifierGroupId: group.id },
       { menuItemId: untracked.id, modifierGroupId: group.id },

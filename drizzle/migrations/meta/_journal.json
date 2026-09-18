@@ -71,6 +71,20 @@
       "when": 1789565017489,
       "tag": "0009_flowery_fallen_one",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789707691233,
+      "tag": "0010_add_memberships_and_tenant_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789707728115,
+      "tag": "0011_memberships_replace_user_business",
+      "breakpoints": true
     }
   ]
 }

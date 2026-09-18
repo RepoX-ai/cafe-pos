@@ -54,7 +54,6 @@ async function seedBusinessAndUser(testDb: NonNullable<typeof db>) {
   const [user] = await testDb
     .insert(users)
     .values({
-      businessId: business.id,
       name: "Test Owner",
       email: `owner-${suffix}@test.local`,
       passwordHash: await hashPassword("irrelevant"),

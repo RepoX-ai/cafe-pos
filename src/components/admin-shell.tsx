@@ -24,6 +24,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { logoutAction } from "@/app/(auth)/login/actions";
+import { BusinessSwitcher, type BusinessOption } from "@/components/business-switcher";
 import { BrandLogo } from "@/components/brand-logo";
 import { NAV_GROUP_ORDER, type NavItem } from "@/lib/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -58,6 +59,9 @@ interface AdminShellProps {
   businessName: string;
   visibleNavItems: NavItem[];
   canUsePos: boolean;
+  /** Every business this account can act in; one entry means no switcher. */
+  businessOptions: BusinessOption[];
+  activeMembershipId: string;
 }
 
 export function AdminShell({
@@ -67,6 +71,8 @@ export function AdminShell({
   businessName,
   visibleNavItems,
   canUsePos,
+  businessOptions,
+  activeMembershipId,
 }: AdminShellProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -239,9 +245,11 @@ export function AdminShell({
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-selected-surface)] text-xs font-semibold text-[var(--color-accent-primary)]">
                   {initials(userName)}
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{userName}</p>
-                  <p className="text-xs text-[var(--color-text-muted)]">{roleLabel}</p>
+                  <p className="truncate text-xs text-[var(--color-text-muted)]">
+                    {businessOptions.length > 1 ? `${roleLabel} · ${businessName}` : roleLabel}
+                  </p>
                 </div>
                 <ChevronDown
                   size={16}
@@ -252,8 +260,14 @@ export function AdminShell({
               {userMenuOpen ? (
                 <div
                   role="menu"
-                  className="absolute right-0 z-20 mt-1.5 w-40 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg"
+                  className="absolute right-0 z-20 mt-1.5 w-56 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg"
                 >
+                  {businessOptions.length > 1 ? (
+                    <>
+                      <BusinessSwitcher options={businessOptions} activeMembershipId={activeMembershipId} />
+                      <div className="my-1 border-t border-[var(--color-border)]" />
+                    </>
+                  ) : null}
                   <form action={logoutAction}>
                     <button
                       type="submit"

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { verifyPassword } from "@/lib/auth/password";
-import { createSession, invalidateSessionToken } from "@/lib/auth/session";
+import { createSession, invalidateSessionToken, resolveDefaultMembership } from "@/lib/auth/session";
 import { recordAuditLog } from "./audit";
 
 export interface RequestMeta {
@@ -12,7 +12,7 @@ export interface RequestMeta {
 
 export type LoginResult =
   | { ok: true; token: string; expiresAt: Date }
-  | { ok: false; error: "invalid_credentials" | "account_deactivated" };
+  | { ok: false; error: "invalid_credentials" | "account_deactivated" | "no_business_access" };
 
 /**
  * Looks up by email OR by name-as-username (PRD: "log in with email or
@@ -20,6 +20,10 @@ export type LoginResult =
  * user" and "wrong password" so login can't be used to enumerate accounts;
  * a deactivated account gets its own message since that's operationally
  * useful for staff to see and isn't a secret.
+ *
+ * Which business the new session lands in is decided here, from the
+ * account's memberships — never from the login form. There is no input a
+ * caller could supply to aim a session at a business they don't belong to.
  */
 export async function login(
   db: Database,
@@ -46,10 +50,18 @@ export async function login(
     return { ok: false, error: "account_deactivated" };
   }
 
-  const { token, expiresAt } = await createSession(db, user.id, meta);
+  // Credentials alone no longer grant access: the account must still hold
+  // an active membership somewhere. Someone removed from the only cafe
+  // they worked at keeps a valid password and gets nowhere with it.
+  const membership = await resolveDefaultMembership(db, user.id);
+  if (!membership) {
+    return { ok: false, error: "no_business_access" };
+  }
+
+  const { token, expiresAt } = await createSession(db, user.id, membership.membershipId, meta);
 
   await recordAuditLog(db, {
-    businessId: user.businessId,
+    businessId: membership.businessId,
     actorUserId: user.id,
     action: "login",
     entityType: "user",

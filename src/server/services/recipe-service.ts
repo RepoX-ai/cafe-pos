@@ -120,6 +120,7 @@ export async function saveRecipe(db: Database, actor: ActorContext, input: Recip
     const [created] = await tx
       .insert(recipes)
       .values({
+        businessId: actor.businessId,
         menuItemVariantId: input.menuItemVariantId,
         version: (previous?.version ?? 0) + 1,
         active: true,
@@ -129,6 +130,7 @@ export async function saveRecipe(db: Database, actor: ActorContext, input: Recip
 
     await tx.insert(recipeLines).values(
       input.lines.map((line) => ({
+        businessId: actor.businessId,
         recipeId: created.id,
         ingredientId: line.ingredientId,
         quantityBaseUnits: String(line.quantityBaseUnits),

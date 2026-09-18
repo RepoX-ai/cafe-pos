@@ -14,10 +14,11 @@ export function getTestDb() {
 export type TestDb = NonNullable<ReturnType<typeof getTestDb>>;
 
 /**
- * Creates an isolated business + owner user + one ingredient + one menu
- * item/variant/recipe for a single test to exercise. Each test gets its
- * own business row (named uniquely) so tests never see each other's data,
- * even though they share one physical test database.
+ * Creates an isolated business + owner user + owner membership + one
+ * ingredient + one menu item/variant/recipe for a single test to
+ * exercise. Each test gets its own business row (named uniquely) so tests
+ * never see each other's data, even though they share one physical test
+ * database.
  */
 export async function seedTestFixture(db: TestDb, opts: { openingStock?: string; costPerBaseUnit?: string } = {}) {
   const suffix = randomUUID().slice(0, 8);
@@ -30,11 +31,15 @@ export async function seedTestFixture(db: TestDb, opts: { openingStock?: string;
   const [user] = await db
     .insert(schema.users)
     .values({
-      businessId: business.id,
       name: "Test Owner",
       email: `owner-${suffix}@test.local`,
       passwordHash: await hashPassword("irrelevant"),
     })
+    .returning();
+
+  const [membership] = await db
+    .insert(schema.memberships)
+    .values({ userId: user.id, businessId: business.id })
     .returning();
 
   const [ingredient] = await db
@@ -58,13 +63,17 @@ export async function seedTestFixture(db: TestDb, opts: { openingStock?: string;
     .values({ menuItemId: menuItem.id, name: "Regular", price: 20_000 })
     .returning();
 
-  const [recipe] = await db.insert(schema.recipes).values({ menuItemVariantId: variant.id }).returning();
+  const [recipe] = await db
+    .insert(schema.recipes)
+    .values({ businessId: business.id, menuItemVariantId: variant.id })
+    .returning();
 
   await db.insert(schema.recipeLines).values({
+    businessId: business.id,
     recipeId: recipe.id,
     ingredientId: ingredient.id,
     quantityBaseUnits: "20",
   });
 
-  return { business, user, ingredient, menuItem, variant };
+  return { business, user, membership, ingredient, menuItem, variant };
 }

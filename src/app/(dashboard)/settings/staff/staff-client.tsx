@@ -24,10 +24,13 @@ import { useToast } from "@/components/ui/toast";
 
 interface StaffRow {
   id: string;
+  membershipId: string;
   name: string;
   email: string;
   active: boolean;
   roles: RoleName[];
+  /** Also works at another business on this install — their account isn't ours to change. */
+  linkedElsewhere: boolean;
 }
 
 interface StaffFormValues {
@@ -49,9 +52,17 @@ export function StaffClient({ staff, currentUserId }: { staff: StaffRow[]; curre
       showToast("error", result.error);
       return result;
     }
-    showToast("success", "Staff account created.");
     setCreating(false);
-    setTempPasswordBanner({ email: values.email, password: result.tempPassword });
+    if (result.linkedExistingAccount) {
+      // They already have a CaféOps login from another business, so there
+      // is no temporary password to hand over — they sign in as they do now.
+      showToast("success", "Existing account added to your staff. They sign in with their current password.");
+      return { ok: true };
+    }
+    showToast("success", "Staff account created.");
+    if (result.tempPassword) {
+      setTempPasswordBanner({ email: values.email, password: result.tempPassword });
+    }
     return { ok: true };
   }
 
@@ -153,10 +164,10 @@ function StaffRowItem({
     setError(null);
     const result = await resetStaffPasswordAction(staff.id);
     setIsPending(false);
-    if (result.ok) {
+    if (result.ok && result.tempPassword) {
       showToast("success", "Password reset.");
       onShowTempPassword(result.tempPassword);
-    } else {
+    } else if (!result.ok) {
       setError(result.error);
       showToast("error", result.error);
     }
@@ -192,7 +203,17 @@ function StaffRowItem({
         {staff.name}
         {isSelf ? <span className="ml-1.5 text-xs text-[var(--color-text-muted)]">(you)</span> : null}
       </td>
-      <td className="px-4 py-3 text-[var(--color-text-secondary)]">{staff.email}</td>
+      <td className="px-4 py-3 text-[var(--color-text-secondary)]">
+        {staff.email}
+        {staff.linkedElsewhere ? (
+          <span
+            className="ml-1.5 text-xs text-[var(--color-text-muted)]"
+            title="This person also works at another business. Their name, email and password belong to them — you can still change their role here."
+          >
+            (shared account)
+          </span>
+        ) : null}
+      </td>
       <td className="px-4 py-3">
         {isSuperAdmin ? (
           <Badge tone="accent">Super Admin</Badge>
@@ -212,7 +233,12 @@ function StaffRowItem({
               label={`Actions for ${staff.name}`}
               items={[
                 { label: "Edit details", onSelect: () => setEditing(true), disabled: isPending },
-                { label: "Reset password", onSelect: resetPassword, disabled: isPending },
+                {
+                  label: "Reset password",
+                  onSelect: resetPassword,
+                  disabled: isPending || staff.linkedElsewhere,
+                  disabledReason: "They also work at another business, so their password isn't yours to reset",
+                },
                 {
                   label: staff.active ? "Deactivate" : "Reactivate",
                   onSelect: toggleActive,
@@ -221,7 +247,7 @@ function StaffRowItem({
                   disabledReason: "You can't deactivate your own account",
                 },
                 {
-                  label: "Delete permanently",
+                  label: staff.linkedElsewhere ? "Remove from this business" : "Delete permanently",
                   onSelect: () => setDeleting(true),
                   tone: "danger",
                   disabled: isPending || isSelf,
@@ -337,6 +363,10 @@ function StaffForm({
  * account's history rows survive but lose the name attached to them. The
  * dialog loads the exact counts first, so the owner sees what they are
  * giving up before confirming.
+ *
+ * A shared account (one that also works at another business on this
+ * install) is only removed from *this* business — the login itself isn't
+ * this owner's to delete — so the dialog says so and nothing is lost.
  */
 function DeleteStaffDialog({ staff, onClose }: { staff: StaffRow; onClose: () => void }) {
   const [impact, setImpact] = useState<{ label: string; count: number }[] | null>(null);
@@ -364,7 +394,7 @@ function DeleteStaffDialog({ staff, onClose }: { staff: StaffRow; onClose: () =>
     const result = await deleteStaffAction(staff.id);
     setIsPending(false);
     if (result.ok) {
-      showToast("success", `${staff.name} deleted.`);
+      showToast("success", result.accountDeleted ? `${staff.name} deleted.` : `${staff.name} removed from this business.`);
       onClose();
     } else {
       setError(result.error);
@@ -373,11 +403,24 @@ function DeleteStaffDialog({ staff, onClose }: { staff: StaffRow; onClose: () =>
   }
 
   return (
-    <Modal open onClose={onClose} title={`Delete ${staff.name}?`}>
+    <Modal
+      open
+      onClose={onClose}
+      title={staff.linkedElsewhere ? `Remove ${staff.name} from this business?` : `Delete ${staff.name}?`}
+    >
       <div className="flex flex-col gap-4">
         <p className="text-sm text-[var(--color-text-secondary)]">
-          This permanently removes the account and signs them out everywhere. It can&apos;t be undone &mdash; to keep
-          their history intact and only stop them logging in, deactivate them instead.
+          {staff.linkedElsewhere ? (
+            <>
+              They also work at another business, so their login stays. This only removes their access here and signs
+              out the sessions using it &mdash; their name stays on the history below.
+            </>
+          ) : (
+            <>
+              This permanently removes the account and signs them out everywhere. It can&apos;t be undone &mdash; to
+              keep their history intact and only stop them logging in, deactivate them instead.
+            </>
+          )}
         </p>
 
         {loading ? (
@@ -385,7 +428,9 @@ function DeleteStaffDialog({ staff, onClose }: { staff: StaffRow; onClose: () =>
         ) : impact && impact.length > 0 ? (
           <div className="rounded-[var(--radius-sm)] bg-[var(--color-warning-bg)] px-3 py-3">
             <p className="text-sm font-medium text-[var(--color-warning)]">
-              These records stay, but will no longer show who was responsible:
+              {staff.linkedElsewhere
+                ? "Their name stays on these records:"
+                : "These records stay, but will no longer show who was responsible:"}
             </p>
             <ul className="mt-2 flex flex-col gap-1 text-sm text-[var(--color-text-secondary)]">
               {impact.map((entry) => (
@@ -415,7 +460,13 @@ function DeleteStaffDialog({ staff, onClose }: { staff: StaffRow; onClose: () =>
             Cancel
           </Button>
           <Button variant="danger" onClick={confirmDelete} disabled={isPending || loading}>
-            {isPending ? "Deleting…" : "Delete permanently"}
+            {isPending
+              ? staff.linkedElsewhere
+                ? "Removing…"
+                : "Deleting…"
+              : staff.linkedElsewhere
+                ? "Remove from this business"
+                : "Delete permanently"}
           </Button>
         </div>
       </div>

@@ -7,7 +7,12 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { login, logout } from "@/server/services/auth-service";
-import { createSession, deleteExpiredSessions, SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import {
+  createSession,
+  deleteExpiredSessions,
+  resolveDefaultMembership,
+  SESSION_COOKIE_NAME,
+} from "@/lib/auth/session";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getRequestMeta } from "@/lib/http/request-meta";
 import {
@@ -71,7 +76,9 @@ export async function loginAction(
       error:
         result.error === "account_deactivated"
           ? "This account has been deactivated. Contact your owner or manager."
-          : "Incorrect email or password.",
+          : result.error === "no_business_access"
+            ? "This account no longer has access to any business. Contact your owner or manager."
+            : "Incorrect email or password.",
     };
   }
 
@@ -142,7 +149,12 @@ export async function devQuickLoginAction(email: string): Promise<DevQuickLoginS
     await logout(db, existingToken, { businessId: currentUser.businessId, userId: currentUser.id });
   }
 
-  const { token, expiresAt } = await createSession(db, user.id, await getRequestMeta());
+  const membership = await resolveDefaultMembership(db, user.id);
+  if (!membership) {
+    return { error: `${account.email} isn't a member of any business — run "npm run db:seed" first.` };
+  }
+
+  const { token, expiresAt } = await createSession(db, user.id, membership.membershipId, await getRequestMeta());
 
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,

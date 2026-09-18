@@ -10,6 +10,7 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+import { businesses } from "./core";
 import { ingredients } from "./ingredients";
 import { menuItemVariants, modifierOptions } from "./menu";
 import { users } from "./auth";
@@ -23,6 +24,12 @@ import { users } from "./auth";
  */
 export const recipes = pgTable("recipes", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
+  // Denormalised from the owning menu item. Tenancy was previously only
+  // reachable by joining variant -> item, which every query had to
+  // remember and which row-level security cannot express.
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "restrict" }),
   menuItemVariantId: uuid("menu_item_variant_id")
     .notNull()
     .references(() => menuItemVariants.id, { onDelete: "cascade" }),
@@ -37,10 +44,14 @@ export const recipes = pgTable("recipes", {
     .where(sql`${table.active}`),
   // Inactive versions too: the cascade when a variant is deleted.
   index("recipes_variant_id_idx").on(table.menuItemVariantId),
+  index("recipes_business_id_idx").on(table.businessId),
 ]);
 
 export const recipeLines = pgTable("recipe_lines", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "restrict" }),
   recipeId: uuid("recipe_id")
     .notNull()
     .references(() => recipes.id, { onDelete: "cascade" }),
@@ -59,10 +70,14 @@ export const recipeLines = pgTable("recipe_lines", {
   index("recipe_lines_recipe_id_idx").on(table.recipeId),
   // The cascade when an ingredient is deleted, and recipe-usage counts.
   index("recipe_lines_ingredient_id_idx").on(table.ingredientId),
+  index("recipe_lines_business_id_idx").on(table.businessId),
 ]);
 
 export const modifierRecipeLines = pgTable("modifier_recipe_lines", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "restrict" }),
   modifierOptionId: uuid("modifier_option_id")
     .notNull()
     .references(() => modifierOptions.id, { onDelete: "cascade" }),
@@ -74,4 +89,5 @@ export const modifierRecipeLines = pgTable("modifier_recipe_lines", {
 }, (table) => [
   index("modifier_recipe_lines_option_id_idx").on(table.modifierOptionId),
   index("modifier_recipe_lines_ingredient_id_idx").on(table.ingredientId),
+  index("modifier_recipe_lines_business_id_idx").on(table.businessId),
 ]);

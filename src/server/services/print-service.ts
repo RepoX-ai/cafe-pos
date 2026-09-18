@@ -452,6 +452,7 @@ export async function createReprintJob(
     const [job] = await tx
       .insert(printJobs)
       .values({
+        businessId: actor.businessId,
         orderId,
         destination: lastJob?.destination ?? "CUSTOMER_RECEIPT",
         provider,

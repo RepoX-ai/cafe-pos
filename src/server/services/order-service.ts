@@ -461,6 +461,7 @@ async function attemptSubmitOrder(
 
     // Print job: queued now, processed by a provider after commit.
     await tx.insert(printJobs).values({
+      businessId: actor.businessId,
       orderId: order.id,
       destination: "CUSTOMER_RECEIPT",
       provider: configuredPrintProvider(),

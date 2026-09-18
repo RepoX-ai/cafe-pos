@@ -17,7 +17,7 @@ import {
 } from "@/server/services/staff-service";
 
 export type CreateStaffResult =
-  | { ok: true; tempPassword: string }
+  | { ok: true; tempPassword: string | null; linkedExistingAccount: boolean }
   | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
 export async function createStaffAction(input: unknown): Promise<CreateStaffResult> {
@@ -30,9 +30,13 @@ export async function createStaffAction(input: unknown): Promise<CreateStaffResu
   }
 
   try {
-    const { tempPassword } = await createStaff(db, { businessId: user.businessId, userId: user.id }, parsed.data);
+    const { tempPassword, linkedExistingAccount } = await createStaff(
+      db,
+      { businessId: user.businessId, userId: user.id },
+      parsed.data,
+    );
     revalidatePath("/settings/staff");
-    return { ok: true, tempPassword };
+    return { ok: true, tempPassword, linkedExistingAccount };
   } catch (error) {
     return { ok: false, error: (error as Error).message };
   }
@@ -61,7 +65,7 @@ export async function resetStaffPasswordAction(userId: string): Promise<CreateSt
 
   try {
     const { tempPassword } = await resetStaffPassword(db, { businessId: user.businessId, userId: user.id }, userId);
-    return { ok: true, tempPassword };
+    return { ok: true, tempPassword, linkedExistingAccount: false };
   } catch (error) {
     return { ok: false, error: (error as Error).message };
   }
@@ -108,15 +112,18 @@ export async function staffDeletionImpactAction(
   }
 }
 
-export async function deleteStaffAction(userId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function deleteStaffAction(
+  userId: string,
+): Promise<{ ok: true; accountDeleted: boolean } | { ok: false; error: string }> {
   const user = await requireCurrentUser();
   requirePermission(user.roles, "staff:write");
 
+  let accountDeleted: boolean;
   try {
-    await deleteStaff(db, { businessId: user.businessId, userId: user.id }, userId);
+    ({ accountDeleted } = await deleteStaff(db, { businessId: user.businessId, userId: user.id }, userId));
   } catch (error) {
     return { ok: false, error: (error as Error).message };
   }
   revalidatePath("/settings/staff");
-  return { ok: true };
+  return { ok: true, accountDeleted };
 }

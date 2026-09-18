@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { businesses } from "./core";
 import { orders } from "./orders";
 import { printDestinationEnum, printProviderEnum, printStatusEnum } from "./enums";
 import { users } from "./auth";
 
 export const printJobs = pgTable("print_jobs", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
+  // Denormalised from the order, so a print job can be scoped without
+  // joining through `orders` on every read.
+  businessId: uuid("business_id")
+    .notNull()
+    .references(() => businesses.id, { onDelete: "restrict" }),
   orderId: uuid("order_id")
     .notNull()
     .references(() => orders.id, { onDelete: "cascade" }),
@@ -32,6 +38,7 @@ export const printJobs = pgTable("print_jobs", {
   printedAt: timestamp("printed_at", { withTimezone: true }),
 }, (table) => [
   index("print_jobs_order_created_at_idx").on(table.orderId, table.createdAt),
+  index("print_jobs_business_created_at_idx").on(table.businessId, table.createdAt),
   uniqueIndex("print_jobs_order_request_key_idx").on(table.orderId, table.requestKey),
   // Failed and possibly-abandoned jobs are the only ones the dashboard and recovery scan look for.
   index("print_jobs_attention_idx")

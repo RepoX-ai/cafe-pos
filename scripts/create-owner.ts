@@ -8,7 +8,7 @@ import { hashPassword } from "../src/lib/auth/password";
 import { DEV_SEED_PASSWORD } from "../src/lib/dev-seed-accounts";
 
 /**
- * Creates the first business and its owner account on a fresh database.
+ * Creates a business and its owner account.
  *
  * `npm run db:seed` deliberately refuses to run against production — it
  * creates accounts behind a password that is public in this repo's
@@ -18,6 +18,13 @@ import { DEV_SEED_PASSWORD } from "../src/lib/dev-seed-accounts";
  * it is the only seeding path safe to point at real data: every value
  * comes from the operator, nothing is fictional, and no password is
  * written into the repo.
+ *
+ * Also the way to add the second and subsequent cafes: businesses are
+ * independent tenants, so this can be run again against the same
+ * database. If the owner email already has a CafeOps account it is linked
+ * to the new business rather than duplicated -- one person, one login, one
+ * password, an owner membership per cafe. Their existing password stands
+ * and OWNER_PASSWORD is ignored in that case.
  *
  * Interactive by default. For a non-TTY (CI, `docker compose run`), set
  * OWNER_EMAIL / OWNER_PASSWORD / OWNER_NAME / BUSINESS_NAME /
@@ -79,7 +86,7 @@ async function main() {
   let password = process.env.OWNER_PASSWORD ?? "";
 
   if (rl) {
-    console.log("\n  Create the first business and owner account.\n");
+    console.log("\n  Create a business and its owner account.\n");
     businessName = businessName || (await ask(rl, "  Business name"));
     orderPrefix = orderPrefix || (await ask(rl, "  Order number prefix", "ORD"));
     ownerName = ownerName || (await ask(rl, "  Owner full name"));
@@ -116,22 +123,16 @@ async function main() {
   const db = drizzle(pool, { schema });
 
   try {
+    // An existing account is linked, not rejected: the same person owning
+    // two cafes is the ordinary case now, and duplicating them would leave
+    // them with two logins and two passwords to keep straight.
     const [existingUser] = await db
       .select({ id: schema.users.id })
       .from(schema.users)
       .where(eq(schema.users.email, email))
       .limit(1);
-    if (existingUser) fail(`A user with the email ${email} already exists. Nothing was written.`);
 
-    const existingBusinesses = await db.select({ id: schema.businesses.id }).from(schema.businesses).limit(1);
-    if (existingBusinesses.length > 0 && !process.env.ALLOW_SECOND_BUSINESS) {
-      fail(
-        "This database already contains a business. If you really mean to add " +
-          "another one, re-run with ALLOW_SECOND_BUSINESS=1.",
-      );
-    }
-
-    const passwordHash = await hashPassword(password);
+    const passwordHash = existingUser ? null : await hashPassword(password);
 
     // One transaction: a half-created owner (business but no user, or a
     // user with no role) would leave the app unreachable in a way that is
@@ -164,19 +165,31 @@ async function main() {
         .limit(1);
       if (!ownerRole) throw new Error("The 'owner' role is missing from the roles catalog.");
 
-      const [user] = await tx
-        .insert(schema.users)
-        .values({ businessId: business.id, name: ownerName, email, passwordHash })
+      const [user] = existingUser
+        ? (await tx.select().from(schema.users).where(eq(schema.users.id, existingUser.id)).limit(1))
+        : await tx
+            .insert(schema.users)
+            .values({ name: ownerName, email, passwordHash: passwordHash! })
+            .returning();
+
+      const [membership] = await tx
+        .insert(schema.memberships)
+        .values({ userId: user.id, businessId: business.id })
         .returning();
 
-      await tx.insert(schema.userRoles).values({ userId: user.id, roleId: ownerRole.id });
+      await tx.insert(schema.membershipRoles).values({ membershipId: membership.id, roleId: ownerRole.id });
 
-      return { business, user };
+      return { business, user, linked: Boolean(existingUser) };
     });
 
     console.log(`\n  Created business "${result.business.name}" (${result.business.id})`);
-    console.log(`  Created owner   ${result.user.email} (${result.user.id})`);
-    console.log(`\n  You can now sign in at /login with that email.\n`);
+    if (result.linked) {
+      console.log(`  Linked owner    ${result.user.email} (${result.user.id}) - existing account and password`);
+      console.log(`\n  They pick it from the business switcher after signing in.\n`);
+    } else {
+      console.log(`  Created owner   ${result.user.email} (${result.user.id})`);
+      console.log(`\n  You can now sign in at /login with that email.\n`);
+    }
   } finally {
     await pool.end();
   }

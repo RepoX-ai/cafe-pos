@@ -33,13 +33,25 @@ See [README.md](README.md) for setup, scripts, and phase-by-phase status.
 7. Sessions are DB-backed (`src/lib/auth/session.ts`), not JWT, so that a
    deactivated user loses access on the next request. Don't introduce a
    stateless/JWT session path — it would break that guarantee.
-8. Submitted orders are historical snapshots. Never make an order page
+8. This install is **multi-tenant**. The business for a request comes from
+   the session row (`sessions.active_membership_id` → `memberships` →
+   `businesses`), surfaced as `SessionUser.businessId`. Never let a
+   tenant be named by a URL segment, form field, header or action
+   argument — the only thing a client may send is a membership id to
+   switch to, and that is re-checked against the session's own user.
+   Every tenant-owned table carries `business_id`; new ones must too, and
+   every read and write filters on it. A user is an identity, not a staff
+   record: their access, roles and active flag are per-business
+   (`memberships`), while name/email/password are theirs alone — see the
+   `linkedElsewhere` rules in `src/server/services/staff-service.ts`
+   before adding anything that writes to `users`.
+9. Submitted orders are historical snapshots. Never make an order page
    recompute price/COGS from the *current* menu/recipe/cost — it must
    read the snapshot columns on `orders` / `order_lines` /
    `order_ingredient_consumption`.
-9. Display times in Asia/Jakarta (`src/lib/dates`); store timestamps in
+10. Display times in Asia/Jakarta (`src/lib/dates`); store timestamps in
    UTC (`timestamptz` everywhere in the schema).
-10. No Vercel-only or Supabase-Edge-only APIs in core logic — this app
+11. No Vercel-only or Supabase-Edge-only APIs in core logic — this app
     must run identically via `docker compose` or plain `next start` on a
     VPS.
 
@@ -72,7 +84,8 @@ components. Font is Geist (already wired in `layout.tsx`).
   `index.ts`. `drizzle/migrations/` is generated (`npm run db:generate`),
   never hand-edited.
 - `src/lib/{money,units,dates,permissions,auth}/` — framework-agnostic
-  business logic, unit-tested in `tests/unit/`.
+  business logic, unit-tested in `tests/unit/`. `auth/session.ts` also
+  owns membership resolution and business switching.
 - `src/server/services/` — DB-touching business logic (auth, audit log so
   far; order/inventory/purchasing workflows land here in later phases).
 - `src/app/` — routes. `(auth)/login` is public; everything else calls

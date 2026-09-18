@@ -2,6 +2,7 @@ import { requirePageAccess, isCashierOnly } from "@/lib/auth/guards";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
 import { getBusinessById } from "@/server/services/business-service";
+import { listMemberships } from "@/lib/auth/session";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { formatRoles } from "@/lib/permissions/role-labels";
 import { AdminShell } from "@/components/admin-shell";
@@ -19,7 +20,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/forbidden");
   }
 
-  const business = await getBusinessById(db, user.businessId);
+  // The extra lookup only happens for accounts that hold more than one
+  // business, which is the rare case — everyone else pays one count that
+  // validating the session already did.
+  const [business, memberships] = await Promise.all([
+    getBusinessById(db, user.businessId),
+    user.membershipCount > 1 ? listMemberships(db, user.id) : Promise.resolve([]),
+  ]);
+
   const visibleNavItems = NAV_ITEMS.filter((item) =>
     hasAnyRolePermission(user.roles, item.permission),
   );
@@ -31,6 +39,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
       businessName={business?.name ?? "CaféOps"}
       visibleNavItems={visibleNavItems}
       canUsePos={hasAnyRolePermission(user.roles, "orders:create")}
+      activeMembershipId={user.membershipId}
+      businessOptions={memberships.map((membership) => ({
+        membershipId: membership.membershipId,
+        businessName: membership.businessName,
+        roleLabel: formatRoles(membership.roles),
+      }))}
     >
       {children}
     </AdminShell>

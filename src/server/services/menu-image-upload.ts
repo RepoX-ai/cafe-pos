@@ -16,8 +16,17 @@ export function imageExtension(buffer: Buffer, mime: string): string | null {
   return null;
 }
 
-/** Explicit local durable disk or portable S3-compatible object storage. */
-export async function saveMenuImage(file: File): Promise<SaveMenuImageResult> {
+/**
+ * Explicit local durable disk or portable S3-compatible object storage.
+ *
+ * Files are filed under the owning business. Nothing is guessable either
+ * way — the name is a UUID — but without the prefix there is no way to
+ * export, count or delete one business's images when it leaves, and no way
+ * to put a quota on one café's uploads. Images saved before this existed
+ * keep their flat path and their URLs keep working; see the two routes
+ * under src/app/media/menu.
+ */
+export async function saveMenuImage(file: File, businessId: string): Promise<SaveMenuImageResult> {
   if (file.size === 0 || file.size > MENU_IMAGE_MAX_BYTES) return { ok: false, error: "Image must be between 1 byte and 3MB." };
   const buffer = Buffer.from(await file.arrayBuffer());
   const ext = imageExtension(buffer, file.type);
@@ -25,9 +34,10 @@ export async function saveMenuImage(file: File): Promise<SaveMenuImageResult> {
   const filename = `${randomUUID()}.${ext}`;
   const provider = process.env.STORAGE_PROVIDER;
   if (provider === "local" && !process.env.VERCEL) {
-    await mkdir(menuImageDirectory(), { recursive: true });
-    await writeFile(path.join(menuImageDirectory(), filename), buffer, { flag: "wx" });
-    return { ok: true, url: `/media/menu/${filename}` };
+    const directory = path.join(menuImageDirectory(), businessId);
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, filename), buffer, { flag: "wx" });
+    return { ok: true, url: `/media/menu/${businessId}/${filename}` };
   }
   if (provider !== "s3") return { ok: false, error: "Photo uploads need storage configuration. You can paste an image URL instead." };
   const { STORAGE_BUCKET: bucket, STORAGE_ACCESS_KEY: accessKeyId, STORAGE_SECRET_KEY: secretAccessKey, STORAGE_PUBLIC_URL: publicUrl } = process.env;
@@ -37,7 +47,7 @@ export async function saveMenuImage(file: File): Promise<SaveMenuImageResult> {
   const client = new S3Client({ endpoint: process.env.STORAGE_ENDPOINT || undefined,
     region: process.env.STORAGE_REGION || "auto", forcePathStyle: process.env.STORAGE_FORCE_PATH_STYLE === "true",
     credentials: { accessKeyId, secretAccessKey } });
-  const key = `menu/${filename}`;
+  const key = `menu/${businessId}/${filename}`;
   try {
     await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: buffer, ContentType: file.type,
       CacheControl: "public, max-age=31536000, immutable" }));

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { getTestDb, seedTestFixture, type TestDb } from "./helpers";
 import { submitOrder } from "@/server/services/order-service";
 import { countStaffAttribution, createStaff, deleteStaff, updateStaff } from "@/server/services/staff-service";
-import { auditLogs, orders, roles, sessions, userRoles, users } from "@/lib/db/schema";
+import { auditLogs, membershipRoles, memberships, orders, roles, sessions, users } from "@/lib/db/schema";
 import { ROLE_NAMES } from "@/lib/validation/staff";
 import type { RoleName } from "@/lib/permissions/permissions";
 
@@ -18,18 +18,30 @@ async function ensureRoleCatalog(db: TestDb) {
     .onConflictDoNothing();
 }
 
-async function assignRole(db: TestDb, userId: string, name: RoleName) {
-  const [role] = await db.select().from(roles).where(eq(roles.name, name)).limit(1);
-  await db.delete(userRoles).where(eq(userRoles.userId, userId));
-  await db.insert(userRoles).values({ userId, roleId: role.id });
+/** Roles hang off the membership now, so both helpers take the business. */
+async function membershipOf(db: TestDb, userId: string, businessId: string) {
+  const [membership] = await db
+    .select()
+    .from(memberships)
+    .where(and(eq(memberships.userId, userId), eq(memberships.businessId, businessId)))
+    .limit(1);
+  return membership;
 }
 
-async function rolesOf(db: TestDb, userId: string) {
+async function assignRole(db: TestDb, userId: string, businessId: string, name: RoleName) {
+  const [role] = await db.select().from(roles).where(eq(roles.name, name)).limit(1);
+  const membership = await membershipOf(db, userId, businessId);
+  await db.delete(membershipRoles).where(eq(membershipRoles.membershipId, membership.id));
+  await db.insert(membershipRoles).values({ membershipId: membership.id, roleId: role.id });
+}
+
+async function rolesOf(db: TestDb, userId: string, businessId: string) {
+  const membership = await membershipOf(db, userId, businessId);
   const rows = await db
     .select({ name: roles.name })
-    .from(userRoles)
-    .innerJoin(roles, eq(userRoles.roleId, roles.id))
-    .where(eq(userRoles.userId, userId));
+    .from(membershipRoles)
+    .innerJoin(roles, eq(membershipRoles.roleId, roles.id))
+    .where(eq(membershipRoles.membershipId, membership.id));
   return rows.map((r) => r.name);
 }
 
@@ -41,7 +53,7 @@ function uniqueEmail(label: string) {
 async function seedStaffFixture(db: TestDb) {
   const fixture = await seedTestFixture(db);
   await ensureRoleCatalog(db);
-  await assignRole(db, fixture.user.id, "owner");
+  await assignRole(db, fixture.user.id, fixture.business.id, "owner");
   const actor = { businessId: fixture.business.id, userId: fixture.user.id };
   const { user: staff } = await createStaff(db, actor, {
     name: "Rina",
@@ -60,7 +72,7 @@ describe.skipIf(!db)("staff service", () => {
 
     const [saved] = await db!.select().from(users).where(eq(users.id, staff.id));
     expect(saved).toMatchObject({ name: "Rina Dewi", email: newEmail });
-    expect(await rolesOf(db!, staff.id)).toEqual(["manager"]);
+    expect(await rolesOf(db!, staff.id, actor.businessId)).toEqual(["manager"]);
   });
 
   it("rejects an email that already belongs to someone else, and a user outside the business", async () => {
@@ -92,9 +104,9 @@ describe.skipIf(!db)("staff service", () => {
     await expect(deleteStaff(db!, staffActor, owner.id)).rejects.toThrow("only active Owner");
 
     // A second active owner lifts the guard.
-    await assignRole(db!, staff.id, "owner");
+    await assignRole(db!, staff.id, actor.businessId, "owner");
     await updateStaff(db!, staffActor, owner.id, { name: owner.name, email: owner.email, role: "manager" });
-    expect(await rolesOf(db!, owner.id)).toEqual(["manager"]);
+    expect(await rolesOf(db!, owner.id, actor.businessId)).toEqual(["manager"]);
   });
 
   it("won't delete the account you're signed in as", async () => {
@@ -119,8 +131,10 @@ describe.skipIf(!db)("staff service", () => {
     const impact = await countStaffAttribution(db!, actor, staff.id);
     expect(impact.find((entry) => entry.label === "Orders")?.count).toBe(1);
 
+    const staffMembership = await membershipOf(db!, staff.id, actor.businessId);
     await db!.insert(sessions).values({
       userId: staff.id,
+      activeMembershipId: staffMembership.id,
       tokenHash: randomUUID(),
       expiresAt: new Date(Date.now() + 60_000),
     });
@@ -128,7 +142,7 @@ describe.skipIf(!db)("staff service", () => {
     await deleteStaff(db!, actor, staff.id);
 
     expect(await db!.select().from(users).where(eq(users.id, staff.id))).toHaveLength(0);
-    expect(await db!.select().from(userRoles).where(eq(userRoles.userId, staff.id))).toHaveLength(0);
+    expect(await db!.select().from(memberships).where(eq(memberships.userId, staff.id))).toHaveLength(0);
     expect(await db!.select().from(sessions).where(eq(sessions.userId, staff.id))).toHaveLength(0);
 
     // The order survives the delete — it just no longer names a cashier.
