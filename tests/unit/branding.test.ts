@@ -8,6 +8,7 @@ import {
   normalizeHexColor,
   relativeLuminance,
 } from "@/lib/branding/branding";
+import { businessInitials } from "@/components/brand-logo";
 
 describe("normalizeHexColor", () => {
   it("accepts the shapes an owner might paste, and canonicalises them", () => {
@@ -102,5 +103,29 @@ describe("meetsAaOnAccent", () => {
     // #777777 tops out at 4.48:1 either way.
     expect(meetsAaOnAccent("#777777")).toBe(false);
     expect(meetsAaOnAccent("nonsense")).toBe(false);
+  });
+});
+
+describe("businessInitials", () => {
+  it("takes the first and last words", () => {
+    expect(businessInitials("Repo Coffee Shop")).toBe("RS");
+    expect(businessInitials("Kopi Kedua")).toBe("KK");
+  });
+
+  it("takes two letters from a single word", () => {
+    expect(businessInitials("Matsudon")).toBe("MA");
+    expect(businessInitials("A")).toBe("A");
+  });
+
+  it("copes with the messy names people actually type", () => {
+    expect(businessInitials("  spaced   out  name ")).toBe("SN");
+    expect(businessInitials("")).toBe("?");
+    expect(businessInitials("   ")).toBe("?");
+  });
+
+  it("never splits a surrogate pair or a multi-byte character", () => {
+    // One whole code point, not half of one.
+    expect(Array.from(businessInitials("🍜 Ramen")).length).toBe(2);
+    expect(businessInitials("Ñoño Café")).toBe("ÑC");
   });
 });

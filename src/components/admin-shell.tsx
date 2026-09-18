@@ -159,7 +159,7 @@ export function AdminShell({
             {!collapsed ? (
               <>
                 <div className="flex min-w-0 items-center">
-                  <BrandLogo className="h-8" alt={businessName} src={logoUrl} />
+                  <BrandLogo className="h-8" alt={businessName} name={businessName} src={logoUrl} />
                 </div>
                 <button
                   onClick={toggleCollapsed}

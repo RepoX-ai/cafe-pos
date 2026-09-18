@@ -430,7 +430,7 @@ export function PosClient({
                 aria-expanded={storeMenuOpen}
                 className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1 pl-1 pr-2 text-left hover:bg-[var(--color-selected-surface)]"
               >
-                <BrandLogo className="h-9" alt={businessName} src={logoUrl} />
+                <BrandLogo className="h-9" alt={businessName} name={businessName} src={logoUrl} markOnly />
                 <span className="min-w-0 max-w-[13rem]">
                   <span className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
                     {businessName}
@@ -457,7 +457,7 @@ export function PosClient({
               ) : null}
             </div>
           ) : (
-            <BrandLogo className="h-9" alt={businessName} src={logoUrl} />
+            <BrandLogo className="h-9" alt={businessName} name={businessName} src={logoUrl} />
           )}
           {!isOnline ? (
             <span className="flex items-center gap-1.5 rounded-full bg-[var(--color-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--color-danger)]">
