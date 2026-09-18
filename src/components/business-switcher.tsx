@@ -24,17 +24,22 @@ export interface BusinessOption {
 export function BusinessSwitcher({
   options,
   activeMembershipId,
+  onBeforeSwitch,
 }: {
   options: BusinessOption[];
   activeMembershipId: string;
+  /** Return false to cancel — the POS uses it to protect a cart in progress. */
+  onBeforeSwitch?: (option: BusinessOption) => boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
   const router = useRouter();
   const showToast = useToast();
 
-  function switchTo(membershipId: string) {
+  function switchTo(option: BusinessOption) {
+    const { membershipId } = option;
     if (membershipId === activeMembershipId || isPending) return;
+    if (onBeforeSwitch && !onBeforeSwitch(option)) return;
     setBusyId(membershipId);
     startTransition(async () => {
       const result = await switchBusinessAction(membershipId);
@@ -62,7 +67,7 @@ export function BusinessSwitcher({
             role="menuitem"
             aria-current={isActive ? "true" : undefined}
             disabled={isPending}
-            onClick={() => switchTo(option.membershipId)}
+            onClick={() => switchTo(option)}
             className={`flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm font-medium disabled:opacity-60 ${
               isActive
                 ? "bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"

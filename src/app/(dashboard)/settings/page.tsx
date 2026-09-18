@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
-import { getBusinessById } from "@/server/services/business-service";
+import { getBusinessById, listOwnedBusinesses } from "@/server/services/business-service";
+import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { parseTaxConfig } from "@/lib/settings/tax";
 import { SettingsForm } from "./settings-form";
 import { PrinterSection } from "./printer-section";
+import { BusinessesSection } from "./businesses-section";
 
 export const metadata: Metadata = {
   title: "Settings — CaféOps",
@@ -14,6 +16,10 @@ export default async function SettingsPage() {
   const user = await requirePageAccess("settings:write");
   const business = await getBusinessById(db, user.businessId);
   if (!business) return null;
+
+  // Only owners can stand up another tenant; the action re-checks this.
+  const canCreateBusiness = hasAnyRolePermission(user.roles, "business:create");
+  const ownedBusinesses = canCreateBusiness ? await listOwnedBusinesses(db, user.id, user.businessId) : [];
 
   const tax = parseTaxConfig(business.taxConfig);
 
@@ -25,6 +31,7 @@ export default async function SettingsPage() {
       </p>
 
       <div className="mt-8 flex flex-col gap-6">
+        {canCreateBusiness ? <BusinessesSection businesses={ownedBusinesses} /> : null}
         <PrinterSection providerName={process.env.PRINT_PROVIDER || "mock"} />
         <SettingsForm
           business={{

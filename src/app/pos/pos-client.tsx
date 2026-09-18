@@ -14,6 +14,7 @@ import { calculateServiceCharge, calculateTax } from "@/lib/settings/tax";
 import { sumRupiah } from "@/lib/money/money";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { BrandLogo } from "@/components/brand-logo";
+import { BusinessSwitcher, type BusinessOption } from "@/components/business-switcher";
 import { submitOrderAction } from "./actions";
 import { ItemModal, type ConfiguredLine } from "./item-modal";
 import { useToast } from "@/components/ui/toast";
@@ -49,6 +50,9 @@ export function PosClient({
   draftScope,
   userName,
   roleLabel,
+  businessName,
+  businessOptions,
+  activeMembershipId,
   categories,
   items,
   tax,
@@ -58,6 +62,9 @@ export function PosClient({
   draftScope: string;
   userName: string;
   roleLabel: string;
+  businessName: string;
+  businessOptions: BusinessOption[];
+  activeMembershipId: string;
   categories: PosCategory[];
   items: PosMenuItem[];
   tax: TaxConfig | null;
@@ -72,6 +79,8 @@ export function PosClient({
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const [storeMenuOpen, setStoreMenuOpen] = useState(false);
+  const storeMenuRef = useRef<HTMLDivElement>(null);
   const [activeCategory, setActiveCategory] = useState<string | "all">("all");
   const [search, setSearch] = useState("");
   const [configuring, setConfiguring] = useState<PosMenuItem | null>(null);
@@ -118,6 +127,41 @@ export function PosClient({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [userMenuOpen]);
+
+  /**
+   * The cart itself is safe to leave behind: the draft is keyed by
+   * business (see `draftScope`), so it stays saved under this store and
+   * comes back when the cashier returns.
+   *
+   * An order that was submitted but never confirmed is not. It is only
+   * retryable from this store's POS, and switching away would hide the
+   * retry banner while the order may or may not have reached the server —
+   * so that one case blocks the switch.
+   */
+  function confirmStoreChange() {
+    if (pending || isSubmitting) {
+      showToast("error", "Finish the order that's waiting to be confirmed before changing store.");
+      return false;
+    }
+    setStoreMenuOpen(false);
+    return true;
+  }
+
+  useEffect(() => {
+    if (!storeMenuOpen) return;
+    function handlePointerDown(e: MouseEvent) {
+      if (storeMenuRef.current && !storeMenuRef.current.contains(e.target as Node)) setStoreMenuOpen(false);
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setStoreMenuOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [storeMenuOpen]);
 
   // Draft persistence (PRD §13: keep the unsaved cart in local storage).
   // This is a one-time sync from an external store on mount, not state
@@ -373,7 +417,44 @@ export function PosClient({
     <div className="force-light-theme flex h-screen flex-col bg-[var(--color-page-bg)]">
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6">
         <div className="flex items-center gap-3">
-          <BrandLogo className="h-9" />
+          {businessOptions.length > 1 ? (
+            <div ref={storeMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setStoreMenuOpen((prev) => !prev)}
+                aria-haspopup="menu"
+                aria-expanded={storeMenuOpen}
+                className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1 pl-1 pr-2 text-left hover:bg-[var(--color-selected-surface)]"
+              >
+                <BrandLogo className="h-9" />
+                <span className="min-w-0 max-w-[13rem]">
+                  <span className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
+                    {businessName}
+                  </span>
+                  <span className="block text-xs text-[var(--color-text-muted)]">Change store</span>
+                </span>
+                <ChevronDown
+                  size={16}
+                  className={`shrink-0 text-[var(--color-text-muted)] transition-transform ${storeMenuOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {storeMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute left-0 z-20 mt-1.5 w-64 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg"
+                >
+                  <BusinessSwitcher
+                    options={businessOptions}
+                    activeMembershipId={activeMembershipId}
+                    onBeforeSwitch={confirmStoreChange}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <BrandLogo className="h-9" />
+          )}
           {!isOnline ? (
             <span className="flex items-center gap-1.5 rounded-full bg-[var(--color-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--color-danger)]">
               <WifiOff size={12} />

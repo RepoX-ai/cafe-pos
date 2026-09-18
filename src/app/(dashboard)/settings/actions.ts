@@ -5,8 +5,9 @@ import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { businessSettingsInputSchema } from "@/lib/validation/settings";
+import { createBusinessInputSchema } from "@/lib/validation/business";
 import { flattenZodErrors } from "@/lib/validation/form-errors";
-import { updateBusinessSettings } from "@/server/services/business-service";
+import { createBusiness, updateBusinessSettings } from "@/server/services/business-service";
 import { getPrinterProvider } from "@/printing";
 
 export type SettingsActionState =
@@ -48,4 +49,37 @@ export async function testPrinterConnectionAction(): Promise<{ connected: boolea
 
   const provider = getPrinterProvider();
   return provider.testConnection();
+}
+
+export type CreateBusinessResult =
+  | { ok: true; businessName: string }
+  | { ok: false; error: string; fieldErrors?: Record<string, string> };
+
+/**
+ * Stands up a new tenant with the caller as its Owner.
+ *
+ * Gated on `business:create`, which only owner and super_admin hold — a
+ * manager with `settings:write` can edit the café they're in but cannot
+ * create another one. The caller's own id comes from the session, so the
+ * new business's owner is always the person who clicked, never an id the
+ * form supplied.
+ */
+export async function createBusinessAction(input: unknown): Promise<CreateBusinessResult> {
+  const user = await requireCurrentUser();
+  requirePermission(user.roles, "business:create");
+
+  const parsed = createBusinessInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
+  }
+
+  try {
+    await createBusiness(db, { businessId: user.businessId, userId: user.id }, parsed.data);
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/", "layout");
+  return { ok: true, businessName: parsed.data.name };
 }

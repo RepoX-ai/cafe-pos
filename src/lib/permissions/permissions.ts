@@ -39,6 +39,10 @@ export const PERMISSIONS = [
   "settings:write",
   "printer:manage",
   "audit:read",
+  // Install-level, not business-level: creating a new tenant. Held by
+  // owner and super_admin only, so the client can stand up another café
+  // themselves without shell access to the server.
+  "business:create",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -50,7 +54,11 @@ export type Permission = (typeof PERMISSIONS)[number];
  */
 export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
   super_admin: new Set(PERMISSIONS), // every permission, always
-  owner: new Set(PERMISSIONS), // every permission within their business
+  // Every permission within their business, plus "business:create" — the
+  // one entry here that reaches beyond it. An owner can create further
+  // businesses (becoming their owner too); they still cannot see or touch
+  // a business they hold no membership in.
+  owner: new Set(PERMISSIONS),
   manager: new Set<Permission>([
     "orders:create",
     "orders:read_own",

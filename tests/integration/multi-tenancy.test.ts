@@ -10,8 +10,9 @@ import {
   validateSessionToken,
 } from "@/lib/auth/session";
 import { createStaff, deleteStaff, listStaff, resetStaffPassword, updateStaff } from "@/server/services/staff-service";
+import { createBusiness, listOwnedBusinesses } from "@/server/services/business-service";
 import { login } from "@/server/services/auth-service";
-import { membershipRoles, memberships, roles, sessions, users } from "@/lib/db/schema";
+import { auditLogs, businesses, locations, membershipRoles, memberships, roles, sessions, users } from "@/lib/db/schema";
 import { ROLE_NAMES } from "@/lib/validation/staff";
 import type { RoleName } from "@/lib/permissions/permissions";
 
@@ -187,6 +188,51 @@ describe.skipIf(!db)("multi-tenancy", () => {
     await db!.update(memberships).set({ active: false }).where(eq(memberships.userId, user.id));
 
     expect(await login(db!, email, tempPassword!)).toEqual({ ok: false, error: "no_business_access" });
+  });
+
+  it("lets an owner stand up another business and become its owner", async () => {
+    await ensureRoleCatalog(db!);
+    const cafe = await seedTestFixture(db!);
+    await assignRole(db!, cafe.user.id, cafe.business.id, "owner");
+    const actor = { businessId: cafe.business.id, userId: cafe.user.id };
+
+    const created = await createBusiness(db!, actor, {
+      name: `Second Cafe ${randomUUID().slice(0, 8)}`,
+      orderNumberPrefix: "SC",
+    });
+
+    // Owner of the new business, and it is genuinely a separate tenant.
+    const options = await listMemberships(db!, cafe.user.id);
+    const fresh = options.find((o) => o.businessId === created.businessId)!;
+    expect(fresh.roles).toEqual(["owner"]);
+    expect(created.businessId).not.toBe(cafe.business.id);
+
+    // It starts empty but usable: a default location, no staff but them.
+    expect(await db!.select().from(locations).where(eq(locations.businessId, created.businessId))).toHaveLength(1);
+    expect(await listStaff(db!, created.businessId)).toHaveLength(1);
+
+    // Both businesses record that it happened.
+    const logged = await db!
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.action, "business.created"), eq(auditLogs.entityId, created.businessId)));
+    expect(logged.map((l) => l.businessId).sort()).toEqual([cafe.business.id, created.businessId].sort());
+
+    // And it lists under the owner's own businesses, never anyone else's.
+    const owned = await listOwnedBusinesses(db!, cafe.user.id, cafe.business.id);
+    expect(owned.map((b) => b.businessId).sort()).toEqual([cafe.business.id, created.businessId].sort());
+    expect(owned.find((b) => b.businessId === cafe.business.id)?.isCurrent).toBe(true);
+  });
+
+  it("does not expose businesses the user has no membership in", async () => {
+    const { cafeA, cafeB } = await seedTwoBusinesses(db!);
+
+    const owned = await listOwnedBusinesses(db!, cafeA.user.id, cafeA.business.id);
+    expect(owned.map((b) => b.businessId)).toEqual([cafeA.business.id]);
+    expect(owned.some((b) => b.businessId === cafeB.business.id)).toBe(false);
+
+    // Sanity: the other business really does exist, it is just not theirs.
+    expect(await db!.select().from(businesses).where(eq(businesses.id, cafeB.business.id))).toHaveLength(1);
   });
 
   it("scopes a staff member's attribution counts to the business asking", async () => {

@@ -5,6 +5,13 @@ describe("permissions", () => {
   it("grants super_admin and owner every permission", () => {
     expect(hasPermission("super_admin", "staff:write")).toBe(true);
     expect(hasPermission("owner", "settings:write")).toBe(true);
+    // Creating another tenant is the one permission that reaches beyond
+    // the caller's own business; only these two roles hold it.
+    expect(hasPermission("owner", "business:create")).toBe(true);
+    expect(hasPermission("super_admin", "business:create")).toBe(true);
+    for (const role of ["manager", "cashier", "inventory_staff", "viewer"] as const) {
+      expect(hasPermission(role, "business:create"), role).toBe(false);
+    }
   });
 
   it("restricts cashier to the order-facing workflow", () => {

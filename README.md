@@ -190,13 +190,37 @@ sessions at their *other* cafés are untouched.
 
 ### Adding a café
 
+An Owner can do it themselves, in the app: **Settings → Your businesses →
+Add a business**. They become its Owner, and it starts empty — no menu, no
+ingredients, no other staff. Nothing is copied from the café they were in,
+because businesses are independent tenants.
+
+That is gated on the `business:create` permission, which only `owner` and
+`super_admin` hold. It is the one permission that reaches beyond the
+caller's own business; a Manager with `settings:write` can edit the café
+they are in but cannot create another.
+
+From a terminal (first café on a fresh database, or scripted provisioning):
+
 ```bash
 npm run db:create-owner      # prompts, or BUSINESS_NAME/OWNER_EMAIL/... in a non-TTY
 ```
 
-Run it once per café. If the owner's email already has a CaféOps account
-it is linked to the new business instead of duplicated — one login, one
-password they control, an owner role per café.
+Either way, if the owner's email already has a CaféOps account it is
+linked to the new business instead of duplicated — one login, one password
+they control, an owner role per café.
+
+### Switching café
+
+The account menu (top right) in the admin shell, and the **store dropdown
+on the logo** in the POS header. Both only appear when the signed-in
+account holds more than one membership.
+
+Switching moves `sessions.active_membership_id` for **that browser only**,
+so changing café on the office laptop does not drag the POS tablet with
+it. The POS refuses to switch while an order is submitted but unconfirmed,
+since the retry banner lives on that store's POS; a cart in progress is
+safe either way, because the draft is saved per business and comes back.
 
 ### Shared accounts
 

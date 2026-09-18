@@ -44,7 +44,10 @@ See [README.md](README.md) for setup, scripts, and phase-by-phase status.
    record: their access, roles and active flag are per-business
    (`memberships`), while name/email/password are theirs alone — see the
    `linkedElsewhere` rules in `src/server/services/staff-service.ts`
-   before adding anything that writes to `users`.
+   before adding anything that writes to `users`. `business:create` is the
+   single permission that reaches past the caller's own business (owner
+   and super_admin only); everything else in `ROLE_PERMISSIONS` is
+   within-business, so think twice before adding another.
 9. Submitted orders are historical snapshots. Never make an order page
    recompute price/COGS from the *current* menu/recipe/cost — it must
    read the snapshot columns on `orders` / `order_lines` /

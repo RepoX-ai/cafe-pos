@@ -5,6 +5,7 @@ import { formatRoles } from "@/lib/permissions/role-labels";
 import { db } from "@/lib/db/client";
 import { getPosMenu } from "@/server/services/menu-service";
 import { getBusinessById } from "@/server/services/business-service";
+import { listMemberships } from "@/lib/auth/session";
 import { parseTaxConfig } from "@/lib/settings/tax";
 import { PosClient } from "./pos-client";
 
@@ -19,6 +20,10 @@ export default async function PosPage() {
     allowNegativeStock: business?.allowNegativeStock ?? false,
   });
 
+  // Only for accounts that hold more than one business — the count comes
+  // free with the session, so a single-café cashier pays nothing for this.
+  const memberships = user.membershipCount > 1 ? await listMemberships(db, user.id) : [];
+
   const tax = business ? parseTaxConfig(business.taxConfig) : null;
   const serviceChargePercent = business?.serviceChargePercent ? Number(business.serviceChargePercent) : null;
   const canViewOrderHistory =
@@ -29,6 +34,13 @@ export default async function PosPage() {
       draftScope={`${user.businessId}:${user.id}`}
       userName={user.name}
       roleLabel={formatRoles(user.roles)}
+      businessName={business?.name ?? "CaféOps"}
+      activeMembershipId={user.membershipId}
+      businessOptions={memberships.map((membership) => ({
+        membershipId: membership.membershipId,
+        businessName: membership.businessName,
+        roleLabel: formatRoles(membership.roles),
+      }))}
       categories={categories}
       items={items}
       tax={tax}

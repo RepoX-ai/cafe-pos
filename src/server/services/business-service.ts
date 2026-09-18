@@ -1,8 +1,9 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
-import { businesses } from "@/lib/db/schema";
+import { businesses, locations, membershipRoles, memberships, roles } from "@/lib/db/schema";
 import { serializeTaxConfig } from "@/lib/settings/tax";
 import type { BusinessSettingsInput } from "@/lib/validation/settings";
+import type { CreateBusinessInput } from "@/lib/validation/business";
 import { recordAuditLog } from "./audit";
 import type { ActorContext } from "./ingredient-service";
 
@@ -49,4 +50,100 @@ export async function updateBusinessSettings(
   });
 
   return row;
+}
+
+export interface OwnedBusinessRow {
+  businessId: string;
+  membershipId: string;
+  name: string;
+  orderNumberPrefix: string;
+  isCurrent: boolean;
+}
+
+/**
+ * The businesses this person can act in, for the "your businesses" list on
+ * the settings screen. Scoped to their own memberships — there is no query
+ * anywhere that lists businesses they don't belong to.
+ */
+export async function listOwnedBusinesses(
+  db: Database,
+  userId: string,
+  currentBusinessId: string,
+): Promise<OwnedBusinessRow[]> {
+  const rows = await db
+    .select({
+      businessId: businesses.id,
+      membershipId: memberships.id,
+      name: businesses.name,
+      orderNumberPrefix: businesses.orderNumberPrefix,
+    })
+    .from(memberships)
+    .innerJoin(businesses, eq(businesses.id, memberships.businessId))
+    .where(and(eq(memberships.userId, userId), eq(memberships.active, true)))
+    .orderBy(asc(businesses.name));
+
+  return rows.map((row) => ({ ...row, isCurrent: row.businessId === currentBusinessId }));
+}
+
+/**
+ * Stands up a new tenant and makes the caller its Owner — the in-app
+ * equivalent of `npm run db:create-owner`, so the client can open another
+ * café without shell access to the server.
+ *
+ * The new business starts empty: no menu, no ingredients, no recipes, and
+ * no staff but the creator. Businesses are independent tenants, so nothing
+ * is copied or linked from the café the caller is currently in.
+ *
+ * Business, its default location, the caller's membership and that
+ * membership's Owner role all land in one transaction — a half-created
+ * business with no owner would be unreachable from the UI and need
+ * unpicking by hand.
+ */
+export async function createBusiness(
+  db: Database,
+  actor: ActorContext,
+  input: CreateBusinessInput,
+): Promise<{ businessId: string; membershipId: string }> {
+  const [ownerRole] = await db.select().from(roles).where(eq(roles.name, "owner")).limit(1);
+  if (!ownerRole) {
+    throw new Error("The 'owner' role is missing from the roles catalog. Run the seed script.");
+  }
+
+  return db.transaction(async (tx) => {
+    const [business] = await tx
+      .insert(businesses)
+      .values({ name: input.name, orderNumberPrefix: input.orderNumberPrefix })
+      .returning();
+
+    await tx.insert(locations).values({ businessId: business.id, name: "Main Store" });
+
+    const [membership] = await tx
+      .insert(memberships)
+      .values({ userId: actor.userId, businessId: business.id })
+      .returning();
+
+    await tx.insert(membershipRoles).values({ membershipId: membership.id, roleId: ownerRole.id });
+
+    // Logged in both places on purpose: the new business needs a first
+    // entry saying who created it, and the business the action was taken
+    // from needs a record that its owner stood up another tenant.
+    await recordAuditLog(tx, {
+      businessId: business.id,
+      actorUserId: actor.userId,
+      action: "business.created",
+      entityType: "business",
+      entityId: business.id,
+      after: { name: business.name, orderNumberPrefix: business.orderNumberPrefix },
+    });
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "business.created",
+      entityType: "business",
+      entityId: business.id,
+      after: { name: business.name },
+    });
+
+    return { businessId: business.id, membershipId: membership.id };
+  });
 }
