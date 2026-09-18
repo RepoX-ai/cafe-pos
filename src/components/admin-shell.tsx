@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ThemeProvider } from "next-themes";
 import {
   LayoutDashboard,
   UtensilsCrossed,
@@ -142,12 +141,10 @@ export function AdminShell({
   }
 
   return (
-    // Dark mode is admin-only (PRD): scoping the provider to AdminShell
-    // rather than the root layout keeps /pos and /login from ever loading
-    // it. next-themes still toggles `.dark` on <html> (it doesn't scope to
-    // a subtree), so globals.css additionally pins those routes back to
-    // light via `.force-light-theme` as a belt-and-suspenders guard.
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+    // The theme provider is in the root layout, not here — see the comment
+    // there. Dark mode is still admin-only: /pos and /login pin themselves
+    // light with `.force-light-theme`.
+    <>
       <div style={brandStyle} className="flex h-screen overflow-hidden bg-[var(--color-page-bg)]">
         <aside
           className={`flex h-screen shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] transition-[width] duration-150 ${
@@ -291,6 +288,6 @@ export function AdminShell({
           <main className="min-w-0 flex-1 overflow-y-auto px-6 py-6 md:px-12 md:py-8 xl:px-20">{children}</main>
         </div>
       </div>
-    </ThemeProvider>
+    </>
   );
 }

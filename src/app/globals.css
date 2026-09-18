@@ -91,6 +91,10 @@
 }
 
 .dark .force-light-theme {
+  /* Native controls and scrollbars follow this, not the tokens below —
+     without it a dark system preference would render dark inputs on the
+     POS now that next-themes runs at the root on every route. */
+  color-scheme: light;
   --color-page-bg: #f7f8f9;
   --color-surface: #ffffff;
   --color-text-primary: #141517;

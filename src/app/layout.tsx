@@ -4,6 +4,7 @@ import "./globals.css";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { DevRoleSwitcher } from "@/components/dev-role-switcher";
 import { ToastProvider } from "@/components/ui/toast";
+import { ThemeProvider } from "next-themes";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,10 +31,26 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     // element's own attributes, not anything nested.
     <html lang="en" className={`${geistSans.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
-        <ToastProvider>
-          {children}
-          {isDev ? <DevRoleSwitcher currentEmail={currentUser?.email ?? null} /> : null}
-        </ToastProvider>
+        {/*
+          next-themes lives at the root, not inside AdminShell.
+          ThemeProvider renders an inline <script> to set the theme class
+          before first paint; React logs "Encountered a script tag while
+          rendering React component" if that script is ever produced by a
+          client re-render, which is exactly what happened when a Server
+          Action revalidated the dashboard layout (saving branding,
+          switching business). At the root it renders once with the
+          document and is never re-rendered by a nested revalidation.
+
+          Dark mode stays admin-only, as the PRD requires: /pos and /login
+          carry `.force-light-theme`, which re-pins the light tokens and
+          `color-scheme` regardless of what next-themes puts on <html>.
+        */}
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <ToastProvider>
+            {children}
+            {isDev ? <DevRoleSwitcher currentEmail={currentUser?.email ?? null} /> : null}
+          </ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
