@@ -1,0 +1,1 @@
+CREATE INDEX "sessions_active_membership_id_idx" ON "sessions" USING btree ("active_membership_id");

@@ -1,7 +1,7 @@
 import { requirePageAccess, isCashierOnly } from "@/lib/auth/guards";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
-import { getBusinessById } from "@/server/services/business-service";
+import { getCurrentBusiness } from "@/lib/auth/current-business";
 import { listMemberships } from "@/lib/auth/session";
 import { brandStyle } from "@/lib/branding/branding";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
@@ -25,7 +25,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // business, which is the rare case — everyone else pays one count that
   // validating the session already did.
   const [business, memberships] = await Promise.all([
-    getBusinessById(db, user.businessId),
+    getCurrentBusiness(user.businessId),
     user.membershipCount > 1 ? listMemberships(db, user.id) : Promise.resolve([]),
   ]);
 

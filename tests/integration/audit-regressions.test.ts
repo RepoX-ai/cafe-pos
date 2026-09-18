@@ -30,7 +30,7 @@ describe.skipIf(!db)("audit regressions", () => {
       lines: [{ menuItemId: menuItem.id, menuItemVariantId: variant.id, quantity: 1, modifierOptionIds: [] }],
     });
     const [job] = await db!.update(printJobs).set({ provider: "browser" }).where(eq(printJobs.orderId, result.order.id)).returning();
-    expect(await processPrintJob(db!, job.id)).toMatchObject({ status: "QUEUED", requiresClientAction: "window_print", payload: { orderId: result.order.id } });
+    expect(await processPrintJob(db!, job.businessId, job.id)).toMatchObject({ status: "QUEUED", requiresClientAction: "window_print", payload: { orderId: result.order.id } });
     const [saved] = await db!.select().from(printJobs).where(eq(printJobs.id, job.id));
     expect(saved.printedAt).toBeNull();
   });

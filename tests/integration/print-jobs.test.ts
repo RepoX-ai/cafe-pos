@@ -58,7 +58,7 @@ const jobById = async (id: string) => (await dbA!.select().from(schema.printJobs
 describe.skipIf(!dbA)("print job claims and recovery (PostgreSQL)", () => {
   it("lets only one of several concurrent workers print a job", async () => {
     const { job } = await orderWithQueuedJob();
-    const results = await Promise.all(Array.from({ length: 6 }, (_, i) => processPrintJob(i % 2 ? dbA! : dbB!, job.id)));
+    const results = await Promise.all(Array.from({ length: 6 }, (_, i) => processPrintJob(i % 2 ? dbA! : dbB!, job.businessId, job.id)));
 
     expect(printer.calls).toBe(1);
     expect(results.filter((r) => r.status === "PRINTED").length).toBeGreaterThanOrEqual(1);
@@ -74,7 +74,7 @@ describe.skipIf(!dbA)("print job claims and recovery (PostgreSQL)", () => {
       .where(eq(schema.printJobs.id, job.id));
 
     // A worker can't claim it while it's still held, and nothing prints.
-    expect(await processPrintJob(dbA!, job.id)).toMatchObject({ status: "PROCESSING", error: expect.stringMatching(/in progress/) });
+    expect(await processPrintJob(dbA!, job.businessId, job.id)).toMatchObject({ status: "PROCESSING", error: expect.stringMatching(/in progress/) });
     expect(printer.calls).toBe(0);
 
     const other = await seedTestFixture(dbA!);
@@ -99,7 +99,7 @@ describe.skipIf(!dbA)("print job claims and recovery (PostgreSQL)", () => {
     let finishSlowPrint!: (result: PrintResult) => void;
     printer.next = () => new Promise<PrintResult>((resolve) => (finishSlowPrint = resolve));
 
-    const staleWorker = processPrintJob(dbA!, job.id);
+    const staleWorker = processPrintJob(dbA!, job.businessId, job.id);
     await vi.waitFor(async () => expect((await jobById(job.id)).status).toBe("PROCESSING"));
     await vi.waitFor(() => expect(finishSlowPrint).toBeTypeOf("function"));
 
@@ -107,7 +107,7 @@ describe.skipIf(!dbA)("print job claims and recovery (PostgreSQL)", () => {
     await dbA!.update(schema.printJobs).set({ leaseExpiresAt: new Date(Date.now() - 1_000) }).where(eq(schema.printJobs.id, job.id));
     expect(await recoverAbandonedPrintJobs(dbA!, business.id)).toBe(1);
     printer.next = null;
-    expect(await processPrintJob(dbB!, job.id)).toEqual({ status: "PRINTED" });
+    expect(await processPrintJob(dbB!, job.businessId, job.id)).toEqual({ status: "PRINTED" });
 
     finishSlowPrint({ success: false, error: "late failure" });
     expect(await staleWorker).toMatchObject({ status: "PROCESSING", error: expect.stringMatching(/superseded/) });
@@ -119,9 +119,9 @@ describe.skipIf(!dbA)("print job claims and recovery (PostgreSQL)", () => {
     printer.next = () => ({ success: false, error: "Paper out" });
 
     for (let i = 0; i < PRINT_JOB_MAX_ATTEMPTS; i++) {
-      expect(await processPrintJob(dbA!, job.id)).toEqual({ status: "FAILED", error: "Paper out" });
+      expect(await processPrintJob(dbA!, job.businessId, job.id)).toEqual({ status: "FAILED", error: "Paper out" });
     }
-    expect(await processPrintJob(dbA!, job.id)).toMatchObject({ status: "FAILED", error: expect.stringMatching(/retry limit/) });
+    expect(await processPrintJob(dbA!, job.businessId, job.id)).toMatchObject({ status: "FAILED", error: expect.stringMatching(/retry limit/) });
     expect(printer.calls).toBe(PRINT_JOB_MAX_ATTEMPTS);
     expect(await jobById(job.id)).toMatchObject({ status: "FAILED", attemptCount: PRINT_JOB_MAX_ATTEMPTS, lastError: "Paper out" });
   });

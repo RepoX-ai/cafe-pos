@@ -265,16 +265,24 @@ async function runClaimedAttempt(db: Database, { job, claimToken }: ClaimedAttem
  * automatically — recovery marks it FAILED with an "outcome unknown"
  * error, and a person decides whether to retry.
  */
-export async function processPrintJob(db: Database, printJobId: string, opts: PrintAttemptOptions = {}): Promise<ProcessResult> {
+export async function processPrintJob(
+  db: Database,
+  businessId: string,
+  printJobId: string,
+  opts: PrintAttemptOptions = {},
+): Promise<ProcessResult> {
+  // The tenant comes from the caller, never from the job: a job id is not
+  // an authorisation, and a cashier at one café must get "not found" for
+  // another café's job even if they somehow hold its id. Filtering on the
+  // job's own business_id makes that a single indexed predicate.
   const [row] = await db
-    .select({ orderId: printJobs.orderId, businessId: orders.businessId })
+    .select({ orderId: printJobs.orderId })
     .from(printJobs)
-    .innerJoin(orders, eq(printJobs.orderId, orders.id))
-    .where(eq(printJobs.id, printJobId))
+    .where(and(eq(printJobs.id, printJobId), eq(printJobs.businessId, businessId)))
     .limit(1);
   if (!row) throw new Error("Print job not found");
 
-  const authorization = await authorizeAttempt(db, row.businessId, row.orderId, printJobId, opts.deviceCapable ?? false);
+  const authorization = await authorizeAttempt(db, businessId, row.orderId, printJobId, opts.deviceCapable ?? false);
   if (authorization.kind === "refused") return authorization.result;
   return runClaimedAttempt(db, authorization);
 }
@@ -372,7 +380,7 @@ export async function retryPrintJob(db: Database, actor: ActorContext, printJobI
   // rather than silently waiting behind a dead lease. The cancelled-order
   // check itself happens under the order lock, inside processPrintJob.
   await recoverAbandonedPrintJobs(db, actor.businessId, printJobId);
-  const result = await processPrintJob(db, printJobId, opts);
+  const result = await processPrintJob(db, actor.businessId, printJobId, opts);
 
   await recordAuditLog(db, {
     businessId: actor.businessId,
@@ -401,12 +409,21 @@ export async function findReprintJob(db: Database, businessId: string, orderId: 
  * It never authorizes a second send of the same request: a job still being
  * printed reports as in progress, and a finished one reports its outcome.
  */
-async function resultForExistingJob(db: Database, jobId: string, opts: PrintAttemptOptions): Promise<ProcessResult> {
-  const [job] = await db.select().from(printJobs).where(eq(printJobs.id, jobId)).limit(1);
+async function resultForExistingJob(
+  db: Database,
+  businessId: string,
+  jobId: string,
+  opts: PrintAttemptOptions,
+): Promise<ProcessResult> {
+  const [job] = await db
+    .select()
+    .from(printJobs)
+    .where(and(eq(printJobs.id, jobId), eq(printJobs.businessId, businessId)))
+    .limit(1);
   if (!job) throw new Error("Print job not found");
   // Never processed (e.g. the request died right after creating it), or a
   // browser receipt still waiting on the client: processing is claim-guarded.
-  if (job.status === "QUEUED") return processPrintJob(db, jobId, opts);
+  if (job.status === "QUEUED") return processPrintJob(db, businessId, jobId, opts);
   if (job.status === "PROCESSING") return { status: "PROCESSING", error: IN_FLIGHT_PRINT_ERROR };
   return { status: job.status, error: job.lastError ?? undefined };
 }
@@ -482,7 +499,7 @@ export async function createReprintJob(
     return claimAttemptLocked(tx, job.id, deviceCapable);
   });
 
-  if (authorization.kind === "existing") return resultForExistingJob(db, authorization.jobId, opts);
+  if (authorization.kind === "existing") return resultForExistingJob(db, actor.businessId, authorization.jobId, opts);
   if (authorization.kind === "refused") return authorization.result;
   return runClaimedAttempt(db, authorization);
 }

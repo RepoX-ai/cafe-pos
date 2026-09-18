@@ -96,7 +96,7 @@ export async function retryDevicePrintAction(printJobId: string): Promise<Device
   }
 
   try {
-    const result = await processPrintJob(db, printJobId, { deviceCapable: true });
+    const result = await processPrintJob(db, user.businessId, printJobId, { deviceCapable: true });
     if (result.requiresClientAction === "device_print" && result.printJobId && result.attemptToken && result.payload) {
       return { ok: true, printJobId: result.printJobId, attemptToken: result.attemptToken, payload: result.payload };
     }

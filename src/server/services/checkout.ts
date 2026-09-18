@@ -80,7 +80,7 @@ export async function submitOrderForUser(
       // another request is already printing. processPrintJob refuses that
       // and reports the job's real status instead.
       try {
-        const result = await processPrintJob(db, job.id, { deviceCapable: true });
+        const result = await processPrintJob(db, order.businessId, job.id, { deviceCapable: true });
         printStatus = result.status;
         // Both client-side providers need the snapshot to print from — and
         // only get it as part of an authorization they actually hold.

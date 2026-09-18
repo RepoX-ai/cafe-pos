@@ -111,6 +111,9 @@ export const sessions = pgTable("sessions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("sessions_user_id_idx").on(table.userId),
+  // Revoking a membership deletes its sessions (invalidateMembershipSessions
+  // and the FK cascade); without this that is a full scan of sessions.
+  index("sessions_active_membership_id_idx").on(table.activeMembershipId),
   // Expired-session sweep (see deleteExpiredSessions).
   index("sessions_expires_at_idx").on(table.expiresAt),
 ]);

@@ -12,7 +12,9 @@ import {
 import { createStaff, deleteStaff, listStaff, resetStaffPassword, updateStaff } from "@/server/services/staff-service";
 import { createBusiness, listOwnedBusinesses } from "@/server/services/business-service";
 import { login } from "@/server/services/auth-service";
-import { auditLogs, businesses, locations, membershipRoles, memberships, roles, sessions, users } from "@/lib/db/schema";
+import { submitOrder } from "@/server/services/order-service";
+import { processPrintJob } from "@/server/services/print-service";
+import { auditLogs, businesses, locations, membershipRoles, memberships, printJobs, roles, sessions, users } from "@/lib/db/schema";
 import { ROLE_NAMES } from "@/lib/validation/staff";
 import type { RoleName } from "@/lib/permissions/permissions";
 
@@ -233,6 +235,32 @@ describe.skipIf(!db)("multi-tenancy", () => {
 
     // Sanity: the other business really does exist, it is just not theirs.
     expect(await db!.select().from(businesses).where(eq(businesses.id, cafeB.business.id))).toHaveLength(1);
+  });
+
+  it("refuses to process another business's print job even with its id", async () => {
+    const { cafeA, cafeB, actorA, actorB } = await seedTwoBusinesses(db!);
+
+    // Café A rings up a sale, which queues a receipt job.
+    const { order } = await submitOrder(db!, actorA, {
+      idempotencyKey: randomUUID(),
+      orderType: "dine_in",
+      discountTotal: 0,
+      lines: [{ menuItemId: cafeA.menuItem.id, menuItemVariantId: cafeA.variant.id, quantity: 1, modifierOptionIds: [] }],
+    });
+    const [job] = await db!.select().from(printJobs).where(eq(printJobs.orderId, order.id));
+    expect(job.businessId).toBe(cafeA.business.id);
+
+    // Café B, holding the job id, gets exactly what it would for a
+    // non-existent job — never the payload, never a claim.
+    await expect(processPrintJob(db!, actorB.businessId, job.id)).rejects.toThrow("Print job not found");
+    const [untouched] = await db!.select().from(printJobs).where(eq(printJobs.id, job.id));
+    expect(untouched.status).toBe("QUEUED");
+    expect(untouched.attemptCount).toBe(0);
+
+    // The owner still can.
+    const mine = await processPrintJob(db!, actorA.businessId, job.id);
+    expect(mine.status).not.toBe("QUEUED");
+    expect(cafeB.business.id).not.toBe(cafeA.business.id);
   });
 
   it("scopes a staff member's attribution counts to the business asking", async () => {

@@ -55,7 +55,8 @@ async function orderWithDeviceJob() {
 
 /** Claims the device attempt a POS screen would get, returning its token. */
 async function claim(jobId: string, db = dbA!) {
-  const result = await processPrintJob(db, jobId, POS);
+  const [{ businessId }] = await db.select({ businessId: schema.printJobs.businessId }).from(schema.printJobs).where(eq(schema.printJobs.id, jobId));
+  const result = await processPrintJob(db, businessId, jobId, POS);
   expect(result.requiresClientAction).toBe("device_print");
   return result.attemptToken!;
 }
@@ -79,7 +80,7 @@ describe.skipIf(!dbA)("device (tablet Bluetooth) printing", () => {
 
   it("hands the payload to the tablet and keeps the attempt claimed until it reports back", async () => {
     const { job } = await orderWithDeviceJob();
-    const result = await processPrintJob(dbA!, job.id, POS);
+    const result = await processPrintJob(dbA!, job.businessId, job.id, POS);
 
     expect(result.requiresClientAction).toBe("device_print");
     expect(result.printJobId).toBe(job.id);
@@ -220,7 +221,7 @@ describe.skipIf(!dbA)("device (tablet Bluetooth) printing", () => {
 
   it("authorizes at most one device attempt when several requests race for the same job", async () => {
     const { job } = await orderWithDeviceJob();
-    const results = await Promise.all(Array.from({ length: 6 }, (_, i) => processPrintJob(i % 2 ? dbA! : dbB!, job.id, POS)));
+    const results = await Promise.all(Array.from({ length: 6 }, (_, i) => processPrintJob(i % 2 ? dbA! : dbB!, job.businessId, job.id, POS)));
 
     const authorized = results.filter((r) => r.requiresClientAction === "device_print");
     expect(authorized).toHaveLength(1);
@@ -230,7 +231,7 @@ describe.skipIf(!dbA)("device (tablet Bluetooth) printing", () => {
 
   it("does not let a caller without a Bluetooth printer claim a device attempt", async () => {
     const { job, actor, order } = await orderWithDeviceJob();
-    const result = await processPrintJob(dbA!, job.id);
+    const result = await processPrintJob(dbA!, job.businessId, job.id);
     expect(result).toEqual({ status: "QUEUED", error: DEVICE_PRINT_ELSEWHERE_ERROR });
     expect(await jobById(job.id)).toMatchObject({ status: "QUEUED", attemptCount: 0, claimToken: null });
 

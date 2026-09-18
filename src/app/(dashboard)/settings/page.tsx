@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
-import { getBusinessById, listOwnedBusinesses } from "@/server/services/business-service";
+import { listOwnedBusinesses } from "@/server/services/business-service";
+import { getCurrentBusiness } from "@/lib/auth/current-business";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { parseTaxConfig } from "@/lib/settings/tax";
 import { SettingsForm } from "./settings-form";
@@ -15,7 +16,7 @@ export const metadata: Metadata = {
 
 export default async function SettingsPage() {
   const user = await requirePageAccess("settings:write");
-  const business = await getBusinessById(db, user.businessId);
+  const business = await getCurrentBusiness(user.businessId);
   if (!business) return null;
 
   // Only owners can stand up another tenant; the action re-checks this.
