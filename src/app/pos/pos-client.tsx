@@ -6,7 +6,7 @@ import { submitOrderInputSchema, type SubmitOrderInput } from "@/lib/validation/
 import type { PrintJobPayload } from "@/printing/printer-provider";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, History, LogOut, Printer, WifiOff } from "lucide-react";
+import { ChevronDown, History, KeyRound, LogOut, Printer, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
 import type { TaxConfig } from "@/lib/settings/tax";
@@ -519,6 +519,14 @@ export function PosClient({
                 role="menu"
                 className="absolute right-0 z-20 mt-1.5 w-40 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg"
               >
+                <Link
+                  href="/account/password"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
+                >
+                  <KeyRound size={16} className="shrink-0" />
+                  Change password
+                </Link>
                 <form action={logoutAction}>
                   <button
                     type="submit"

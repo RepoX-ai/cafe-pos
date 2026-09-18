@@ -13,6 +13,7 @@ import {
   Receipt,
   BarChart3,
   Settings,
+  KeyRound,
   LogOut,
   ClipboardList,
   ShoppingBag,
@@ -271,6 +272,14 @@ export function AdminShell({
                       <div className="my-1 border-t border-[var(--color-border)]" />
                     </>
                   ) : null}
+                  <Link
+                    href="/account/password"
+                    role="menuitem"
+                    className="flex w-full items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
+                  >
+                    <KeyRound size={16} className="shrink-0" />
+                    Change password
+                  </Link>
                   <form action={logoutAction}>
                     <button
                       type="submit"

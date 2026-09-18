@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "node:crypto";
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { businesses, membershipRoles, memberships, roles, sessions, users } from "@/lib/db/schema";
 import type { RoleName } from "@/lib/permissions/permissions";
@@ -220,6 +220,15 @@ export async function invalidateSessionToken(db: Database, token: string): Promi
 
 export async function invalidateAllUserSessions(db: Database, userId: string): Promise<void> {
   await db.delete(sessions).where(eq(sessions.userId, userId));
+}
+
+/**
+ * Drops every session of this user except the one holding `keepToken` —
+ * what a password change wants: the person stays signed in where they
+ * changed it, and any device still on the old password is signed out.
+ */
+export async function invalidateOtherUserSessions(db: Database, userId: string, keepToken: string): Promise<void> {
+  await db.delete(sessions).where(and(eq(sessions.userId, userId), ne(sessions.tokenHash, hashToken(keepToken))));
 }
 
 /**

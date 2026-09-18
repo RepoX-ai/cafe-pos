@@ -97,7 +97,9 @@ data only — never run the seed script against a production database.
 - **Sessions are DB-backed**, not JWT (`src/lib/auth/session.ts`): only a
   SHA-256 hash of the session token lives in Postgres, and every request
   re-validates it (including the user's `active` flag) so deactivation
-  takes effect immediately.
+  takes effect immediately. Anyone signed in can change their own password
+  from the account menu (`/account/password`); it proves the current
+  password first and signs out every *other* session of that account.
 - **One install serves several independent cafés.** Every tenant-owned row
   carries `business_id`, and a request's business comes from its session
   row — never from a URL, form field or header — so no request can name
