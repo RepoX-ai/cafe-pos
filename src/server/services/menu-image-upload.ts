@@ -17,9 +17,16 @@ export function menuImageDirectory() {
   return process.env.MENU_IMAGE_DIR || path.join(process.cwd(), "var", "uploads", "menu");
 }
 
-/** `<root>/<folder>` for everything except menu, which *is* the root. */
+/**
+ * `<root>/<folder>` for everything except menu, which *is* the root.
+ *
+ * Written as literal branches rather than `path.join(root, folder)`: a
+ * computed path segment reads to the bundler's static analysis as dynamic
+ * filesystem access, and it responds by tracing the whole project — every
+ * source file and the public folder — into the server output.
+ */
 export function uploadDirectory(folder: ImageFolder) {
-  return folder === "menu" ? menuImageDirectory() : path.join(menuImageDirectory(), folder);
+  return folder === "brand" ? path.join(menuImageDirectory(), "brand") : menuImageDirectory();
 }
 export type SaveMenuImageResult = { ok: true; url: string } | { ok: false; error: string };
 
