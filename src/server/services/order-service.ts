@@ -466,7 +466,7 @@ async function attemptSubmitOrder(
       destination: "CUSTOMER_RECEIPT",
       provider: configuredPrintProvider(),
       status: "QUEUED",
-      payloadSnapshot: buildPrintPayload(order, prepared, business.name, business),
+      payloadSnapshot: buildPrintPayload(order, prepared, business.name),
       requestedBy: actor.userId,
     });
 
@@ -487,24 +487,13 @@ function buildPrintPayload(
   order: typeof orders.$inferSelect,
   lines: PreparedLine[],
   locationName: string,
-  business: typeof businesses.$inferSelect,
 ) {
-  // Snapshotted like every other payload field, so a reprint months later
-  // shows the logo that was current when the order was rung up.
-  const logoRaster =
-    business.logoRasterBase64 && business.logoRasterWidth && business.logoRasterHeight
-      ? {
-          base64: business.logoRasterBase64,
-          width: business.logoRasterWidth,
-          height: business.logoRasterHeight,
-        }
-      : undefined;
-
+  // No logo here on purpose: it is attached at print time from the
+  // business row (print-service withCurrentLogo), not stored per job.
   return {
     orderId: order.id,
     orderNumber: order.orderNumber,
     locationName,
-    logoRaster,
     createdAt: order.createdAt?.toISOString?.() ?? new Date().toISOString(),
     orderType: order.orderType,
     tableLabel: order.tableLabel ?? undefined,

@@ -299,9 +299,13 @@ server, nothing extra on the Android tablet printing over Bluetooth, and no
 receipt that depends on fetching and decoding a PNG mid-sale. The owner
 also sees a preview of exactly what will print before saving.
 
-The raster is snapshotted onto each print job like every other payload
-field, so a reprint months later shows the logo that was current when the
-order was rung up. Kitchen tickets never get one.
+The raster is **not** stored on each print job. A dithered raster is about
+10KB and barely compresses, and storing it per job made every print job
+17× larger — roughly 3GB a year across five cafés — for a cosmetic. It is
+attached from the business row as the payload is handed to a printer, so
+a reprint shows the café's current logo. Prices, lines and totals stay
+snapshotted per job as PRD rule 8 requires; only the logo is read live.
+Kitchen tickets never get one.
 
 #### Uploads need storage configured
 

@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { businesses, locations, membershipRoles, memberships, roles } from "@/lib/db/schema";
 import { serializeTaxConfig } from "@/lib/settings/tax";
@@ -100,6 +100,36 @@ export async function listOwnedBusinesses(
  * business with no owner would be unreachable from the UI and need
  * unpicking by hand.
  */
+/**
+ * How many businesses this install may hold. Every business is its own
+ * menu, ingredients, orders, audit trail and image folder on a small VPS
+ * disk, so the number is capped. Raise MAX_BUSINESSES on the server when
+ * a fourth café is real; there is no code change involved.
+ */
+export function businessLimit(): number {
+  const parsed = Number.parseInt(process.env.MAX_BUSINESSES ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
+}
+
+export async function countBusinesses(db: Database): Promise<number> {
+  const [row] = await db.select({ value: count() }).from(businesses);
+  return Number(row?.value ?? 0);
+}
+
+export class BusinessLimitError extends Error {
+  constructor(limit: number) {
+    super(
+      `This install is limited to ${limit} business${limit === 1 ? "" : "es"}. ` +
+        "Raise MAX_BUSINESSES on the server to add another.",
+    );
+    this.name = "BusinessLimitError";
+  }
+}
+
+// Advisory lock key for "creating a business": two owners clicking at the
+// same moment must not both pass the count and end up one over the limit.
+const CREATE_BUSINESS_LOCK = 730_212;
+
 export async function createBusiness(
   db: Database,
   actor: ActorContext,
@@ -111,6 +141,11 @@ export async function createBusiness(
   }
 
   return db.transaction(async (tx) => {
+    // Serialise creations so the count below cannot be raced past.
+    await tx.execute(sql`select pg_advisory_xact_lock(${CREATE_BUSINESS_LOCK})`);
+    const limit = businessLimit();
+    if ((await countBusinesses(tx)) >= limit) throw new BusinessLimitError(limit);
+
     const [business] = await tx
       .insert(businesses)
       .values({ name: input.name, orderNumberPrefix: input.orderNumberPrefix })

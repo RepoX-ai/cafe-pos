@@ -21,7 +21,17 @@ export interface OwnedBusiness {
  * action checks the same permission, so hiding this is a convenience, not
  * the boundary.
  */
-export function BusinessesSection({ businesses }: { businesses: OwnedBusiness[] }) {
+export function BusinessesSection({
+  businesses,
+  total,
+  limit,
+}: {
+  businesses: OwnedBusiness[];
+  /** Businesses on the whole install, which is what the cap counts. */
+  total: number;
+  limit: number;
+}) {
+  const atLimit = total >= limit;
   const [creating, setCreating] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,10 +98,20 @@ export function BusinessesSection({ businesses }: { businesses: OwnedBusiness[] 
         ))}
       </ul>
 
-      <Button variant="secondary" size="sm" onClick={open}>
-        <Plus size={14} />
-        Add a business
-      </Button>
+      {atLimit ? (
+        <p className="text-xs text-[var(--color-text-muted)]">
+          This install is at its limit of {limit} business{limit === 1 ? "" : "es"} ({total} in use). Ask whoever runs
+          the server to raise <code className="text-xs">MAX_BUSINESSES</code> if you need another.
+        </p>
+      ) : (
+        <Button variant="secondary" size="sm" onClick={open}>
+          <Plus size={14} />
+          Add a business
+          <span className="ml-1 text-xs font-normal text-[var(--color-text-muted)]">
+            ({total} of {limit})
+          </span>
+        </Button>
+      )}
 
       <Modal open={creating} onClose={() => setCreating(false)} title="Add a business">
         <form onSubmit={submit} className="flex flex-col gap-4">

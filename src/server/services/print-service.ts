@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
-import { orders, printJobs } from "@/lib/db/schema";
+import { businesses, orders, printJobs } from "@/lib/db/schema";
 import { configuredPrintProvider, getPrinterProvider, type PrintJobPayload } from "@/printing";
 import { recordAuditLog } from "./audit";
 import type { ActorContext } from "./ingredient-service";
@@ -200,9 +200,37 @@ async function authorizeAttempt(
  * transaction — a printer, a Bluetooth link and an HTTP bridge are all far
  * too slow to hold database locks across.
  */
+/**
+ * Attaches the business's *current* receipt logo to a payload as it is
+ * handed to a printer. The logo is deliberately not part of the stored
+ * snapshot: a dithered raster is ~10KB that barely compresses, and storing
+ * it per job made every print job 17x larger for a cosmetic that changes
+ * once a year. Prices and lines stay snapshotted (PRD rule 8); the logo is
+ * read live, so a reprint shows whatever the café's logo is today.
+ */
+async function withCurrentLogo(db: Database, businessId: string, payload: PrintJobPayload): Promise<PrintJobPayload> {
+  const [business] = await db
+    .select({
+      base64: businesses.logoRasterBase64,
+      width: businesses.logoRasterWidth,
+      height: businesses.logoRasterHeight,
+    })
+    .from(businesses)
+    .where(eq(businesses.id, businessId))
+    .limit(1);
+  // Strip anything a job stored before this change, then add what is
+  // current — so a removed logo really stops printing.
+  const { logoRaster: _stored, ...rest } = payload;
+  void _stored;
+  if (business?.base64 && business.width && business.height) {
+    return { ...rest, logoRaster: { base64: business.base64, width: business.width, height: business.height } };
+  }
+  return rest;
+}
+
 async function runClaimedAttempt(db: Database, { job, claimToken }: ClaimedAttempt): Promise<ProcessResult> {
   const provider = getPrinterProvider(job.provider);
-  const payload = job.payloadSnapshot as PrintJobPayload;
+  const payload = await withCurrentLogo(db, job.businessId, job.payloadSnapshot as PrintJobPayload);
 
   // Only the holder of this claim may record its outcome; if recovery or a
   // newer attempt has taken the job since, this worker's result is dropped.

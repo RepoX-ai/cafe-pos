@@ -10,7 +10,7 @@ import {
   validateSessionToken,
 } from "@/lib/auth/session";
 import { createStaff, deleteStaff, listStaff, resetStaffPassword, updateStaff } from "@/server/services/staff-service";
-import { createBusiness, listOwnedBusinesses } from "@/server/services/business-service";
+import { businessLimit, countBusinesses, createBusiness, listOwnedBusinesses } from "@/server/services/business-service";
 import { login } from "@/server/services/auth-service";
 import { submitOrder } from "@/server/services/order-service";
 import { processPrintJob } from "@/server/services/print-service";
@@ -58,6 +58,22 @@ async function seedTwoBusinesses(db: TestDb) {
   const linked = await createStaff(db, actorB, { name: "Dwi", email: sharedEmail, role: "manager" });
 
   return { cafeA, cafeB, actorA, actorB, sharedEmail, created, linked };
+}
+
+/**
+ * The shared test database accumulates one café per fixture, so the
+ * install-wide cap would refuse every creation. Gives a test exactly
+ * `room` more businesses than currently exist, then restores the env.
+ */
+async function withBusinessRoom<T>(db: TestDb, room: number, fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.MAX_BUSINESSES;
+  process.env.MAX_BUSINESSES = String((await countBusinesses(db)) + room);
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) delete process.env.MAX_BUSINESSES;
+    else process.env.MAX_BUSINESSES = previous;
+  }
 }
 
 describe.skipIf(!db)("multi-tenancy", () => {
@@ -198,10 +214,9 @@ describe.skipIf(!db)("multi-tenancy", () => {
     await assignRole(db!, cafe.user.id, cafe.business.id, "owner");
     const actor = { businessId: cafe.business.id, userId: cafe.user.id };
 
-    const created = await createBusiness(db!, actor, {
-      name: `Second Cafe ${randomUUID().slice(0, 8)}`,
-      orderNumberPrefix: "SC",
-    });
+    const created = await withBusinessRoom(db!, 1, () =>
+      createBusiness(db!, actor, { name: `Second Cafe ${randomUUID().slice(0, 8)}`, orderNumberPrefix: "SC" }),
+    );
 
     // Owner of the new business, and it is genuinely a separate tenant.
     const options = await listMemberships(db!, cafe.user.id);
@@ -224,6 +239,44 @@ describe.skipIf(!db)("multi-tenancy", () => {
     const owned = await listOwnedBusinesses(db!, cafe.user.id, cafe.business.id);
     expect(owned.map((b) => b.businessId).sort()).toEqual([cafe.business.id, created.businessId].sort());
     expect(owned.find((b) => b.businessId === cafe.business.id)?.isCurrent).toBe(true);
+  });
+
+  it("refuses a business beyond MAX_BUSINESSES, counted across the install", async () => {
+    await ensureRoleCatalog(db!);
+    const cafe = await seedTestFixture(db!);
+    await assignRole(db!, cafe.user.id, cafe.business.id, "owner");
+    const actor = { businessId: cafe.business.id, userId: cafe.user.id };
+    await withBusinessRoom(db!, 1, async () => {
+      expect(businessLimit()).toBeGreaterThan(0);
+      await createBusiness(db!, actor, { name: `Allowed ${randomUUID().slice(0, 8)}`, orderNumberPrefix: "OK" });
+      await expect(
+        createBusiness(db!, actor, { name: `One too many ${randomUUID().slice(0, 8)}`, orderNumberPrefix: "NO" }),
+      ).rejects.toThrow("limited to");
+    });
+  });
+
+  it("attaches the current receipt logo at print time instead of storing it per job", async () => {
+    await ensureRoleCatalog(db!);
+    const cafe = await seedTestFixture(db!);
+    const actor = { businessId: cafe.business.id, userId: cafe.user.id };
+    const { order } = await submitOrder(db!, actor, {
+      idempotencyKey: randomUUID(),
+      orderType: "dine_in",
+      discountTotal: 0,
+      lines: [{ menuItemId: cafe.menuItem.id, menuItemVariantId: cafe.variant.id, quantity: 1, modifierOptionIds: [] }],
+    });
+    const [job] = await db!.select().from(printJobs).where(eq(printJobs.orderId, order.id));
+    // The stored snapshot is small: no raster in it.
+    expect(job.payloadSnapshot).not.toHaveProperty("logoRaster");
+
+    // Upload a logo *after* the order, then print: the receipt carries it.
+    await db!
+      .update(businesses)
+      .set({ logoRasterBase64: "gAE=", logoRasterWidth: 16, logoRasterHeight: 1 })
+      .where(eq(businesses.id, cafe.business.id));
+    await db!.update(printJobs).set({ provider: "browser" }).where(eq(printJobs.id, job.id));
+    const result = await processPrintJob(db!, actor.businessId, job.id);
+    expect(result.payload?.logoRaster).toEqual({ base64: "gAE=", width: 16, height: 1 });
   });
 
   it("does not expose businesses the user has no membership in", async () => {

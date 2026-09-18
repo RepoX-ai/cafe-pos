@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
-import { listOwnedBusinesses } from "@/server/services/business-service";
+import { businessLimit, countBusinesses, listOwnedBusinesses } from "@/server/services/business-service";
 import { getCurrentBusiness } from "@/lib/auth/current-business";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { parseTaxConfig } from "@/lib/settings/tax";
@@ -21,7 +21,10 @@ export default async function SettingsPage() {
 
   // Only owners can stand up another tenant; the action re-checks this.
   const canCreateBusiness = hasAnyRolePermission(user.roles, "business:create");
-  const ownedBusinesses = canCreateBusiness ? await listOwnedBusinesses(db, user.id, user.businessId) : [];
+  const [ownedBusinesses, totalBusinesses] = canCreateBusiness
+    ? await Promise.all([listOwnedBusinesses(db, user.id, user.businessId), countBusinesses(db)])
+    : [[], 0];
+  const limit = businessLimit();
 
   const tax = parseTaxConfig(business.taxConfig);
 
@@ -33,7 +36,9 @@ export default async function SettingsPage() {
       </p>
 
       <div className="mt-8 flex flex-col gap-6">
-        {canCreateBusiness ? <BusinessesSection businesses={ownedBusinesses} /> : null}
+        {canCreateBusiness ? (
+          <BusinessesSection businesses={ownedBusinesses} total={totalBusinesses} limit={limit} />
+        ) : null}
         <BrandingSection
           branding={{
             logoUrl: business.logoUrl,
