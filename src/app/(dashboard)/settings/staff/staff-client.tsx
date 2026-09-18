@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Check, Copy, Plus } from "lucide-react";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +44,33 @@ type FormResult = { ok: true } | { ok: false; error: string; fieldErrors?: Recor
 export function StaffClient({ staff, currentUserId }: { staff: StaffRow[]; currentUserId: string }) {
   const [creating, setCreating] = useState(false);
   const [tempPasswordBanner, setTempPasswordBanner] = useState<{ email: string; password: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const passwordRef = useRef<HTMLElement>(null);
+
+  /**
+   * Clipboard writes need a secure context, and the admin may be opened
+   * over plain http on the cafe's LAN — so when the API is missing or
+   * refuses, the password is selected instead, one keystroke from copied.
+   */
+  async function copyTempPassword() {
+    if (!tempPasswordBanner) return;
+    try {
+      await navigator.clipboard.writeText(tempPasswordBanner.password);
+      setCopied(true);
+      showToast("success", "Password copied.");
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const node = passwordRef.current;
+      if (node) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+      showToast("error", "Couldn't reach the clipboard here. The password is selected; press Ctrl+C.");
+    }
+  }
   const showToast = useToast();
 
   async function create(values: StaffFormValues): Promise<FormResult> {
@@ -93,11 +120,28 @@ export function StaffClient({ staff, currentUserId }: { staff: StaffRow[]; curre
           <p className="text-sm font-medium text-[var(--color-text-primary)]">
             Temporary password for {tempPasswordBanner.email}. Share it securely &mdash; it won&apos;t be shown again:
           </p>
-          <p className="mt-2 rounded-[var(--radius-sm)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]">
-            {tempPasswordBanner.password}
-          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <code
+              ref={passwordRef}
+              className="min-w-0 flex-1 select-all rounded-[var(--radius-sm)] bg-[var(--color-surface)] px-3 py-2 font-mono text-sm text-[var(--color-text-primary)]"
+            >
+              {tempPasswordBanner.password}
+            </code>
+            <button
+              type="button"
+              onClick={copyTempPassword}
+              aria-label="Copy temporary password"
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-page-bg)]"
+            >
+              {copied ? <Check size={14} className="text-[var(--color-success)]" /> : <Copy size={14} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
           <button
-            onClick={() => setTempPasswordBanner(null)}
+            onClick={() => {
+              setTempPasswordBanner(null);
+              setCopied(false);
+            }}
             className="mt-2 text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
           >
             Dismiss
