@@ -183,7 +183,6 @@ export async function updateMenuItemAction(_prev: FormActionState, formData: For
     if (!parsed.success) return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
     await updateMenuItem(db, ctx, id, parsed.data);
     revalidatePath("/menu");
-    touchPosMenu(ctx.businessId);
     revalidatePath(`/menu/${id}`);
     touchPosMenu(ctx.businessId);
     return { ok: true };
@@ -274,7 +273,6 @@ export async function createVariantWithRecipeAction(
     try {
       const variant = await createVariantWithRecipe(db, ctx, menuItemId, parsedVariant.data, lines);
       revalidatePath(`/menu/${menuItemId}`);
-      touchPosMenu(ctx.businessId);
       revalidatePath(`/menu/${menuItemId}/recipe`);
       touchPosMenu(ctx.businessId);
       return { ok: true, variantId: variant.id };

@@ -8,7 +8,7 @@ import { requireCurrentUser } from "@/lib/auth/current-user";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { cancelOrderInputSchema } from "@/lib/validation/order";
-import { cancelOrder, OrderValidationError, refundOrder } from "@/server/services/order-service";
+import { cancelOrder, getOrderStatus, OrderValidationError, refundOrder } from "@/server/services/order-service";
 import { createReprintJob, findReprintJob, PrintNotAllowedError, retryPrintJob } from "@/server/services/print-service";
 import { consumeRateLimit, RATE_LIMITS } from "@/server/services/rate-limit";
 import { invalidatePosMenuCache } from "@/server/services/pos-menu-cache";
@@ -30,7 +30,8 @@ export async function cancelOrderAction(input: unknown): Promise<CancelOrderResu
       return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid request." };
     }
 
-    if (!(await consumeRateLimit(db, { rule: RATE_LIMITS.orderMutation(), key: [user.businessId, user.id] }))) {
+    const isRetry = (await getOrderStatus(db, user.businessId, parsed.data.orderId)) === "CANCELLED";
+    if (!isRetry && !(await consumeRateLimit(db, { rule: RATE_LIMITS.orderMutation(), key: [user.businessId, user.id] }))) {
       return THROTTLED_MUTATION;
     }
 
@@ -123,7 +124,8 @@ export async function refundOrderAction(input: unknown): Promise<CancelOrderResu
       return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid request." };
     }
 
-    if (!(await consumeRateLimit(db, { rule: RATE_LIMITS.orderMutation(), key: [user.businessId, user.id] }))) {
+    const isRetry = (await getOrderStatus(db, user.businessId, parsed.data.orderId)) === "REFUNDED";
+    if (!isRetry && !(await consumeRateLimit(db, { rule: RATE_LIMITS.orderMutation(), key: [user.businessId, user.id] }))) {
       return THROTTLED_MUTATION;
     }
 

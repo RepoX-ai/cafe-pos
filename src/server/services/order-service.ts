@@ -751,6 +751,20 @@ async function reverseOrder(
   });
 }
 
+/**
+ * Light status peek so a cancel/refund retry (a flaky tablet resubmitting
+ * the same action) can be recognized before it's rate-limited, the same way
+ * `findReprintJob` lets a reprint retry skip the print rate limit.
+ */
+export async function getOrderStatus(db: Database, businessId: string, orderId: string) {
+  const [order] = await db
+    .select({ status: orders.status })
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.businessId, businessId)))
+    .limit(1);
+  return order?.status ?? null;
+}
+
 /** Cancels an order and reverses its stock consumption. Idempotent; refused for refunded orders. */
 export function cancelOrder(db: Database, actor: ActorContext, orderId: string, reason: string) {
   return reverseOrder(db, actor, orderId, reason, "cancel");

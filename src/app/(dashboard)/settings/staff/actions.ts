@@ -103,6 +103,10 @@ export async function updateStaffAction(userId: string, input: unknown): Promise
       return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
     }
 
+    if (!(await consumeRateLimit(db, { rule: RATE_LIMITS.staffWrite(), key: [user.businessId, user.id] }))) {
+      return THROTTLED;
+    }
+
     try {
       await updateStaff(db, { businessId: user.businessId, userId: user.id }, userId, parsed.data);
     } catch (error) {
