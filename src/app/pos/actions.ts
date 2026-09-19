@@ -16,6 +16,7 @@ import { requirePermission } from "@/lib/permissions/permissions";
 import { asActionResult, mapControlledActionError } from "@/lib/permissions/action-result";
 import { unstable_rethrow } from "next/navigation";
 import { claimRateLimitCleanupSlot, consumeRateLimit, deleteExpiredRateLimitBuckets, RATE_LIMITS } from "@/server/services/rate-limit";
+import { invalidatePosMenuCache } from "@/server/services/pos-menu-cache";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 
 export type { SubmitOrderResult };
@@ -43,6 +44,9 @@ export async function submitOrderAction(input: unknown): Promise<SubmitOrderResu
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     const result = await submitOrderForUser(db, user, input);
+    // Orders deduct stock — drop the POS menu cache so availability badges refresh
+    // (same pattern as cancel/refund on the dashboard).
+    if (result.ok) invalidatePosMenuCache(user.businessId);
     if (claimRateLimitCleanupSlot()) after(() => deleteExpiredRateLimitBuckets(db).catch(() => undefined));
     return result;
   });
