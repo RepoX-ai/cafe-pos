@@ -67,3 +67,14 @@ against a throwaway database:
 
 If any of those fail, the backup isn't done — fix the process before the
 café goes live on it.
+
+
+## Never commit dumps to git
+
+Do **not** store `pg_dump` output under `backups/` in the repository, and do
+not commit `*.sql` / `*.dump` backups. The directory is gitignored for that
+reason. Keep encrypted copies off-host (object storage, another machine).
+If a dump was ever committed, follow
+[security-incident-backup-in-git.md](security-incident-backup-in-git.md) —
+history purge and credential rotation are required separately from deleting
+the file on `main`.

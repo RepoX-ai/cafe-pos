@@ -95,7 +95,9 @@ since it reuses the same `docker-compose.yml` as local dev.
 git clone <this-repo> /opt/cafe-pos
 cd /opt/cafe-pos
 cp .env.example .env
-# edit .env: real AUTH_SECRET (openssl rand -base64 32), PRINT_PROVIDER, etc.
+# edit .env: strong unique POSTGRES_PASSWORD + AUTH_SECRET (openssl rand -base64 32),
+# PRINT_PROVIDER, etc. Compose has no insecure defaults and fails if these are unset.
+# Postgres is published on 127.0.0.1:5432 only — do not change that to 0.0.0.0.
 docker compose up -d --build
 docker compose exec app npm run db:migrate
 ```

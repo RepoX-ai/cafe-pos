@@ -47,3 +47,13 @@ test-results/
 /playwright-report/
 
 /var/uploads/
+
+# Database dumps and ad-hoc backups — never commit these.
+# Plain SQL / custom-format dumps can contain password hashes, PII, and
+# business data. Keep them encrypted outside the repo (see
+# docs/security-incident-backup-in-git.md and docs/backup-restore.md).
+/backups/
+# Ad-hoc SQL dumps at repo root (drizzle/migrations/*.sql stay tracked)
+/*.sql
+*.dump
+docker-compose.override.yml
