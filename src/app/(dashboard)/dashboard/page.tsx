@@ -27,6 +27,7 @@ import {
   getStockAlerts,
 } from "@/server/services/reports-service";
 import {
+  calendarDaysInclusive,
   previousBusinessPeriod,
   resolveBusinessDateRange,
   shiftBusinessDate,
@@ -59,12 +60,14 @@ export default async function DashboardPage({
   const range = resolveBusinessDateRange(from, to, { from: today, to: today });
   const { from: fromDate, to: toDate } = range;
 
-  // The trend chart always shows a fixed trailing 14-day window ending on
-  // `toDate`, independent of the KPI cards' date-range filter above — so it
-  // reads as a trend on first load instead of the single bar you'd get from
-  // the cards' today-only default.
-  const chartFromDate = shiftBusinessDate(toDate, -13);
+  // The trend chart follows the same date-range filter as the KPI cards
+  // above, except when that range collapses to a single day (the "Daily"
+  // preset, the default on first load) — a one-bar chart isn't a trend, so
+  // that case falls back to a trailing 14-day window ending on `toDate`.
+  const chartDayCount = calendarDaysInclusive(range);
+  const chartFromDate = chartDayCount > 1 ? fromDate : shiftBusinessDate(toDate, -13);
   const chartRange = { from: chartFromDate, to: toDate };
+  const chartRangeDays = calendarDaysInclusive(chartRange);
 
   // "vs. last period" comparison: the same number of calendar days
   // immediately preceding the selected range (a single day compares with
@@ -86,7 +89,7 @@ export default async function DashboardPage({
   ]);
 
   const salesByDayMap = new Map(salesByDay.map((d) => [d.day, d]));
-  const trendData: TrendPoint[] = Array.from({ length: 14 }, (_, i) => {
+  const trendData: TrendPoint[] = Array.from({ length: chartRangeDays }, (_, i) => {
     const day = shiftBusinessDate(chartFromDate, i);
     const row = salesByDayMap.get(day);
     return { day, value: row?.totalSales ?? 0, caption: `${row?.orderCount ?? 0} orders` };
@@ -160,12 +163,14 @@ export default async function DashboardPage({
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
         <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:col-span-2">
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Sales trend — last 14 days</h2>
+          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+            Sales trend {chartDayCount > 1 ? `— ${chartFromDate} to ${toDate}` : "— last 14 days"}
+          </h2>
           <div className="mt-3">
             <TrendChart
               data={trendData}
-              ariaLabel="Daily total sales for the last 14 days"
-              emptyText="No sales in the last 14 days."
+              ariaLabel={`Daily total sales from ${chartFromDate} to ${toDate}`}
+              emptyText="No sales in this range."
             />
           </div>
         </div>
