@@ -567,7 +567,7 @@ The admin interface should feel closer to Linear or Vercel:
 
 ### Requirements
 
-- Staff can log in with email or username and password.
+- Staff can log in with email and password (email is the unique login identifier; there is no separate username field).
 - Passwords must be securely hashed.
 - Sessions must be stored securely.
 - Staff can log out.

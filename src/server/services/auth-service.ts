@@ -15,11 +15,20 @@ export type LoginResult =
   | { ok: false; error: "invalid_credentials" | "account_deactivated" | "no_business_access" };
 
 /**
- * Looks up by email OR by name-as-username (PRD: "log in with email or
- * username"). Deliberately returns the same generic error for "no such
- * user" and "wrong password" so login can't be used to enumerate accounts;
- * a deactivated account gets its own message since that's operationally
- * useful for staff to see and isn't a secret.
+ * bcrypt cost-12 hash of a fixed dummy string. Used only when no user row
+ * matches so a missing-account login still pays for one bcrypt.compare —
+ * otherwise response time would reveal whether the email exists (SEC-004).
+ * Never a real account password.
+ */
+const DUMMY_PASSWORD_HASH =
+  "$2b$12$wEYmVcXedq66c73xat6.3eWkPCrqq9MQP1mcoXgakyGCIQfatoYC2";
+
+/**
+ * Looks up by email (globally unique login identifier). Deliberately returns
+ * the same generic error for "no such user" and "wrong password" so login
+ * can't be used to enumerate accounts; a deactivated account gets its own
+ * message since that's operationally useful for staff to see and isn't a
+ * secret.
  *
  * Which business the new session lands in is decided here, from the
  * account's memberships — never from the login form. There is no input a
@@ -37,12 +46,14 @@ export async function login(
     .where(eq(users.email, identifier.trim().toLowerCase()))
     .limit(1);
 
-  if (!user) {
-    return { ok: false, error: "invalid_credentials" };
-  }
+  // Always compare — against the real hash or a static dummy — so missing
+  // and present accounts take a comparable amount of time.
+  const validPassword = await verifyPassword(
+    plainTextPassword,
+    user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+  );
 
-  const validPassword = await verifyPassword(plainTextPassword, user.passwordHash);
-  if (!validPassword) {
+  if (!user || !validPassword) {
     return { ok: false, error: "invalid_credentials" };
   }
 
