@@ -95,7 +95,9 @@ since it reuses the same `docker-compose.yml` as local dev.
 git clone <this-repo> /opt/cafe-pos
 cd /opt/cafe-pos
 cp .env.example .env
-# edit .env: real AUTH_SECRET (openssl rand -base64 32), PRINT_PROVIDER, etc.
+# edit .env: strong unique POSTGRES_PASSWORD + AUTH_SECRET (openssl rand -base64 32),
+# PRINT_PROVIDER, etc. Compose has no insecure defaults and fails if these are unset.
+# Postgres is published on 127.0.0.1:5432 only — do not change that to 0.0.0.0.
 docker compose up -d --build
 docker compose exec app npm run db:migrate
 ```
@@ -155,9 +157,23 @@ runs fine without it). At minimum, watch:
 See [backup-restore.md](backup-restore.md) — set up the cron job before
 the café takes real orders on this, not after.
 
+## Security headers
+
+`next.config.ts` sets baseline response headers on every route: `CSP`,
+`X-Content-Type-Options: nosniff`, `Referrer-Policy`, `X-Frame-Options: DENY`
+(and `frame-ancestors 'none'` in CSP), and a `Permissions-Policy` that allows
+Web Bluetooth only for same-origin (POS tablet printer).
+
+CSP is deliberately a solid baseline (`script-src`/`style-src` still allow
+`'unsafe-inline'`; `'unsafe-eval'` only in development) so the App Router and
+POS keep working without a per-request nonce. Follow-up: move to a nonce /
+`strict-dynamic` CSP via Next.js `proxy.ts` and lock `connect-src` /
+`img-src` to known storage hosts once the café's CDN is fixed.
+
 ## Client IP and rate limits
 
-Login, checkout, print retry/reprint and CSV export are throttled with
+Login, checkout, print retry/reprint, CSV export, order cancel/refund and
+staff create/reset/delete are throttled with
 fixed-window buckets stored in PostgreSQL (the `login_attempts` table), so
 every instance — Vercel functions and VPS processes alike — shares the same
 limits without Redis. Defaults and `RATE_LIMIT_*` overrides are listed in
@@ -175,9 +191,14 @@ The client IP is only taken from a proxy you configure
 | Deployment | Setting |
 |---|---|
 | Local `next dev`, or Docker with no proxy | Leave both unset. No client IP: per-IP login buckets are skipped; account buckets still apply. |
-| Vercel | `TRUSTED_CLIENT_IP_HEADER=x-forwarded-for` |
-| VPS behind Nginx with `proxy_set_header X-Real-IP $remote_addr` | `TRUSTED_CLIENT_IP_HEADER=x-real-ip` |
-| VPS behind Nginx appending `X-Forwarded-For` | `TRUSTED_PROXY_COUNT=1` (add one for each further proxy/CDN you run in front) |
+| Vercel | `TRUSTED_CLIENT_IP_HEADER=x-forwarded-for` **(required)** |
+| VPS behind Nginx with `proxy_set_header X-Real-IP $remote_addr` | `TRUSTED_CLIENT_IP_HEADER=x-real-ip` **(required for public HTTPS)** |
+| VPS behind Nginx appending `X-Forwarded-For` | `TRUSTED_PROXY_COUNT=1` **(required for public HTTPS)**; add one for each further proxy/CDN |
+
+**Public HTTPS checklist:** set exactly one of `TRUSTED_CLIENT_IP_HEADER` or
+`TRUSTED_PROXY_COUNT` before exposing the app. Production logs a warning at
+boot if both are empty (fail-soft — the app still starts so local-style
+Compose on a VPS without a proxy is not hard-broken).
 
 A header value that isn't exactly one valid IP address is ignored, never guessed at.
 

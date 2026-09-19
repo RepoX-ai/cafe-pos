@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { expenseInputSchema } from "@/lib/validation/expense";
 import { flattenZodErrors } from "@/lib/validation/form-errors";
@@ -28,35 +29,41 @@ export async function createExpenseAction(
   _prev: ExpenseActionState,
   formData: FormData,
 ): Promise<ExpenseActionState> {
-  const user = await requireCurrentUser();
-  requirePermission(user.roles, "expenses:write");
+  return asActionResult(async () => {
+    const user = await requireCurrentUser();
+    requirePermission(user.roles, "expenses:write");
 
-  const parsed = parseExpenseForm(formData);
-  if (!parsed.success) {
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
-  }
+    const parsed = parseExpenseForm(formData);
+    if (!parsed.success) {
+      return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
+    }
 
-  await createExpense(db, { businessId: user.businessId, userId: user.id }, parsed.data);
-  revalidatePath("/expenses");
-  return { ok: true };
+    await createExpense(db, { businessId: user.businessId, userId: user.id }, parsed.data);
+    revalidatePath("/expenses");
+    return { ok: true };
+  });
 }
+
 
 export async function updateExpenseAction(
   _prev: ExpenseActionState,
   formData: FormData,
 ): Promise<ExpenseActionState> {
-  const user = await requireCurrentUser();
-  requirePermission(user.roles, "expenses:write");
+  return asActionResult(async () => {
+    const user = await requireCurrentUser();
+    requirePermission(user.roles, "expenses:write");
 
-  const id = String(formData.get("id") ?? "");
-  if (!id) return { ok: false, error: "Missing expense id." };
+    const id = String(formData.get("id") ?? "");
+    if (!id) return { ok: false, error: "Missing expense id." };
 
-  const parsed = parseExpenseForm(formData);
-  if (!parsed.success) {
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
-  }
+    const parsed = parseExpenseForm(formData);
+    if (!parsed.success) {
+      return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
+    }
 
-  await updateExpense(db, { businessId: user.businessId, userId: user.id }, id, parsed.data);
-  revalidatePath("/expenses");
-  return { ok: true };
+    await updateExpense(db, { businessId: user.businessId, userId: user.id }, id, parsed.data);
+    revalidatePath("/expenses");
+    return { ok: true };
+  });
 }
+

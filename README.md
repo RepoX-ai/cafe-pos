@@ -26,8 +26,8 @@ import, real printer hardware).
 ### Option A — Docker Compose (recommended)
 
 ```bash
-docker compose up -d db          # Postgres only
-cp .env.example .env             # if you haven't already
+cp .env.example .env             # sets local-only POSTGRES_PASSWORD + AUTH_SECRET
+docker compose up -d db          # Postgres on 127.0.0.1:5432 only
 npm install
 npm run db:migrate
 npm run db:seed                  # creates one dev user per role, see output
@@ -380,7 +380,9 @@ a client module.
 Full step-by-step for each target, including Nginx/TLS config and log
 rotation, is in [docs/deployment.md](docs/deployment.md). Backup/restore
 procedure (and the drill to run before go-live) is in
-[docs/backup-restore.md](docs/backup-restore.md).
+[docs/backup-restore.md](docs/backup-restore.md). Never commit database
+dumps under `backups/` — see
+[docs/security-incident-backup-in-git.md](docs/security-incident-backup-in-git.md).
 
 Open hardware/business decisions (printer model, tax-inclusive pricing,
 service charge, negative-stock policy, etc.) are listed in PRD §20 and are

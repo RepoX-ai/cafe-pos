@@ -1,0 +1,21 @@
+# Local development only.
+# Copy to docker-compose.override.yml (gitignored) if you want Compose-local
+# overrides without editing the base file. Prefer setting secrets in `.env`
+# from `.env.example` instead — Compose reads that file automatically.
+#
+# Never deploy with these values. Production must use a real `.env` with
+# strong unique POSTGRES_PASSWORD and AUTH_SECRET (openssl rand -base64 32).
+
+services:
+  db:
+    # Example: drop the host port entirely so Postgres is only reachable
+    # from other Compose services (then point local `npm run dev` at a
+    # different DATABASE_URL, or run the app container too).
+    # ports: !override []
+    environment:
+      POSTGRES_PASSWORD: local-dev-only-postgres-not-for-prod
+
+  app:
+    environment:
+      AUTH_SECRET: local-dev-only-auth-secret-min-32-chars-xx
+      DATABASE_URL: postgres://postgres:local-dev-only-postgres-not-for-prod@db:5432/cafe_pos

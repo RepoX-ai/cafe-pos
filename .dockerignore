@@ -8,3 +8,9 @@ public/uploads
 test-results
 playwright-report
 *.tsbuildinfo
+# Never send DB dumps into the image build context
+backups/
+*.dump
+# Ad-hoc SQL dumps outside drizzle/ (migrations must remain available to build)
+/*.sql
+backups/**/*.sql

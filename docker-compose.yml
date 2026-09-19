@@ -11,10 +11,14 @@ services:
     logging: *default-logging
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # No insecure default — set POSTGRES_PASSWORD in `.env` (see .env.example).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env — no insecure default}
       POSTGRES_DB: cafe_pos
+    # Bind to loopback only. Publishing 0.0.0.0:5432 is unsafe on any host
+    # reachable from a network. For no host port at all, remove `ports` and
+    # reach Postgres only from the Compose network (app service).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - cafe_pos_db_data:/var/lib/postgresql/data
     healthcheck:
@@ -33,8 +37,9 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://postgres:postgres@db:5432/cafe_pos
-      AUTH_SECRET: ${AUTH_SECRET:-dev-only-not-for-production}
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/cafe_pos
+      # No insecure default — set AUTH_SECRET in `.env` (openssl rand -base64 32).
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env — no insecure default}
       APP_URL: http://localhost:3000
       BUSINESS_TIMEZONE: Asia/Jakarta
       PRINT_PROVIDER: ${PRINT_PROVIDER:-mock}

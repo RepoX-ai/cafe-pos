@@ -1,4 +1,5 @@
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHmac } from "node:crypto";
+import { getAuthSecret } from "@/lib/auth/secret";
 import { and, desc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { businesses, membershipRoles, memberships, roles, sessions, users } from "@/lib/db/schema";
@@ -44,8 +45,14 @@ function generateSessionToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/**
+ * Peppered HMAC-SHA256 of the raw session token. Plain SHA-256 is not enough
+ * once a DB dump leaks: an attacker could replay stolen hashes without the
+ * pepper. Rotating AUTH_SECRET invalidates every existing session row —
+ * expected after a credential leak.
+ */
 function hashToken(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
+  return createHmac("sha256", getAuthSecret()).update(token).digest("hex");
 }
 
 /**

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { businessSettingsInputSchema } from "@/lib/validation/settings";
 import { brandingInputSchema, createBusinessInputSchema } from "@/lib/validation/business";
@@ -10,6 +11,7 @@ import { flattenZodErrors } from "@/lib/validation/form-errors";
 import { createBusiness, updateBranding, updateBusinessSettings } from "@/server/services/business-service";
 import { saveBusinessLogo } from "@/server/services/menu-image-upload";
 import { getPrinterProvider } from "@/printing";
+import { invalidatePosMenuCache } from "@/server/services/pos-menu-cache";
 
 export type SettingsActionState =
   | { ok: true }
@@ -20,36 +22,47 @@ export async function updateSettingsAction(
   _prev: SettingsActionState,
   formData: FormData,
 ): Promise<SettingsActionState> {
-  const user = await requireCurrentUser();
-  requirePermission(user.roles, "settings:write");
+  return asActionResult(async () => {
+    const user = await requireCurrentUser();
+    requirePermission(user.roles, "settings:write");
 
-  const parsed = businessSettingsInputSchema.safeParse({
-    name: formData.get("name"),
-    receiptFooter: formData.get("receiptFooter"),
-    orderNumberPrefix: formData.get("orderNumberPrefix"),
-    taxEnabled: formData.get("taxEnabled") === "on",
-    taxPercent: formData.get("taxPercent") || 0,
-    taxInclusive: formData.get("taxInclusive") === "on",
-    serviceChargeEnabled: formData.get("serviceChargeEnabled") === "on",
-    serviceChargePercent: formData.get("serviceChargePercent") || 0,
-    allowNegativeStock: formData.get("allowNegativeStock") === "on",
+    const parsed = businessSettingsInputSchema.safeParse({
+      name: formData.get("name"),
+      receiptFooter: formData.get("receiptFooter"),
+      orderNumberPrefix: formData.get("orderNumberPrefix"),
+      taxEnabled: formData.get("taxEnabled") === "on",
+      taxPercent: formData.get("taxPercent") || 0,
+      taxInclusive: formData.get("taxInclusive") === "on",
+      serviceChargeEnabled: formData.get("serviceChargeEnabled") === "on",
+      serviceChargePercent: formData.get("serviceChargePercent") || 0,
+      allowNegativeStock: formData.get("allowNegativeStock") === "on",
+    });
+
+    if (!parsed.success) {
+      return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
+    }
+
+    await updateBusinessSettings(db, { businessId: user.businessId, userId: user.id }, parsed.data);
+    revalidatePath("/settings");
+    // Stock gating on POS depends on allowNegativeStock.
+    invalidatePosMenuCache(user.businessId);
+    return { ok: true };
   });
-
-  if (!parsed.success) {
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
-  }
-
-  await updateBusinessSettings(db, { businessId: user.businessId, userId: user.id }, parsed.data);
-  revalidatePath("/settings");
-  return { ok: true };
 }
 
-export async function testPrinterConnectionAction(): Promise<{ connected: boolean; message?: string }> {
-  const user = await requireCurrentUser();
-  requirePermission(user.roles, "printer:manage");
 
-  const provider = getPrinterProvider();
-  return provider.testConnection();
+export async function testPrinterConnectionAction(): Promise<{ connected: boolean; message?: string }> {
+  const result = await asActionResult(async () => {
+    const user = await requireCurrentUser();
+    requirePermission(user.roles, "printer:manage");
+
+    const provider = getPrinterProvider();
+    return provider.testConnection();
+  });
+  if (result && typeof result === "object" && "ok" in result && (result as { ok: boolean }).ok === false) {
+    return { connected: false, message: (result as { error: string }).error };
+  }
+  return result as { connected: boolean; message?: string };
 }
 
 export type CreateBusinessResult =
@@ -66,24 +79,27 @@ export type CreateBusinessResult =
  * form supplied.
  */
 export async function createBusinessAction(input: unknown): Promise<CreateBusinessResult> {
-  const user = await requireCurrentUser();
-  requirePermission(user.roles, "business:create");
+  return asActionResult(async () => {
+    const user = await requireCurrentUser();
+    requirePermission(user.roles, "business:create");
 
-  const parsed = createBusinessInputSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
-  }
+    const parsed = createBusinessInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
+    }
 
-  try {
-    await createBusiness(db, { businessId: user.businessId, userId: user.id }, parsed.data);
-  } catch (error) {
-    return { ok: false, error: (error as Error).message };
-  }
+    try {
+      await createBusiness(db, { businessId: user.businessId, userId: user.id }, parsed.data);
+    } catch (error) {
+      return { ok: false, error: (error as Error).message };
+    }
 
-  revalidatePath("/settings");
-  revalidatePath("/", "layout");
-  return { ok: true, businessName: parsed.data.name };
+    revalidatePath("/settings");
+    revalidatePath("/", "layout");
+    return { ok: true, businessName: parsed.data.name };
+  });
 }
+
 
 export type BrandingResult =
   | { ok: true }
@@ -98,32 +114,35 @@ export type BrandingResult =
  * client-side.
  */
 export async function updateBrandingAction(formData: FormData): Promise<BrandingResult> {
-  const user = await requireCurrentUser();
-  requirePermission(user.roles, "settings:write");
+  return asActionResult(async () => {
+    const user = await requireCurrentUser();
+    requirePermission(user.roles, "settings:write");
 
-  const parsed = brandingInputSchema.safeParse({
-    brandColor: formData.get("brandColor") || "",
-    logoRasterBase64: formData.get("logoRasterBase64") || "",
-    logoRasterWidth: formData.get("logoRasterWidth") || undefined,
-    logoRasterHeight: formData.get("logoRasterHeight") || undefined,
-    removeLogo: formData.get("removeLogo") === "on",
+    const parsed = brandingInputSchema.safeParse({
+      brandColor: formData.get("brandColor") || "",
+      logoRasterBase64: formData.get("logoRasterBase64") || "",
+      logoRasterWidth: formData.get("logoRasterWidth") || undefined,
+      logoRasterHeight: formData.get("logoRasterHeight") || undefined,
+      removeLogo: formData.get("removeLogo") === "on",
+    });
+    if (!parsed.success) {
+      return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
+    }
+
+    let logoUrl: string | null = null;
+    const file = formData.get("logoFile");
+    if (file instanceof File && file.size > 0) {
+      const saved = await saveBusinessLogo(file, user.businessId);
+      if (!saved.ok) return { ok: false, error: saved.error, fieldErrors: { logoFile: saved.error } };
+      logoUrl = saved.url;
+    }
+
+    await updateBranding(db, { businessId: user.businessId, userId: user.id }, { ...parsed.data, logoUrl });
+
+    // The logo and accent live in the shell, not just this page.
+    revalidatePath("/", "layout");
+    revalidatePath("/settings");
+    return { ok: true };
   });
-  if (!parsed.success) {
-    return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
-  }
-
-  let logoUrl: string | null = null;
-  const file = formData.get("logoFile");
-  if (file instanceof File && file.size > 0) {
-    const saved = await saveBusinessLogo(file, user.businessId);
-    if (!saved.ok) return { ok: false, error: saved.error, fieldErrors: { logoFile: saved.error } };
-    logoUrl = saved.url;
-  }
-
-  await updateBranding(db, { businessId: user.businessId, userId: user.id }, { ...parsed.data, logoUrl });
-
-  // The logo and accent live in the shell, not just this page.
-  revalidatePath("/", "layout");
-  revalidatePath("/settings");
-  return { ok: true };
 }
+

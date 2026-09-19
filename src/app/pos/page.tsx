@@ -3,7 +3,7 @@ import { requirePageAccess } from "@/lib/auth/guards";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { formatRoles } from "@/lib/permissions/role-labels";
 import { db } from "@/lib/db/client";
-import { getPosMenu } from "@/server/services/menu-service";
+import { getCachedPosMenu } from "@/server/services/pos-menu-cache";
 import { getBusinessById } from "@/server/services/business-service";
 import { listMemberships } from "@/lib/auth/session";
 import { brandStyle } from "@/lib/branding/branding";
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 export default async function PosPage() {
   const user = await requirePageAccess("orders:create");
   const business = await getBusinessById(db, user.businessId);
-  const { categories, items } = await getPosMenu(db, user.businessId, {
+  const { categories, items } = await getCachedPosMenu(user.businessId, {
     allowNegativeStock: business?.allowNegativeStock ?? false,
   });
 

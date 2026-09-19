@@ -31,6 +31,8 @@ function envRule(name: string, envVar: string, limit: number, windowSeconds: num
  *   kept above the per-device limit so a lockout needs more than one source.
  * - checkout per user (60/1m): far above a cashier's pace; idempotent retries are exempt.
  * - print retry/reprint per user (20/1m) and CSV export per user (20/5m): costly, rare actions.
+ * - order cancel/refund per user (30/1m): stock-restoring writes that should stay rare.
+ * - staff writes per user (20/5m): create/reset/delete are infrequent and hash passwords.
  */
 export const RATE_LIMITS = {
   loginClientIp: () => envRule("login-ip", "RATE_LIMIT_LOGIN_IP", 50, 900),
@@ -39,6 +41,8 @@ export const RATE_LIMITS = {
   checkout: () => envRule("checkout", "RATE_LIMIT_CHECKOUT", 60, 60),
   print: () => envRule("print", "RATE_LIMIT_PRINT", 20, 60),
   export: () => envRule("export", "RATE_LIMIT_EXPORT", 20, 300),
+  orderMutation: () => envRule("order-mutation", "RATE_LIMIT_ORDER_MUTATION", 30, 60),
+  staffWrite: () => envRule("staff-write", "RATE_LIMIT_STAFF_WRITE", 20, 300),
 };
 
 export interface RateLimitCheck {

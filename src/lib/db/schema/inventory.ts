@@ -67,7 +67,7 @@ export const stockCounts = pgTable("stock_counts", {
   countedBy: uuid("counted_by").references(() => users.id, { onDelete: "set null" }),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [index("stock_counts_business_id_idx").on(table.businessId)]);
 
 export const stockCountLines = pgTable("stock_count_lines", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
