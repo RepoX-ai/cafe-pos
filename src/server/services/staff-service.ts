@@ -123,6 +123,10 @@ export type CreateStaffResult = {
  * Linking deliberately does not touch the existing account's name,
  * password or other memberships. The only thing this business gains is a
  * membership row it is entitled to grant.
+ *
+ * SEC-009: revealing that an email already has an account (link vs create,
+ * “already on your staff list”, email clash on update) is intentional for
+ * this multi-café linking UX — not a login oracle. See docs/security-ops-notes.md.
  */
 export async function createStaff(
   db: Database,

@@ -74,6 +74,10 @@ export default async function DashboardPage({
   // the day before).
   const previousRange = previousBusinessPeriod(range);
 
+  // PERF-002: independent report queries already run in parallel. Images
+  // below stay sequential — they need ranking IDs. TODO: if this page's
+  // latency shows up in profiling, coalesce summary + previousSummary
+  // (or day/category/payment slices) rather than adding more round-trips.
   const [summary, previousSummary, stockAlerts, rankings, recentOrders, failedPrints, salesByDay, salesByCategory, salesByPaymentMethod] = await Promise.all([
     getSalesSummary(db, user.businessId, range),
     getSalesSummary(db, user.businessId, previousRange),
