@@ -73,6 +73,10 @@ export const orders = pgTable(
     // Order lists, date-ranged reports and recent orders: tenant filter,
     // newest first, with id as the pagination tie-breaker.
     index("orders_business_created_at_idx").on(table.businessId, table.createdAt, table.id),
+    // The orders screen's substring search on order number. Measured on 5
+    // tenants / 456k orders: 68 ms sequential scan -> ~1 ms (3+ characters;
+    // shorter searches still scan). Needs pg_trgm (migration 0019).
+    index("orders_order_number_trgm_idx").using("gin", table.orderNumber.op("gin_trgm_ops")),
   ],
 );
 

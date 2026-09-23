@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { auditLogs, users } from "@/lib/db/schema";
+import { countUpTo } from "./range-filters";
 
 export interface AuditLogInput {
   businessId: string;
@@ -36,7 +37,7 @@ export async function recordAuditLog(db: Database, input: AuditLogInput): Promis
 }
 
 export async function countAuditLogs(db: Database, businessId: string) {
-  return db.$count(auditLogs, eq(auditLogs.businessId, businessId));
+  return countUpTo(db, auditLogs, eq(auditLogs.businessId, businessId));
 }
 
 export async function listAuditLogs(db: Database, businessId: string, window: { limit: number; offset: number }) {

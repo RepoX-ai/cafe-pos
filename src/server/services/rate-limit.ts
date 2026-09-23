@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
+import { log } from "@/lib/observability/log";
 
 /**
  * Fixed-window rate limits shared by every app instance through PostgreSQL
@@ -32,7 +33,25 @@ function envRule(name: string, envVar: string, limit: number, windowSeconds: num
  * - checkout per user (60/1m): far above a cashier's pace; idempotent retries are exempt.
  * - print retry/reprint per user (20/1m) and CSV export per user (20/5m): costly, rare actions.
  * - order cancel/refund per user (30/1m): stock-restoring writes that should stay rare.
- * - staff writes per user (20/5m): create/reset/delete are infrequent and hash passwords.
+ * - staff writes per user (20/5m): create/reset/delete/(de)activate are infrequent and hash passwords.
+ * - checkout retries per user (120/1m): replays of an idempotency key that already
+ *   produced an order. Never refused — past the limit the order is still returned,
+ *   only the extra print-job processing is skipped (see checkout.ts).
+ * - stock-affecting back-office writes per user (60/1m): purchases, stock counts,
+ *   adjustments, waste — each locks ingredient rows.
+ * - catalog/admin writes per user (120/1m): menu, recipes, ingredients, suppliers,
+ *   expenses, settings.
+ * - image uploads per user (20/5m): each is up to 3MB decoded and written to storage.
+ * - report page loads per user (120/1m): dashboard and report screens.
+ * - business creation per user (5/1h) and business switching per user (30/1m).
+ *
+ * All of these are *request quotas*. Concurrent-work limits are separate:
+ * the reports pool size, the export advisory-lock slots, and the in-process
+ * bcrypt limiter (work-limiter.ts).
+ *
+ * Every authenticated key starts with the business id, so one café's burst
+ * never uses up another café's allowance. Login buckets are necessarily
+ * install-wide (there is no tenant before login).
  */
 export const RATE_LIMITS = {
   loginClientIp: () => envRule("login-ip", "RATE_LIMIT_LOGIN_IP", 50, 900),
@@ -43,7 +62,24 @@ export const RATE_LIMITS = {
   export: () => envRule("export", "RATE_LIMIT_EXPORT", 20, 300),
   orderMutation: () => envRule("order-mutation", "RATE_LIMIT_ORDER_MUTATION", 30, 60),
   staffWrite: () => envRule("staff-write", "RATE_LIMIT_STAFF_WRITE", 20, 300),
+  checkoutRetry: () => envRule("checkout-retry", "RATE_LIMIT_CHECKOUT_RETRY", 120, 60),
+  inventoryWrite: () => envRule("inventory-write", "RATE_LIMIT_INVENTORY_WRITE", 60, 60),
+  catalogWrite: () => envRule("catalog-write", "RATE_LIMIT_CATALOG_WRITE", 120, 60),
+  upload: () => envRule("upload", "RATE_LIMIT_UPLOAD", 20, 300),
+  reportRead: () => envRule("report-read", "RATE_LIMIT_REPORT_READ", 120, 60),
+  createBusiness: () => envRule("create-business", "RATE_LIMIT_CREATE_BUSINESS", 5, 3600),
+  switchBusiness: () => envRule("switch-business", "RATE_LIMIT_SWITCH_BUSINESS", 30, 60),
 };
+
+/** Per-user bucket for an authenticated action, scoped to the user's current business. */
+export function userBucket(rule: RateLimitRule, user: { businessId: string; id: string }): RateLimitCheck {
+  return { rule, key: [user.businessId, user.id] };
+}
+
+/** `consumeRateLimit` for a signed-in user's action. */
+export async function allowUserAction(db: Database, rule: RateLimitRule, user: { businessId: string; id: string }): Promise<boolean> {
+  return consumeRateLimit(db, userBucket(rule, user));
+}
 
 export interface RateLimitCheck {
   rule: RateLimitRule;
@@ -75,7 +111,16 @@ export async function consumeRateLimit(db: Database, check: RateLimitCheck): Pro
     where bucket.expires_at <= now() or bucket.count < ${rule.limit}::int
     returning count
   `);
-  return result.rows.length > 0;
+  const allowed = result.rows.length > 0;
+  // Bucket keys are hashed and may contain an email or IP, so only the rule
+  // (and the business, for authenticated buckets) is logged.
+  if (!allowed) log("warn", "rate_limit.blocked", { rule: rule.name, businessId: businessIdOf(check) });
+  return allowed;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function businessIdOf(check: RateLimitCheck): string | undefined {
+  return check.key[0] && UUID.test(check.key[0]) ? check.key[0] : undefined;
 }
 
 /** Checks buckets in order and stops at the first full one, returning its rule (or null if all allowed). */

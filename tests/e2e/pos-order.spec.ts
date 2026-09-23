@@ -16,6 +16,8 @@ test.describe("POS order submission", () => {
 
   test("submits an order and shows a confirmation with an order number", async ({ page }) => {
     await page.getByRole("button", { name: /Coffee A/ }).click();
+    // Cash sales need the tendered amount before Submit enables.
+    await page.getByRole("button", { name: "Uang pas" }).click();
     await expect(page.getByRole("button", { name: "Submit order" })).toBeEnabled();
     await page.getByRole("button", { name: /Submit order/ }).click();
 
@@ -25,6 +27,8 @@ test.describe("POS order submission", () => {
 
   test("a double tap on submit does not create two orders", async ({ page }) => {
     await page.getByRole("button", { name: /Coffee A/ }).click();
+    // Cash sales need the tendered amount before Submit enables.
+    await page.getByRole("button", { name: "Uang pas" }).click();
 
     const submitButton = page.getByRole("button", { name: /Submit order/ });
     await Promise.all([submitButton.click(), submitButton.click()]);

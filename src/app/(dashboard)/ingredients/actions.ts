@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
+import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
+import { ServiceError } from "@/server/services/errors";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { invalidatePosMenuCache } from "@/server/services/pos-menu-cache";
@@ -43,6 +45,7 @@ export async function createIngredientAction(
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "ingredients:write");
+    if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");
 
     const parsed = ingredientInputSchema.safeParse(readIngredientForm(formData));
     if (!parsed.success) {
@@ -69,6 +72,7 @@ export async function updateIngredientAction(
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "ingredients:write");
+    if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");
 
     const id = String(formData.get("id") ?? "");
     if (!id) return { ok: false, error: "Missing ingredient id." };
@@ -97,6 +101,7 @@ export async function setIngredientActiveAction(formData: FormData): Promise<voi
   const result = await asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "ingredients:write");
+    if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");
 
     const id = String(formData.get("id") ?? "");
     const active = formData.get("active") === "true";
@@ -122,6 +127,7 @@ export async function deleteIngredientAction(formData: FormData): Promise<void> 
   const result = await asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "ingredients:write");
+    if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");
 
     const id = String(formData.get("id") ?? "");
     if (!id) throw new Error("Missing ingredient id.");

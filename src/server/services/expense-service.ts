@@ -1,11 +1,14 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, gte, lte, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { averageRupiah } from "@/lib/money/money";
 import { expenses } from "@/lib/db/schema";
 import type { ExpenseInput } from "@/lib/validation/expense";
 import { recordAuditLog } from "./audit";
-import { sumAsSafeInteger } from "./range-filters";
+import { NotFoundError } from "./errors";
+import { countUpTo, sumAsSafeInteger } from "./range-filters";
+import { afterDatedCursor, cursorText, type DatedCursor } from "./keyset";
 import type { ActorContext } from "./ingredient-service";
+import { runIdempotent } from "./request-idempotency";
 
 /**
  * `expenses.expense_date` is a plain Postgres `date`, not a timestamptz, so a
@@ -17,32 +20,33 @@ export interface CalendarRange {
   to: string;
 }
 
-function rangeFilter(businessId: string, range: CalendarRange) {
+function rangeFilter(businessId: string, range: CalendarRange, after?: DatedCursor) {
   return and(
     eq(expenses.businessId, businessId),
     gte(expenses.expenseDate, range.from),
     lte(expenses.expenseDate, range.to),
+    after ? afterDatedCursor(expenses.expenseDate, expenses.createdAt, expenses.id, after) : undefined,
   );
 }
 
 /** Newest expense date first; created_at and id keep the order stable across pages. */
-export async function countExpensesInRange(db: Database, businessId: string, range: CalendarRange) {
-  return db.$count(expenses, rangeFilter(businessId, range));
+export async function countExpensesInRange(db: Database, businessId: string, range: CalendarRange, cap?: number) {
+  return countUpTo(db, expenses, rangeFilter(businessId, range), cap);
 }
 
 export async function listExpensesInRange(
   db: Database,
   businessId: string,
   range: CalendarRange,
-  window: { limit: number; offset: number },
+  window: { limit: number; offset?: number; after?: DatedCursor },
 ) {
   return db
-    .select()
+    .select({ ...getTableColumns(expenses), cursorTs: cursorText(expenses.createdAt) })
     .from(expenses)
-    .where(rangeFilter(businessId, range))
+    .where(rangeFilter(businessId, range, window.after))
     .orderBy(desc(expenses.expenseDate), desc(expenses.createdAt), desc(expenses.id))
     .limit(window.limit)
-    .offset(window.offset);
+    .offset(window.offset ?? 0);
 }
 
 export interface ExpenseSummary {
@@ -100,55 +104,72 @@ export async function getExpensesByDay(db: Database, businessId: string, range: 
 }
 
 export async function createExpense(db: Database, actor: ActorContext, input: ExpenseInput) {
-  const [row] = await db
-    .insert(expenses)
-    .values({
-      businessId: actor.businessId,
-      category: input.category,
-      amount: input.amount,
-      expenseDate: input.expenseDate,
-      payee: input.payee || null,
-      referenceNumber: input.referenceNumber || null,
-      notes: input.notes || null,
-      createdBy: actor.userId,
-    })
-    .returning();
+  return db.transaction(async (tx) => {
+    const { result } = await runIdempotent(
+      tx,
+      { businessId: actor.businessId, operation: "expense.create", key: input.idempotencyKey, payload: input },
+      async (expenseId) => {
+        const [row] = await tx
+          .insert(expenses)
+          .values({
+            id: expenseId,
+            businessId: actor.businessId,
+            category: input.category,
+            amount: input.amount,
+            expenseDate: input.expenseDate,
+            payee: input.payee || null,
+            referenceNumber: input.referenceNumber || null,
+            notes: input.notes || null,
+            createdBy: actor.userId,
+          })
+          .returning();
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "expense.created",
-    entityType: "expense",
-    entityId: row.id,
-    after: row,
+        await recordAuditLog(tx, {
+          businessId: actor.businessId,
+          actorUserId: actor.userId,
+          action: "expense.created",
+          entityType: "expense",
+          entityId: row.id,
+          after: row,
+        });
+
+        return row;
+      },
+      async (id) => {
+        const [row] = await tx.select().from(expenses).where(and(eq(expenses.id, id), eq(expenses.businessId, actor.businessId)));
+        return row;
+      },
+    );
+    return result;
   });
-
-  return row;
 }
 
 export async function updateExpense(db: Database, actor: ActorContext, id: string, input: ExpenseInput) {
-  const [row] = await db
-    .update(expenses)
-    .set({
-      category: input.category,
-      amount: input.amount,
-      expenseDate: input.expenseDate,
-      payee: input.payee || null,
-      referenceNumber: input.referenceNumber || null,
-      notes: input.notes || null,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(expenses.id, id), eq(expenses.businessId, actor.businessId)))
-    .returning();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(expenses)
+      .set({
+        category: input.category,
+        amount: input.amount,
+        expenseDate: input.expenseDate,
+        payee: input.payee || null,
+        referenceNumber: input.referenceNumber || null,
+        notes: input.notes || null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(expenses.id, id), eq(expenses.businessId, actor.businessId)))
+      .returning();
+    if (!row) throw new NotFoundError("Expense not found");
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "expense.updated",
-    entityType: "expense",
-    entityId: id,
-    after: row,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "expense.updated",
+      entityType: "expense",
+      entityId: id,
+      after: row,
+    });
+
+    return row;
   });
-
-  return row;
 }

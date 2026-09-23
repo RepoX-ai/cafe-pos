@@ -1,9 +1,11 @@
 import { NextResponse, after } from "next/server";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { hasAnyRolePermission } from "@/lib/permissions/permissions";
-import { db } from "@/lib/db/client";
-import { resolveBusinessDateRange, todayInBusinessTimezone } from "@/lib/dates/dates";
-import { isReportType, writeReportCsv } from "@/server/services/report-exports";
+import { db, getPool } from "@/lib/db/client";
+import { resolveReportDateRange, todayInBusinessTimezone } from "@/lib/dates/dates";
+import { describeError, log } from "@/lib/observability/log";
+import { ExportRejectedError, isReportType, openReportExport } from "@/server/services/report-exports";
+import { toByteStream } from "@/server/services/export-stream";
 import {
   claimRateLimitCleanupSlot,
   consumeRateLimit,
@@ -14,8 +16,13 @@ import {
 /**
  * CSV exports for every major report (PRD §6.14). Every export re-checks
  * permission and scopes to the caller's business — this is a normal
- * authenticated route, not a public link. The response streams the complete
- * result set, applying the same date filters as the report screen.
+ * authenticated route, not a public link. The file applies the same date
+ * filters (and the same 366-day cap) as the report screen.
+ *
+ * Streaming is pull-based: the next batch is only read from PostgreSQL when
+ * the client has taken the previous one, so memory stays at about one batch
+ * however slowly the download is read. See `openReportExport` for the
+ * consistency guarantee and the size/duration/concurrency limits.
  */
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -29,7 +36,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unknown report type" }, { status: 400 });
   }
   const today = todayInBusinessTimezone();
-  const range = resolveBusinessDateRange(url.searchParams.get("from"), url.searchParams.get("to"), { from: today, to: today });
+  const { range } = resolveReportDateRange(url.searchParams.get("from"), url.searchParams.get("to"), { from: today, to: today });
 
   const rule = RATE_LIMITS.export();
   const allowed = await consumeRateLimit(db, { rule, key: [user.businessId, user.id] });
@@ -41,29 +48,29 @@ export async function GET(request: Request) {
     );
   }
 
-  const encoder = new TextEncoder();
-  let cancelled = false;
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        await writeReportCsv(db, user.businessId, type, range, (chunk) => {
-          if (cancelled) throw new Error("Export cancelled by the client");
-          controller.enqueue(encoder.encode(chunk));
-        });
-        controller.close();
-      } catch (error) {
-        if (!cancelled) controller.error(error);
-      }
-    },
-    cancel() {
-      cancelled = true;
-    },
+  let chunks: AsyncGenerator<string, void, undefined>;
+  try {
+    ({ chunks } = await openReportExport(getPool("reports"), user.businessId, type, range));
+  } catch (error) {
+    if (error instanceof ExportRejectedError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.status, headers: error.status === 429 ? { "Retry-After": "30" } : undefined },
+      );
+    }
+    log("error", "export.open_failed", { type, businessId: user.businessId, ...describeError(error) });
+    return NextResponse.json({ error: "The export could not be started. Try again." }, { status: 503 });
+  }
+
+  const stream = toByteStream(chunks, {
+    signal: request.signal,
+    onError: (error) => log("error", "export.stream_failed", { type, businessId: user.businessId, ...describeError(error) }),
   });
 
   return new Response(stream, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${type}.csv"`,
+      "Content-Disposition": `attachment; filename="${type}_${range.from}_${range.to}.csv"`,
       "Cache-Control": "no-store",
     },
   });

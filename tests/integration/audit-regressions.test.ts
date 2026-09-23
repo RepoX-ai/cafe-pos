@@ -18,7 +18,7 @@ describe.skipIf(!db)("audit regressions", () => {
     const [group] = await db!.insert(modifierGroups).values({ businessId: business.id, name: "Extras", required: true, maxSelections: 1 }).returning();
     const [option] = await db!.insert(modifierOptions).values({ modifierGroupId: group.id, name: "Egg" }).returning();
     await expect(submitOrder(db!, actor, { ...input, lines: [{ ...input.lines[0], modifierOptionIds: [option.id] }] })).rejects.toThrow("does not belong");
-    await db!.insert(menuItemModifierGroups).values({ menuItemId: menuItem.id, modifierGroupId: group.id });
+    await db!.insert(menuItemModifierGroups).values({ businessId: business.id, menuItemId: menuItem.id, modifierGroupId: group.id });
     await expect(submitOrder(db!, actor, input)).rejects.toThrow("number of selections");
     const saved = await submitOrder(db!, actor, { ...input, lines: [{ ...input.lines[0], modifierOptionIds: [option.id] }] });
     expect(saved.order.status).toBe("SUBMITTED");

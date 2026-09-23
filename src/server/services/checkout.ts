@@ -38,7 +38,7 @@ export async function submitOrderForUser(
   db: Database,
   user: { id: string; businessId: string; roles: RoleName[] },
   input: unknown,
-  opts: { checkoutRule?: RateLimitRule } = {},
+  opts: { checkoutRule?: RateLimitRule; retryRule?: RateLimitRule } = {},
 ): Promise<SubmitOrderResult> {
   requirePermission(user.roles, "orders:create");
 
@@ -50,7 +50,14 @@ export async function submitOrderForUser(
   // One lookup serves both the throttle exemption and submitOrder's own
   // idempotency check.
   const alreadySubmitted = await findOrderByIdempotencyKey(db, user.businessId, parsed.data.idempotencyKey);
-  if (!alreadySubmitted) {
+  // Retries are never refused — a cashier must always be able to recover a
+  // submission whose response was lost — but they are bounded: past the
+  // retry quota the order is still returned, and only the print-job claim
+  // (the part with real work and locks) is skipped.
+  let processPrint = true;
+  if (alreadySubmitted) {
+    processPrint = await consumeRateLimit(db, { rule: opts.retryRule ?? RATE_LIMITS.checkoutRetry(), key: [user.businessId, user.id] });
+  } else {
     const allowed = await consumeRateLimit(db, {
       rule: opts.checkoutRule ?? RATE_LIMITS.checkout(),
       key: [user.businessId, user.id],
@@ -72,7 +79,9 @@ export async function submitOrderForUser(
     // The job checkout itself queued is the oldest one; a retried submission
     // must not pick up a later reprint instead.
     const [job] = await db.select().from(printJobs).where(eq(printJobs.orderId, order.id)).orderBy(asc(printJobs.createdAt)).limit(1);
-    if (job) {
+    if (job && !processPrint) {
+      printStatus = job.status;
+    } else if (job) {
       printStatus = job.status;
       // Both the fresh and the retried submission go through the same claim:
       // a retry whose response was lost may genuinely still need the receipt,

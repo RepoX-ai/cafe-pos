@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { configuredPrintProvider, getPrinterProvider } from "@/printing";
+import { configuredPrintProvider, getPrinterProvider, PrintProviderConfigError, resolvePrintProvider } from "@/printing";
 
 const samplePayload = {
   orderId: "o1",
@@ -67,5 +67,25 @@ describe("configured print provider", () => {
   it("falls back to mock when unset", () => {
     delete process.env.PRINT_PROVIDER;
     expect(configuredPrintProvider()).toBe("mock");
+  });
+});
+
+describe("print provider in production", () => {
+  const prod = (value?: string) => ({ NODE_ENV: "production", PRINT_PROVIDER: value });
+
+  it("accepts the supported providers, including an explicit mock", () => {
+    expect(resolvePrintProvider(prod("device"))).toBe("device");
+    expect(resolvePrintProvider(prod("browser"))).toBe("browser");
+    expect(resolvePrintProvider(prod("mock"))).toBe("mock");
+  });
+
+  it("refuses a missing or unknown provider instead of falling back to mock", () => {
+    expect(() => resolvePrintProvider(prod(undefined))).toThrow(PrintProviderConfigError);
+    expect(() => resolvePrintProvider(prod(""))).toThrow(PrintProviderConfigError);
+    expect(() => resolvePrintProvider(prod("devcie"))).toThrow(PrintProviderConfigError);
+  });
+
+  it("refuses the unimplemented bridge adapter", () => {
+    expect(() => resolvePrintProvider(prod("bridge"))).toThrow(/not implemented/);
   });
 });

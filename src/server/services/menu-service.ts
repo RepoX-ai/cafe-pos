@@ -22,8 +22,23 @@ import type {
 import type { ModifierRecipeInput, RecipeLineInput } from "@/lib/validation/recipe";
 import { calculateRecipeCost, effectiveQuantity } from "@/lib/recipes/cost";
 import { recordAuditLog } from "./audit";
+import { NotFoundError, ServiceError } from "./errors";
 import type { ActorContext } from "./ingredient-service";
+import { lockModifierOptionForRecipe } from "./locks";
 import { saveRecipe } from "./recipe-service";
+
+/** Upper bound on modifier groups assigned to one item (also enforced by the action's input schema). */
+export const MAX_MODIFIER_GROUPS_PER_ITEM = 50;
+
+async function assertCategoryInBusiness(db: Database, businessId: string, categoryId: string | null | undefined) {
+  if (!categoryId) return;
+  const [row] = await db
+    .select({ id: menuCategories.id })
+    .from(menuCategories)
+    .where(and(eq(menuCategories.id, categoryId), eq(menuCategories.businessId, businessId)))
+    .limit(1);
+  if (!row) throw new NotFoundError("Category not found");
+}
 
 /**
  * Current photo per menu item, for decorating report widgets. Photos are not
@@ -51,19 +66,21 @@ export async function listCategories(db: Database, businessId: string) {
 }
 
 export async function createCategory(db: Database, actor: ActorContext, input: CategoryInput) {
-  const [row] = await db
-    .insert(menuCategories)
-    .values({ businessId: actor.businessId, name: input.name, displayOrder: input.displayOrder })
-    .returning();
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "menu_category.created",
-    entityType: "menu_category",
-    entityId: row.id,
-    after: row,
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(menuCategories)
+      .values({ businessId: actor.businessId, name: input.name, displayOrder: input.displayOrder })
+      .returning();
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "menu_category.created",
+      entityType: "menu_category",
+      entityId: row.id,
+      after: row,
+    });
+    return row;
   });
-  return row;
 }
 
 export async function setCategoryActive(
@@ -72,20 +89,23 @@ export async function setCategoryActive(
   id: string,
   active: boolean,
 ) {
-  const [row] = await db
-    .update(menuCategories)
-    .set({ active, updatedAt: new Date() })
-    .where(and(eq(menuCategories.id, id), eq(menuCategories.businessId, actor.businessId)))
-    .returning();
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: active ? "menu_category.restored" : "menu_category.archived",
-    entityType: "menu_category",
-    entityId: id,
-    after: row,
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(menuCategories)
+      .set({ active, updatedAt: new Date() })
+      .where(and(eq(menuCategories.id, id), eq(menuCategories.businessId, actor.businessId)))
+      .returning();
+    if (!row) throw new NotFoundError("Category not found");
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: active ? "menu_category.restored" : "menu_category.archived",
+      entityType: "menu_category",
+      entityId: id,
+      after: row,
+    });
+    return row;
   });
-  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +127,7 @@ export async function listMenuItemsWithVariants(db: Database, businessId: string
       displayOrder: menuItems.displayOrder,
     })
     .from(menuItems)
-    .leftJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
+    .leftJoin(menuCategories, and(eq(menuItems.categoryId, menuCategories.id), eq(menuCategories.businessId, businessId)))
     .where(eq(menuItems.businessId, businessId))
     .orderBy(asc(menuItems.displayOrder), asc(menuItems.name));
 
@@ -148,13 +168,15 @@ export async function getMenuItemById(db: Database, businessId: string, id: stri
   const assignedGroups = await db
     .select({ modifierGroupId: menuItemModifierGroups.modifierGroupId })
     .from(menuItemModifierGroups)
-    .where(eq(menuItemModifierGroups.menuItemId, id));
+    .where(and(eq(menuItemModifierGroups.menuItemId, id), eq(menuItemModifierGroups.businessId, businessId)))
+    .orderBy(asc(menuItemModifierGroups.displayOrder));
 
   return { item, variants, assignedModifierGroupIds: assignedGroups.map((g) => g.modifierGroupId) };
 }
 
 export async function createMenuItem(db: Database, actor: ActorContext, input: MenuItemInput) {
   return db.transaction(async (tx) => {
+    await assertCategoryInBusiness(tx, actor.businessId, input.categoryId);
     const [row] = await tx
       .insert(menuItems)
       .values({
@@ -221,33 +243,37 @@ export async function updateMenuItem(
   id: string,
   input: MenuItemInput,
 ) {
-  const [row] = await db
-    .update(menuItems)
-    .set({
-      categoryId: input.categoryId || null,
-      name: input.name,
-      description: input.description || null,
-      imageUrl: input.imageUrl || null,
-      basePrice: input.basePrice,
-      taxBehavior: input.taxBehavior,
-      tracksInventory: input.tracksInventory,
-      active: input.active,
-      displayOrder: input.displayOrder,
-      updatedBy: actor.userId,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(menuItems.id, id), eq(menuItems.businessId, actor.businessId)))
-    .returning();
+  return db.transaction(async (tx) => {
+    await assertCategoryInBusiness(tx, actor.businessId, input.categoryId);
+    const [row] = await tx
+      .update(menuItems)
+      .set({
+        categoryId: input.categoryId || null,
+        name: input.name,
+        description: input.description || null,
+        imageUrl: input.imageUrl || null,
+        basePrice: input.basePrice,
+        taxBehavior: input.taxBehavior,
+        tracksInventory: input.tracksInventory,
+        active: input.active,
+        displayOrder: input.displayOrder,
+        updatedBy: actor.userId,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(menuItems.id, id), eq(menuItems.businessId, actor.businessId)))
+      .returning();
+    if (!row) throw new NotFoundError("Menu item not found");
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "menu_item.updated",
-    entityType: "menu_item",
-    entityId: id,
-    after: row,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "menu_item.updated",
+      entityType: "menu_item",
+      entityId: id,
+      after: row,
+    });
+    return row;
   });
-  return row;
 }
 
 /** Archive/restore, never a hard delete — historical orders reference menu items by id. */
@@ -257,21 +283,24 @@ export async function setMenuItemActive(
   id: string,
   active: boolean,
 ) {
-  const [row] = await db
-    .update(menuItems)
-    .set({ active, archivedAt: active ? null : new Date(), updatedBy: actor.userId, updatedAt: new Date() })
-    .where(and(eq(menuItems.id, id), eq(menuItems.businessId, actor.businessId)))
-    .returning();
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(menuItems)
+      .set({ active, archivedAt: active ? null : new Date(), updatedBy: actor.userId, updatedAt: new Date() })
+      .where(and(eq(menuItems.id, id), eq(menuItems.businessId, actor.businessId)))
+      .returning();
+    if (!row) throw new NotFoundError("Menu item not found");
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: active ? "menu_item.restored" : "menu_item.archived",
-    entityType: "menu_item",
-    entityId: id,
-    after: row,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: active ? "menu_item.restored" : "menu_item.archived",
+      entityType: "menu_item",
+      entityId: id,
+      after: row,
+    });
+    return row;
   });
-  return row;
 }
 
 async function assertItemBelongsToBusiness(db: Database, businessId: string, menuItemId: string) {
@@ -280,7 +309,7 @@ async function assertItemBelongsToBusiness(db: Database, businessId: string, men
     .from(menuItems)
     .where(and(eq(menuItems.id, menuItemId), eq(menuItems.businessId, businessId)))
     .limit(1);
-  if (!item) throw new Error("Menu item not found");
+  if (!item) throw new NotFoundError("Menu item not found");
 }
 
 async function createVariant(
@@ -336,22 +365,25 @@ export async function updateVariant(
   variantId: string,
   input: VariantInput,
 ) {
-  await assertItemBelongsToBusiness(db, actor.businessId, menuItemId);
-  const [row] = await db
-    .update(menuItemVariants)
-    .set({ ...input, updatedAt: new Date() })
-    .where(and(eq(menuItemVariants.id, variantId), eq(menuItemVariants.menuItemId, menuItemId)))
-    .returning();
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "menu_item_variant.updated",
-    entityType: "menu_item_variant",
-    entityId: variantId,
-    after: row,
-    metadata: { menuItemId },
+  return db.transaction(async (tx) => {
+    await assertItemBelongsToBusiness(tx, actor.businessId, menuItemId);
+    const [row] = await tx
+      .update(menuItemVariants)
+      .set({ ...input, updatedAt: new Date() })
+      .where(and(eq(menuItemVariants.id, variantId), eq(menuItemVariants.menuItemId, menuItemId)))
+      .returning();
+    if (!row) throw new NotFoundError("Variant not found");
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "menu_item_variant.updated",
+      entityType: "menu_item_variant",
+      entityId: variantId,
+      after: row,
+      metadata: { menuItemId },
+    });
+    return row;
   });
-  return row;
 }
 
 export async function setVariantActive(
@@ -361,22 +393,25 @@ export async function setVariantActive(
   variantId: string,
   active: boolean,
 ) {
-  await assertItemBelongsToBusiness(db, actor.businessId, menuItemId);
-  const [row] = await db
-    .update(menuItemVariants)
-    .set({ active, updatedAt: new Date() })
-    .where(and(eq(menuItemVariants.id, variantId), eq(menuItemVariants.menuItemId, menuItemId)))
-    .returning();
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: active ? "menu_item_variant.restored" : "menu_item_variant.archived",
-    entityType: "menu_item_variant",
-    entityId: variantId,
-    after: row,
-    metadata: { menuItemId },
+  return db.transaction(async (tx) => {
+    await assertItemBelongsToBusiness(tx, actor.businessId, menuItemId);
+    const [row] = await tx
+      .update(menuItemVariants)
+      .set({ active, updatedAt: new Date() })
+      .where(and(eq(menuItemVariants.id, variantId), eq(menuItemVariants.menuItemId, menuItemId)))
+      .returning();
+    if (!row) throw new NotFoundError("Variant not found");
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: active ? "menu_item_variant.restored" : "menu_item_variant.archived",
+      entityType: "menu_item_variant",
+      entityId: variantId,
+      after: row,
+      metadata: { menuItemId },
+    });
+    return row;
   });
-  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -412,7 +447,7 @@ export async function listModifierGroupsWithOptions(db: Database, businessId: st
           costPerBaseUnit: ingredients.averageCostPerBaseUnit,
         })
         .from(modifierRecipeLines)
-        .innerJoin(ingredients, eq(modifierRecipeLines.ingredientId, ingredients.id))
+        .innerJoin(ingredients, and(eq(modifierRecipeLines.ingredientId, ingredients.id), eq(ingredients.businessId, businessId)))
         .where(inArray(modifierRecipeLines.modifierOptionId, options.map((o) => o.id)))
     : [];
   const linesByOption = new Map<string, (typeof lines)[number][]>();
@@ -449,19 +484,21 @@ export async function listModifierGroupsWithOptions(db: Database, businessId: st
 }
 
 export async function createModifierGroup(db: Database, actor: ActorContext, input: ModifierGroupInput) {
-  const [row] = await db
-    .insert(modifierGroups)
-    .values({ businessId: actor.businessId, ...input })
-    .returning();
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "modifier_group.created",
-    entityType: "modifier_group",
-    entityId: row.id,
-    after: row,
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(modifierGroups)
+      .values({ businessId: actor.businessId, ...input })
+      .returning();
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "modifier_group.created",
+      entityType: "modifier_group",
+      entityId: row.id,
+      after: row,
+    });
+    return row;
   });
-  return row;
 }
 
 export async function setModifierGroupActive(
@@ -470,20 +507,23 @@ export async function setModifierGroupActive(
   id: string,
   active: boolean,
 ) {
-  const [row] = await db
-    .update(modifierGroups)
-    .set({ active, updatedAt: new Date() })
-    .where(and(eq(modifierGroups.id, id), eq(modifierGroups.businessId, actor.businessId)))
-    .returning();
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: active ? "modifier_group.restored" : "modifier_group.archived",
-    entityType: "modifier_group",
-    entityId: id,
-    after: row,
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(modifierGroups)
+      .set({ active, updatedAt: new Date() })
+      .where(and(eq(modifierGroups.id, id), eq(modifierGroups.businessId, actor.businessId)))
+      .returning();
+    if (!row) throw new NotFoundError("Modifier group not found");
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: active ? "modifier_group.restored" : "modifier_group.archived",
+      entityType: "modifier_group",
+      entityId: id,
+      after: row,
+    });
+    return row;
   });
-  return row;
 }
 
 async function assertGroupBelongsToBusiness(db: Database, businessId: string, groupId: string) {
@@ -492,7 +532,7 @@ async function assertGroupBelongsToBusiness(db: Database, businessId: string, gr
     .from(modifierGroups)
     .where(and(eq(modifierGroups.id, groupId), eq(modifierGroups.businessId, businessId)))
     .limit(1);
-  if (!group) throw new Error("Modifier group not found");
+  if (!group) throw new NotFoundError("Modifier group not found");
 }
 
 export async function createModifierOption(
@@ -501,21 +541,23 @@ export async function createModifierOption(
   groupId: string,
   input: ModifierOptionInput,
 ) {
-  await assertGroupBelongsToBusiness(db, actor.businessId, groupId);
-  const [row] = await db
-    .insert(modifierOptions)
-    .values({ modifierGroupId: groupId, ...input })
-    .returning();
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "modifier_option.created",
-    entityType: "modifier_option",
-    entityId: row.id,
-    after: row,
-    metadata: { groupId },
+  return db.transaction(async (tx) => {
+    await assertGroupBelongsToBusiness(tx, actor.businessId, groupId);
+    const [row] = await tx
+      .insert(modifierOptions)
+      .values({ modifierGroupId: groupId, ...input })
+      .returning();
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "modifier_option.created",
+      entityType: "modifier_option",
+      entityId: row.id,
+      after: row,
+      metadata: { groupId },
+    });
+    return row;
   });
-  return row;
 }
 
 export async function setModifierOptionActive(
@@ -525,22 +567,25 @@ export async function setModifierOptionActive(
   optionId: string,
   active: boolean,
 ) {
-  await assertGroupBelongsToBusiness(db, actor.businessId, groupId);
-  const [row] = await db
-    .update(modifierOptions)
-    .set({ active, updatedAt: new Date() })
-    .where(and(eq(modifierOptions.id, optionId), eq(modifierOptions.modifierGroupId, groupId)))
-    .returning();
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: active ? "modifier_option.restored" : "modifier_option.archived",
-    entityType: "modifier_option",
-    entityId: optionId,
-    after: row,
-    metadata: { groupId },
+  return db.transaction(async (tx) => {
+    await assertGroupBelongsToBusiness(tx, actor.businessId, groupId);
+    const [row] = await tx
+      .update(modifierOptions)
+      .set({ active, updatedAt: new Date() })
+      .where(and(eq(modifierOptions.id, optionId), eq(modifierOptions.modifierGroupId, groupId)))
+      .returning();
+    if (!row) throw new NotFoundError("Modifier option not found");
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: active ? "modifier_option.restored" : "modifier_option.archived",
+      entityType: "modifier_option",
+      entityId: optionId,
+      after: row,
+      metadata: { groupId },
+    });
+    return row;
   });
-  return row;
 }
 
 /**
@@ -549,29 +594,26 @@ export async function setModifierOptionActive(
  * COGS snapshots, so a later edit can't change them.
  */
 export async function saveModifierOptionRecipe(db: Database, actor: ActorContext, input: ModifierRecipeInput) {
-  await assertGroupBelongsToBusiness(db, actor.businessId, input.groupId);
-  const [option] = await db
-    .select({ id: modifierOptions.id })
-    .from(modifierOptions)
-    .where(and(eq(modifierOptions.id, input.optionId), eq(modifierOptions.modifierGroupId, input.groupId)))
-    .limit(1);
-  if (!option) throw new Error("Modifier option not found");
-
-  const ingredientIds = input.lines.map((l) => l.ingredientId);
-  if (ingredientIds.length > 0) {
-    const rows = await db
-      .select({ id: ingredients.id })
-      .from(ingredients)
-      .where(and(inArray(ingredients.id, ingredientIds), eq(ingredients.businessId, actor.businessId)));
-    if (rows.length !== new Set(ingredientIds).size) {
-      throw new Error("One or more ingredients are invalid for this business");
-    }
-  }
-
   return db.transaction(async (tx) => {
+    // Serializes replacements of the same option's lines. Without it, two
+    // concurrent saves each delete only the lines their snapshot could see
+    // and both inserts survive — every sale would then consume both sets.
+    await lockModifierOptionForRecipe(tx, actor.businessId, input.groupId, input.optionId);
+
+    const ingredientIds = input.lines.map((l) => l.ingredientId);
+    if (ingredientIds.length > 0) {
+      const rows = await tx
+        .select({ id: ingredients.id })
+        .from(ingredients)
+        .where(and(inArray(ingredients.id, ingredientIds), eq(ingredients.businessId, actor.businessId)));
+      if (rows.length !== new Set(ingredientIds).size) {
+        throw new ServiceError("One or more ingredients are invalid for this business");
+      }
+    }
+
     const before = await tx
       .delete(modifierRecipeLines)
-      .where(eq(modifierRecipeLines.modifierOptionId, input.optionId))
+      .where(and(eq(modifierRecipeLines.modifierOptionId, input.optionId), eq(modifierRecipeLines.businessId, actor.businessId)))
       .returning();
     const after = input.lines.length
       ? await tx
@@ -633,7 +675,7 @@ export async function deleteMenuItem(db: Database, actor: ActorContext, id: stri
       .from(menuItems)
       .where(and(eq(menuItems.id, id), eq(menuItems.businessId, actor.businessId)))
       .limit(1);
-    if (!item) throw new Error("Menu item not found");
+    if (!item) throw new NotFoundError("Menu item not found");
 
     // Cascades to variants, their recipe versions and recipe lines, and the
     // item's modifier-group assignments.
@@ -659,14 +701,14 @@ export async function deleteVariant(
   menuItemId: string,
   variantId: string,
 ) {
-  await assertItemBelongsToBusiness(db, actor.businessId, menuItemId);
   return db.transaction(async (tx) => {
+    await assertItemBelongsToBusiness(tx, actor.businessId, menuItemId);
     const [variant] = await tx
       .select()
       .from(menuItemVariants)
       .where(and(eq(menuItemVariants.id, variantId), eq(menuItemVariants.menuItemId, menuItemId)))
       .limit(1);
-    if (!variant) throw new Error("Variant not found");
+    if (!variant) throw new NotFoundError("Variant not found");
 
     await tx.delete(menuItemVariants).where(eq(menuItemVariants.id, variantId));
 
@@ -695,7 +737,14 @@ export async function deleteCategory(db: Database, actor: ActorContext, id: stri
       .from(menuCategories)
       .where(and(eq(menuCategories.id, id), eq(menuCategories.businessId, actor.businessId)))
       .limit(1);
-    if (!category) throw new Error("Category not found");
+    if (!category) throw new NotFoundError("Category not found");
+
+    // The same-business foreign key has no ON DELETE action (see the
+    // schema), so the items are un-assigned explicitly, in this transaction.
+    await tx
+      .update(menuItems)
+      .set({ categoryId: null, updatedAt: new Date() })
+      .where(and(eq(menuItems.businessId, actor.businessId), eq(menuItems.categoryId, id)));
 
     await tx
       .delete(menuCategories)
@@ -725,7 +774,7 @@ export async function deleteModifierGroup(db: Database, actor: ActorContext, id:
       .from(modifierGroups)
       .where(and(eq(modifierGroups.id, id), eq(modifierGroups.businessId, actor.businessId)))
       .limit(1);
-    if (!group) throw new Error("Modifier group not found");
+    if (!group) throw new NotFoundError("Modifier group not found");
 
     await tx
       .delete(modifierGroups)
@@ -749,14 +798,14 @@ export async function deleteModifierOption(
   groupId: string,
   optionId: string,
 ) {
-  await assertGroupBelongsToBusiness(db, actor.businessId, groupId);
   return db.transaction(async (tx) => {
+    await assertGroupBelongsToBusiness(tx, actor.businessId, groupId);
     const [option] = await tx
       .select()
       .from(modifierOptions)
       .where(and(eq(modifierOptions.id, optionId), eq(modifierOptions.modifierGroupId, groupId)))
       .limit(1);
-    if (!option) throw new Error("Modifier option not found");
+    if (!option) throw new NotFoundError("Modifier option not found");
 
     await tx.delete(modifierOptions).where(eq(modifierOptions.id, optionId));
 
@@ -897,8 +946,14 @@ export async function getPosMenu(
       })
       .from(menuItemModifierGroups)
       .innerJoin(modifierGroups, eq(menuItemModifierGroups.modifierGroupId, modifierGroups.id))
-      .innerJoin(menuItems, eq(menuItemModifierGroups.menuItemId, menuItems.id))
-      .where(and(eq(menuItems.businessId, businessId), eq(modifierGroups.active, true))),
+      .where(
+        and(
+          eq(menuItemModifierGroups.businessId, businessId),
+          eq(modifierGroups.businessId, businessId),
+          eq(modifierGroups.active, true),
+        ),
+      )
+      .orderBy(asc(menuItemModifierGroups.displayOrder)),
   ]);
 
   // --- Stage 2: one id list each from stage 1 -----------------------------
@@ -950,7 +1005,7 @@ export async function getPosMenu(
             currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
           })
           .from(recipeLines)
-          .innerJoin(ingredients, eq(recipeLines.ingredientId, ingredients.id))
+          .innerJoin(ingredients, and(eq(recipeLines.ingredientId, ingredients.id), eq(ingredients.businessId, businessId)))
           .where(inArray(recipeLines.recipeId, recipeIds))
       : [],
 
@@ -963,7 +1018,7 @@ export async function getPosMenu(
             currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
           })
           .from(modifierRecipeLines)
-          .innerJoin(ingredients, eq(modifierRecipeLines.ingredientId, ingredients.id))
+          .innerJoin(ingredients, and(eq(modifierRecipeLines.ingredientId, ingredients.id), eq(ingredients.businessId, businessId)))
           .where(inArray(modifierRecipeLines.modifierOptionId, optionIds))
       : [],
   ]);
@@ -1045,33 +1100,61 @@ export async function getPosMenu(
   return { categories, items: posItems };
 }
 
+/**
+ * Replaces the modifier groups assigned to an item. Every group must belong
+ * to the caller's business — checked here, and enforced again by the
+ * same-business foreign keys on `menu_item_modifier_groups`. The item row
+ * is locked first so two concurrent replacements run one after the other
+ * instead of interleaving their delete and insert.
+ */
 export async function setItemModifierGroups(
   db: Database,
   actor: ActorContext,
   menuItemId: string,
   modifierGroupIds: string[],
 ) {
-  await assertItemBelongsToBusiness(db, actor.businessId, menuItemId);
+  const groupIds = [...new Set(modifierGroupIds)];
+  if (groupIds.length > MAX_MODIFIER_GROUPS_PER_ITEM) {
+    throw new ServiceError(`An item can have at most ${MAX_MODIFIER_GROUPS_PER_ITEM} modifier groups.`);
+  }
 
   await db.transaction(async (tx) => {
-    await tx.delete(menuItemModifierGroups).where(eq(menuItemModifierGroups.menuItemId, menuItemId));
-    if (modifierGroupIds.length > 0) {
+    const [item] = await tx
+      .select({ id: menuItems.id })
+      .from(menuItems)
+      .where(and(eq(menuItems.id, menuItemId), eq(menuItems.businessId, actor.businessId)))
+      .for("update");
+    if (!item) throw new NotFoundError("Menu item not found");
+
+    if (groupIds.length > 0) {
+      const owned = await tx
+        .select({ id: modifierGroups.id })
+        .from(modifierGroups)
+        .where(and(inArray(modifierGroups.id, groupIds), eq(modifierGroups.businessId, actor.businessId)));
+      if (owned.length !== groupIds.length) throw new NotFoundError("Modifier group not found");
+    }
+
+    await tx
+      .delete(menuItemModifierGroups)
+      .where(and(eq(menuItemModifierGroups.menuItemId, menuItemId), eq(menuItemModifierGroups.businessId, actor.businessId)));
+    if (groupIds.length > 0) {
       await tx.insert(menuItemModifierGroups).values(
-        modifierGroupIds.map((modifierGroupId, index) => ({
+        groupIds.map((modifierGroupId, index) => ({
+          businessId: actor.businessId,
           menuItemId,
           modifierGroupId,
           displayOrder: index,
         })),
       );
     }
-  });
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "menu_item.modifier_groups_updated",
-    entityType: "menu_item",
-    entityId: menuItemId,
-    metadata: { modifierGroupIds },
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "menu_item.modifier_groups_updated",
+      entityType: "menu_item",
+      entityId: menuItemId,
+      metadata: { modifierGroupIds: groupIds },
+    });
   });
 }

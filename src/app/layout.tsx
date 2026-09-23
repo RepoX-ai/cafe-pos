@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Geist } from "next/font/google";
 import "./globals.css";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -23,6 +24,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // guard on the server action it calls.
   const isDev = process.env.NODE_ENV !== "production";
   const currentUser = isDev ? await getCurrentUser() : null;
+  // Set by src/proxy.ts for the Content-Security-Policy; next-themes' inline
+  // script must carry it or the browser blocks it.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
     // suppressHydrationWarning: next-themes' inline script writes the theme
@@ -45,7 +49,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           carry `.force-light-theme`, which re-pins the light tokens and
           `color-scheme` regardless of what next-themes puts on <html>.
         */}
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange nonce={nonce}>
           <ToastProvider>
             {children}
             {isDev ? <DevRoleSwitcher currentEmail={currentUser?.email ?? null} /> : null}

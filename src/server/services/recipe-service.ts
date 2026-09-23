@@ -1,10 +1,12 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { ingredients, menuItemVariants, menuItems, recipeLines, recipes } from "@/lib/db/schema";
 import { calculateRecipeCost } from "@/lib/recipes/cost";
 import type { RecipeInput } from "@/lib/validation/recipe";
 import { recordAuditLog } from "./audit";
+import { NotFoundError, ServiceError } from "./errors";
 import type { ActorContext } from "./ingredient-service";
+import { lockVariantForRecipe } from "./locks";
 
 export interface RecipeLineView {
   id: string;
@@ -32,7 +34,7 @@ async function assertVariantBelongsToBusiness(db: Database, businessId: string, 
     .innerJoin(menuItems, eq(menuItemVariants.menuItemId, menuItems.id))
     .where(and(eq(menuItemVariants.id, variantId), eq(menuItems.businessId, businessId)))
     .limit(1);
-  if (!row) throw new Error("Menu item variant not found");
+  if (!row) throw new NotFoundError("Menu item variant not found");
 }
 
 export async function getActiveRecipe(
@@ -63,7 +65,7 @@ export async function getActiveRecipe(
       costPerBaseUnit: ingredients.averageCostPerBaseUnit,
     })
     .from(recipeLines)
-    .innerJoin(ingredients, eq(recipeLines.ingredientId, ingredients.id))
+    .innerJoin(ingredients, and(eq(recipeLines.ingredientId, ingredients.id), eq(ingredients.businessId, businessId)))
     .where(eq(recipeLines.recipeId, recipe.id));
 
   const withCost: RecipeLineView[] = lines.map((line) => ({
@@ -91,38 +93,44 @@ export async function getActiveRecipe(
  * deactivates the previous one, so any order already submitted against the
  * old version keeps its own recipe/cost snapshot untouched (PRD §6.5:
  * "Recipe edits affect future orders only").
+ *
+ * Concurrency: every save for a variant locks that variant's row first —
+ * the only row that exists even before the first recipe does — so two saves
+ * run one after the other and each sees the other's version. The unique
+ * indexes (one active recipe per variant; unique version per variant) are
+ * the backstop if some other writer ever skips the lock.
  */
 export async function saveRecipe(db: Database, actor: ActorContext, input: RecipeInput) {
-  await assertVariantBelongsToBusiness(db, actor.businessId, input.menuItemVariantId);
-
-  // Validate every ingredient referenced belongs to this business.
-  const ingredientIds = input.lines.map((l) => l.ingredientId);
-  const rows = await db
-    .select({ id: ingredients.id })
-    .from(ingredients)
-    .where(and(inArray(ingredients.id, ingredientIds), eq(ingredients.businessId, actor.businessId)));
-  if (rows.length !== new Set(ingredientIds).size) {
-    throw new Error("One or more ingredients are invalid for this business");
-  }
-
   return db.transaction(async (tx) => {
-    const [previous] = await tx
-      .select()
-      .from(recipes)
-      .where(and(eq(recipes.menuItemVariantId, input.menuItemVariantId), eq(recipes.active, true)))
-      .orderBy(desc(recipes.version))
-      .limit(1);
+    await lockVariantForRecipe(tx, actor.businessId, input.menuItemVariantId);
 
-    if (previous) {
-      await tx.update(recipes).set({ active: false }).where(eq(recipes.id, previous.id));
+    // Validate every ingredient referenced belongs to this business.
+    const ingredientIds = input.lines.map((l) => l.ingredientId);
+    const rows = await tx
+      .select({ id: ingredients.id })
+      .from(ingredients)
+      .where(and(inArray(ingredients.id, ingredientIds), eq(ingredients.businessId, actor.businessId)));
+    if (rows.length !== new Set(ingredientIds).size) {
+      throw new ServiceError("One or more ingredients are invalid for this business");
     }
+
+    const [{ latestVersion }] = await tx
+      .select({ latestVersion: sql<number>`coalesce(max(${recipes.version}), 0)::int` })
+      .from(recipes)
+      .where(eq(recipes.menuItemVariantId, input.menuItemVariantId));
+
+    const deactivated = await tx
+      .update(recipes)
+      .set({ active: false })
+      .where(and(eq(recipes.menuItemVariantId, input.menuItemVariantId), eq(recipes.active, true)))
+      .returning({ id: recipes.id, version: recipes.version });
 
     const [created] = await tx
       .insert(recipes)
       .values({
         businessId: actor.businessId,
         menuItemVariantId: input.menuItemVariantId,
-        version: (previous?.version ?? 0) + 1,
+        version: latestVersion + 1,
         active: true,
         createdBy: actor.userId,
       })
@@ -145,7 +153,11 @@ export async function saveRecipe(db: Database, actor: ActorContext, input: Recip
       action: "recipe.saved",
       entityType: "recipe",
       entityId: created.id,
-      metadata: { menuItemVariantId: input.menuItemVariantId, version: created.version },
+      metadata: {
+        menuItemVariantId: input.menuItemVariantId,
+        version: created.version,
+        replacedVersions: deactivated.map((r) => r.version),
+      },
     });
 
     return created;

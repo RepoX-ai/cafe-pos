@@ -113,7 +113,10 @@ describe.skipIf(!dbA)("order reversal concurrency (PostgreSQL)", () => {
     });
     // Moving one consumed ingredient out of this business makes it
     // unreachable, so the reversal must fail — and must leave nothing behind.
+    // (Its recipe line goes first: the same-business foreign key would
+    // otherwise refuse the move, which is the point of that key.)
     const other = await seedTestFixture(dbA!);
+    await dbA!.delete(schema.recipeLines).where(eq(schema.recipeLines.ingredientId, second.id));
     await dbA!.update(schema.ingredients).set({ businessId: other.business.id }).where(eq(schema.ingredients.id, second.id));
 
     await expect(cancelOrder(dbA!, actor, order.id, "fails")).rejects.toThrow();
@@ -210,8 +213,8 @@ describe.skipIf(!dbA)("order submission concurrency (PostgreSQL)", () => {
     const [extra] = await dbA!.insert(schema.modifierOptions).values({ modifierGroupId: group.id, name: "Extra shot", priceAdjustment: 3_000 }).returning();
     await dbA!.insert(schema.modifierRecipeLines).values({ businessId: fixture.business.id, modifierOptionId: extra.id, ingredientId: fixture.ingredient.id, quantityBaseUnits: "7" });
     await dbA!.insert(schema.menuItemModifierGroups).values([
-      { menuItemId: fixture.menuItem.id, modifierGroupId: group.id },
-      { menuItemId: tea.id, modifierGroupId: group.id },
+      { businessId: fixture.business.id, menuItemId: fixture.menuItem.id, modifierGroupId: group.id },
+      { businessId: fixture.business.id, menuItemId: tea.id, modifierGroupId: group.id },
     ]);
 
     const { order } = await submitOrder(dbA!, actor, {

@@ -20,14 +20,20 @@ function formatIDRCompact(n: number) {
   return `Rp${n}`;
 }
 
-function formatDayLabel(day: string) {
-  const [, m, d] = day.split("-");
+/** How the points were bucketed; `day` is each bucket's first date. */
+export type TrendGranularity = "day" | "week" | "month";
+
+function formatDayLabel(day: string, granularity: TrendGranularity) {
+  const [y, m, d] = day.split("-");
+  if (granularity === "month") return `${MONTHS[parseInt(m, 10) - 1]} ${y.slice(2)}`;
   return `${d}/${m}`;
 }
 
-function formatDayFull(day: string) {
-  const [, m, d] = day.split("-");
-  return `${parseInt(d, 10)} ${MONTHS[parseInt(m, 10) - 1]}`;
+function formatDayFull(day: string, granularity: TrendGranularity) {
+  const [y, m, d] = day.split("-");
+  if (granularity === "month") return `${MONTHS[parseInt(m, 10) - 1]} ${y}`;
+  const date = `${parseInt(d, 10)} ${MONTHS[parseInt(m, 10) - 1]}`;
+  return granularity === "week" ? `Week of ${date}` : date;
 }
 
 /** Fallback width for the first paint, before the container is measured. */
@@ -50,10 +56,12 @@ export function TrendChart({
   data,
   ariaLabel,
   emptyText,
+  granularity = "day",
 }: {
   data: TrendPoint[];
   ariaLabel: string;
   emptyText: string;
+  granularity?: TrendGranularity;
 }) {
   const [hovered, setHovered] = useState<number | null>(null);
   const gradientId = useId();
@@ -201,7 +209,7 @@ export function TrendChart({
                   className="fill-[var(--color-text-muted)]"
                   fontSize={AXIS_FONT_SIZE}
                 >
-                  {formatDayLabel(point.day)}
+                  {formatDayLabel(point.day, granularity)}
                 </text>
               ) : null}
             </g>
@@ -221,7 +229,7 @@ export function TrendChart({
               opacity={0.95}
             />
             <text x={tooltipX + 10} y={tooltipY + 15} className="fill-[var(--color-surface)]" fontSize={10} fontWeight={600}>
-              {formatDayFull(hoveredPoint.day)}
+              {formatDayFull(hoveredPoint.day, granularity)}
             </text>
             <text x={tooltipX + 10} y={tooltipY + 29} className="fill-[var(--color-surface)]" fontSize={9.5} opacity={0.85}>
               {formatIDR(hoveredPoint.value)} · {hoveredPoint.caption}

@@ -57,3 +57,6 @@ test-results/
 /*.sql
 *.dump
 docker-compose.override.yml
+
+# Performance test output
+perf-results/

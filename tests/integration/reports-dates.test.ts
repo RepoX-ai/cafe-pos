@@ -8,7 +8,7 @@ import { getExpenseSummary, listExpensesInRange } from "@/server/services/expens
 import { listMovements } from "@/server/services/inventory-service";
 import { listPurchases } from "@/server/services/purchase-service";
 import { listWasteRecords } from "@/server/services/waste-service";
-import { writeReportCsv, type ReportType } from "@/server/services/report-exports";
+import { exportLimitsFromEnv, openReportExport, type ReportType } from "@/server/services/report-exports";
 
 const db = getTestDb();
 afterAll(async () => db?.$client.end());
@@ -34,7 +34,8 @@ async function insertOrder(businessId: string, createdAt: string, total: number,
 
 async function exportCsv(businessId: string, type: ReportType, range: { from: string; to: string }) {
   const chunks: string[] = [];
-  await writeReportCsv(db!, businessId, type, range, (chunk) => chunks.push(chunk), { batchSize: 50 });
+  const { chunks: stream } = await openReportExport(db!.$client, businessId, type, range, { ...exportLimitsFromEnv(), batchSize: 50 });
+  for await (const chunk of stream) chunks.push(chunk);
   const [header, ...rows] = chunks.join("").split("\r\n");
   return { header, rows: rows.map((row) => row.split(",")) };
 }

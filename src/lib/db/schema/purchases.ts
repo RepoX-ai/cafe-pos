@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   date,
+  foreignKey,
   index,
   integer,
   numeric,
@@ -21,7 +22,9 @@ export const purchases = pgTable("purchases", {
     .notNull()
     .references(() => businesses.id, { onDelete: "restrict" }),
   locationId: uuid("location_id").references(() => locations.id, { onDelete: "set null" }),
-  supplierId: uuid("supplier_id").references(() => suppliers.id, { onDelete: "set null" }),
+  // Same-business only (composite FK below). Suppliers are archived, never
+  // deleted, so there is no ON DELETE action to lose.
+  supplierId: uuid("supplier_id"),
   invoiceNumber: text("invoice_number"),
   purchaseDate: date("purchase_date").notNull(),
   status: purchaseStatusEnum("status").notNull().default("DRAFT"),
@@ -32,7 +35,14 @@ export const purchases = pgTable("purchases", {
   // Set when a finalized purchase is corrected via reversal + replacement.
   reversedByPurchaseId: uuid("reversed_by_purchase_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("purchases_business_purchase_date_idx").on(table.businessId, table.purchaseDate)]);
+}, (table) => [
+  index("purchases_business_purchase_date_idx").on(table.businessId, table.purchaseDate),
+  foreignKey({
+    name: "purchases_supplier_same_business_fk",
+    columns: [table.businessId, table.supplierId],
+    foreignColumns: [suppliers.businessId, suppliers.id],
+  }),
+]);
 
 export const purchaseLines = pgTable("purchase_lines", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),

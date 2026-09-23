@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
+import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
+import { toUserMessage } from "@/server/services/errors";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
@@ -41,6 +43,7 @@ export async function updateSettingsAction(
     if (!parsed.success) {
       return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
     }
+    if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) return { ok: false, error: "Too many changes in a short time. Wait a moment and try again." };
 
     await updateBusinessSettings(db, { businessId: user.businessId, userId: user.id }, parsed.data);
     revalidatePath("/settings");
@@ -87,11 +90,14 @@ export async function createBusinessAction(input: unknown): Promise<CreateBusine
     if (!parsed.success) {
       return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
     }
+    if (!(await allowUserAction(db, RATE_LIMITS.createBusiness(), user))) {
+      return { ok: false, error: "Too many new businesses in a short time. Try again later." };
+    }
 
     try {
       await createBusiness(db, { businessId: user.businessId, userId: user.id }, parsed.data);
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return { ok: false, error: toUserMessage(error, "dashboard/settings") };
     }
 
     revalidatePath("/settings");
@@ -132,6 +138,9 @@ export async function updateBrandingAction(formData: FormData): Promise<Branding
     let logoUrl: string | null = null;
     const file = formData.get("logoFile");
     if (file instanceof File && file.size > 0) {
+      if (!(await allowUserAction(db, RATE_LIMITS.upload(), user))) {
+        return { ok: false, error: "Too many logo uploads. Wait a few minutes and try again." };
+      }
       const saved = await saveBusinessLogo(file, user.businessId);
       if (!saved.ok) return { ok: false, error: saved.error, fieldErrors: { logoFile: saved.error } };
       logoUrl = saved.url;

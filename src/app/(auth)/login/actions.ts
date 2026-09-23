@@ -77,7 +77,9 @@ export async function loginAction(
   if (!result.ok) {
     return {
       error:
-        result.error === "account_deactivated"
+        result.error === "busy"
+          ? "The server is busy. Try again in a moment."
+          : result.error === "account_deactivated"
           ? "This account has been deactivated. Contact your owner or manager."
           : result.error === "no_business_access"
             ? "This account no longer has access to any business. Contact your owner or manager."

@@ -16,12 +16,14 @@ enumerate accounts (SEC-004 timing pad + generic messages).
 Do not “hide” staff-email collisions without a product redesign of linking;
 owners/managers need to know they are attaching an existing login.
 
-## CQ-002 — No root `middleware.ts` (intentional)
+## CQ-002 — No auth in `proxy.ts` (intentional)
 
 Authz stays on **per-route** `requirePageAccess` / Server Action checks
 (`src/lib/auth/guards.ts` and service-layer permissions). A global Next.js
 middleware would either duplicate that model poorly or become a large
 rewrite. Keep adding guards on new pages/actions; do not rely on nav alone.
+`src/proxy.ts` exists only to set the per-request nonce
+Content-Security-Policy; it makes no access decisions.
 
 ## DB-002 — Ingredients low-stock composite index (skipped)
 

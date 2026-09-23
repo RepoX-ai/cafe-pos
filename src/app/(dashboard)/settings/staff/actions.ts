@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
+import { toUserMessage } from "@/server/services/errors";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
@@ -47,7 +48,7 @@ export async function createStaffAction(input: unknown): Promise<CreateStaffResu
       revalidatePath("/settings/staff");
       return { ok: true, tempPassword, linkedExistingAccount };
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return { ok: false, error: toUserMessage(error, "dashboard/settings/staff") };
     }
   });
 }
@@ -60,11 +61,14 @@ export async function setStaffActiveAction(userId: string, active: boolean): Pro
     if (userId === user.id && !active) {
       return { ok: false, error: "You can't deactivate your own account." };
     }
+    if (!(await consumeRateLimit(db, { rule: RATE_LIMITS.staffWrite(), key: [user.businessId, user.id] }))) {
+      return THROTTLED;
+    }
 
     try {
       await setStaffActive(db, { businessId: user.businessId, userId: user.id }, userId, active);
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return { ok: false, error: toUserMessage(error, "dashboard/settings/staff") };
     }
     revalidatePath("/settings/staff");
     return { ok: true };
@@ -84,7 +88,7 @@ export async function resetStaffPasswordAction(userId: string): Promise<CreateSt
       const { tempPassword } = await resetStaffPassword(db, { businessId: user.businessId, userId: user.id }, userId);
       return { ok: true, tempPassword, linkedExistingAccount: false };
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return { ok: false, error: toUserMessage(error, "dashboard/settings/staff") };
     }
   });
 }
@@ -110,7 +114,7 @@ export async function updateStaffAction(userId: string, input: unknown): Promise
     try {
       await updateStaff(db, { businessId: user.businessId, userId: user.id }, userId, parsed.data);
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return { ok: false, error: toUserMessage(error, "dashboard/settings/staff") };
     }
     revalidatePath("/settings/staff");
     return { ok: true };
@@ -133,7 +137,7 @@ export async function staffDeletionImpactAction(
       const entries = await countStaffAttribution(db, { businessId: user.businessId, userId: user.id }, userId);
       return { ok: true, entries };
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return { ok: false, error: toUserMessage(error, "dashboard/settings/staff") };
     }
   });
 }
@@ -153,7 +157,7 @@ export async function deleteStaffAction(
     try {
       ({ accountDeleted } = await deleteStaff(db, { businessId: user.businessId, userId: user.id }, userId));
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return { ok: false, error: toUserMessage(error, "dashboard/settings/staff") };
     }
     revalidatePath("/settings/staff");
     return { ok: true, accountDeleted };

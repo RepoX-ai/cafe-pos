@@ -17,6 +17,7 @@ import { asActionResult, mapControlledActionError } from "@/lib/permissions/acti
 import { unstable_rethrow } from "next/navigation";
 import { claimRateLimitCleanupSlot, consumeRateLimit, deleteExpiredRateLimitBuckets, RATE_LIMITS } from "@/server/services/rate-limit";
 import { invalidatePosMenuCache } from "@/server/services/pos-menu-cache";
+import { deleteExpiredIdempotencyKeys } from "@/server/services/request-idempotency";
 import type { PrintJobPayload } from "@/printing/printer-provider";
 
 export type { SubmitOrderResult };
@@ -47,7 +48,9 @@ export async function submitOrderAction(input: unknown): Promise<SubmitOrderResu
     // Orders deduct stock — drop the POS menu cache so availability badges refresh
     // (same pattern as cancel/refund on the dashboard).
     if (result.ok) invalidatePosMenuCache(user.businessId);
-    if (claimRateLimitCleanupSlot()) after(() => deleteExpiredRateLimitBuckets(db).catch(() => undefined));
+    if (claimRateLimitCleanupSlot()) {
+      after(() => Promise.all([deleteExpiredRateLimitBuckets(db), deleteExpiredIdempotencyKeys(db)]).catch(() => undefined));
+    }
     return result;
   });
 }

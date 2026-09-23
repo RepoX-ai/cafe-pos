@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { BOUNDS } from "./bounds";
 
 export const recipeLineInputSchema = z.object({
   ingredientId: z.string().uuid(),
-  quantityBaseUnits: z.coerce.number().positive("Quantity must be greater than zero"),
+  quantityBaseUnits: z.coerce.number().positive("Quantity must be greater than zero").max(BOUNDS.maxQuantity, "Quantity is too large"),
   wastePercentage: z.coerce.number().min(0).max(100).default(0),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
 });
@@ -24,7 +25,7 @@ function rejectDuplicateIngredients(data: { lines: Array<{ ingredientId: string 
 export const recipeInputSchema = z
   .object({
     menuItemVariantId: z.string().uuid(),
-    lines: z.array(recipeLineInputSchema).min(1, "Add at least one ingredient"),
+    lines: z.array(recipeLineInputSchema).min(1, "Add at least one ingredient").max(BOUNDS.recipeLines, `A recipe can have at most ${BOUNDS.recipeLines} ingredients`),
   })
   .superRefine(rejectDuplicateIngredients);
 
@@ -33,7 +34,7 @@ export const modifierRecipeInputSchema = z
   .object({
     groupId: z.string().uuid(),
     optionId: z.string().uuid(),
-    lines: z.array(recipeLineInputSchema.omit({ notes: true })),
+    lines: z.array(recipeLineInputSchema.omit({ notes: true })).max(BOUNDS.recipeLines, `An option can have at most ${BOUNDS.recipeLines} ingredients`),
   })
   .superRefine(rejectDuplicateIngredients);
 

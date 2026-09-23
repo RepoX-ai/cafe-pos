@@ -158,6 +158,7 @@ async function main() {
 
       if (item.name === "Crispy Enoki") {
         await db.insert(schema.menuItemModifierGroups).values({
+          businessId: itemRow.businessId,
           menuItemId: itemRow.id,
           modifierGroupId: addOnGroup.id,
           displayOrder: 0,

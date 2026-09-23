@@ -26,6 +26,8 @@ test.describe("POS checkout prints to the tablet printer", () => {
     await expect(page.getByRole("button", { name: /Simulated printer/ })).toBeVisible();
 
     await page.getByRole("button", { name: /Coffee A/ }).click();
+    // Cash sales need the tendered amount before Submit enables.
+    await page.getByRole("button", { name: "Uang pas" }).click();
     await page.getByRole("button", { name: /Submit order/ }).click();
     await expect(page.getByText("Order submitted")).toBeVisible();
 
@@ -46,6 +48,8 @@ test.describe("POS checkout prints to the tablet printer", () => {
 
     // Deliberately skip Connect printer.
     await page.getByRole("button", { name: /Coffee A/ }).click();
+    // Cash sales need the tendered amount before Submit enables.
+    await page.getByRole("button", { name: "Uang pas" }).click();
     await page.getByRole("button", { name: /Submit order/ }).click();
     await expect(page.getByText("Order submitted")).toBeVisible();
 

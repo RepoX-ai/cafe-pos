@@ -7,6 +7,8 @@ export function pageButtonClassName(active: boolean): string {
     : `${base} text-[var(--color-text-secondary)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]`;
 }
 
-export function pageSummary(shown: number, totalItems: number): string {
-  return `Showing ${shown.toLocaleString("id-ID")} of ${totalItems.toLocaleString("id-ID")} ${totalItems === 1 ? "entry" : "entries"}`;
+export function pageSummary(shown: number, totalItems: number, cap?: number): string {
+  // A count that stopped at the browse cap (see countUpTo) is a lower bound.
+  const total = cap !== undefined && totalItems > cap ? `${cap.toLocaleString("id-ID")}+` : totalItems.toLocaleString("id-ID");
+  return `Showing ${shown.toLocaleString("id-ID")} of ${total} ${totalItems === 1 ? "entry" : "entries"}`;
 }

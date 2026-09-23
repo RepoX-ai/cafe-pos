@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BOUNDS } from "./bounds";
 
 export const baseUnitSchema = z.enum(["gram", "millilitre", "piece"]);
 export const displayUnitSchema = z.enum(["kg", "g", "L", "ml", "pc"]);
@@ -11,11 +12,11 @@ export const ingredientInputSchema = z.object({
   // Checked against the base unit's class in the service, where the stored
   // base unit is known on edit too.
   displayUnit: displayUnitSchema.optional(),
-  reorderLevelBaseUnits: z.coerce.number().min(0).optional(),
-  targetStockBaseUnits: z.coerce.number().min(0).optional(),
+  reorderLevelBaseUnits: z.coerce.number().min(0).max(BOUNDS.maxQuantity).optional(),
+  targetStockBaseUnits: z.coerce.number().min(0).max(BOUNDS.maxQuantity).optional(),
   // Entered the way the ingredient is bought and the list shows it — per
   // kg / per litre / per piece — not per base unit. The service converts.
-  startingCostPerPurchaseUnit: z.coerce.number().int("Enter a whole Rupiah amount").min(0).optional(),
+  startingCostPerPurchaseUnit: z.coerce.number().int("Enter a whole Rupiah amount").min(0).max(BOUNDS.maxInt).optional(),
   notes: z.string().trim().max(2000).optional().or(z.literal("")),
 });
 

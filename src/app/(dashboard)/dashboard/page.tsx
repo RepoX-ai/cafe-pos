@@ -15,21 +15,25 @@ import {
   Trash2,
 } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
-import { db } from "@/lib/db/client";
+import { db, reportDb } from "@/lib/db/client";
+import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 import {
   getFailedPrintJobs,
   getRecentOrders,
   getSalesByCategoryWithModifiers,
-  getSalesByDay,
   getSalesByPaymentMethod,
+  getSalesTrend,
   getTopMenuItemRankings,
   getSalesSummary,
   getStockAlerts,
 } from "@/server/services/reports-service";
 import {
+  bucketStarts,
   calendarDaysInclusive,
+  chartGranularity,
+  MAX_REPORT_RANGE_DAYS,
   previousBusinessPeriod,
-  resolveBusinessDateRange,
+  resolveReportDateRange,
   shiftBusinessDate,
   todayInBusinessTimezone,
 } from "@/lib/dates/dates";
@@ -55,9 +59,11 @@ export default async function DashboardPage({
 }) {
   const user = await requirePageAccess("reports:read");
   const { from, to } = await searchParams;
+  if (!(await allowUserAction(db, RATE_LIMITS.reportRead(), user))) return <ReportsThrottled />;
 
   const today = todayInBusinessTimezone();
-  const range = resolveBusinessDateRange(from, to, { from: today, to: today });
+  // Capped at MAX_REPORT_RANGE_DAYS; a longer request keeps its most recent part.
+  const { range, clamped } = resolveReportDateRange(from, to, { from: today, to: today });
   const { from: fromDate, to: toDate } = range;
 
   // The trend chart follows the same date-range filter as the KPI cards
@@ -67,35 +73,35 @@ export default async function DashboardPage({
   const chartDayCount = calendarDaysInclusive(range);
   const chartFromDate = chartDayCount > 1 ? fromDate : shiftBusinessDate(toDate, -13);
   const chartRange = { from: chartFromDate, to: toDate };
-  const chartRangeDays = calendarDaysInclusive(chartRange);
+  // Daily up to two months, then weekly, then monthly — never more than ~62 points.
+  const granularity = chartGranularity(calendarDaysInclusive(chartRange));
 
   // "vs. last period" comparison: the same number of calendar days
   // immediately preceding the selected range (a single day compares with
   // the day before).
   const previousRange = previousBusinessPeriod(range);
 
-  // PERF-002: independent report queries already run in parallel. Images
-  // below stay sequential — they need ranking IDs. TODO: if this page's
-  // latency shows up in profiling, coalesce summary + previousSummary
-  // (or day/category/payment slices) rather than adding more round-trips.
-  const [summary, previousSummary, stockAlerts, rankings, recentOrders, failedPrints, salesByDay, salesByCategory, salesByPaymentMethod] = await Promise.all([
-    getSalesSummary(db, user.businessId, range),
-    getSalesSummary(db, user.businessId, previousRange),
-    getStockAlerts(db, user.businessId, 6),
+  // Independent report queries, issued together but served by the small
+  // reports pool (DATABASE_REPORT_POOL_MAX): they queue there instead of
+  // taking the connections checkout needs. Images below stay sequential —
+  // they need ranking IDs.
+  const [summary, previousSummary, stockAlerts, rankings, recentOrders, failedPrints, salesTrend, salesByCategory, salesByPaymentMethod] = await Promise.all([
+    getSalesSummary(reportDb, user.businessId, range),
+    getSalesSummary(reportDb, user.businessId, previousRange),
+    getStockAlerts(reportDb, user.businessId, 6),
     // Ranked and cut in SQL: the page gets at most five rows per widget
     // rather than every menu item sold in the range.
-    getTopMenuItemRankings(db, user.businessId, range, MENU_RANKING_ROWS),
-    getRecentOrders(db, user.businessId, 8),
-    getFailedPrintJobs(db, user.businessId),
-    getSalesByDay(db, user.businessId, chartRange),
-    getSalesByCategoryWithModifiers(db, user.businessId, range),
-    getSalesByPaymentMethod(db, user.businessId, range),
+    getTopMenuItemRankings(reportDb, user.businessId, range, MENU_RANKING_ROWS),
+    getRecentOrders(reportDb, user.businessId, 8),
+    getFailedPrintJobs(reportDb, user.businessId),
+    getSalesTrend(reportDb, user.businessId, chartRange, granularity),
+    getSalesByCategoryWithModifiers(reportDb, user.businessId, range),
+    getSalesByPaymentMethod(reportDb, user.businessId, range),
   ]);
 
-  const salesByDayMap = new Map(salesByDay.map((d) => [d.day, d]));
-  const trendData: TrendPoint[] = Array.from({ length: chartRangeDays }, (_, i) => {
-    const day = shiftBusinessDate(chartFromDate, i);
-    const row = salesByDayMap.get(day);
+  const salesByBucket = new Map(salesTrend.map((d) => [d.day, d]));
+  const trendData: TrendPoint[] = bucketStarts(chartRange, granularity).map((day) => {
+    const row = salesByBucket.get(day);
     return { day, value: row?.totalSales ?? 0, caption: `${row?.orderCount ?? 0} orders` };
   });
 
@@ -103,7 +109,7 @@ export default async function DashboardPage({
   const { topSelling, highestCogs } = rankings;
   // Only the items actually rendered below — at most ten distinct ids.
   const images = await getMenuItemImages(
-    db,
+    reportDb,
     user.businessId,
     [...new Set([...topSelling, ...highestCogs].map((i) => i.menuItemId).filter((id): id is string => id !== null))],
   );
@@ -123,6 +129,11 @@ export default async function DashboardPage({
         </div>
         <DateRangeForm from={fromDate} to={toDate} today={today} basePath="/dashboard" />
       </div>
+      {clamped ? (
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+          Ranges are limited to {MAX_REPORT_RANGE_DAYS} days, so this shows {fromDate} to {toDate}.
+        </p>
+      ) : null}
 
       <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <Card
@@ -173,7 +184,8 @@ export default async function DashboardPage({
           <div className="mt-3">
             <TrendChart
               data={trendData}
-              ariaLabel={`Daily total sales from ${chartFromDate} to ${toDate}`}
+              granularity={granularity}
+              ariaLabel={`${granularity === "day" ? "Daily" : granularity === "week" ? "Weekly" : "Monthly"} total sales from ${chartFromDate} to ${toDate}`}
               emptyText="No sales in this range."
             />
           </div>
@@ -313,6 +325,14 @@ export default async function DashboardPage({
           />
         </Widget>
       </div>
+    </div>
+  );
+}
+
+function ReportsThrottled() {
+  return (
+    <div className="mx-auto max-w-[1440px]">
+      <p className="text-sm text-[var(--color-text-secondary)]">Too many report requests in a short time. Wait a minute, then reload.</p>
     </div>
   );
 }

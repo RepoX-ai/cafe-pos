@@ -1,11 +1,12 @@
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { expenses, ingredients, orderLineModifiers, orderLines, orders, printJobs, wasteRecords } from "@/lib/db/schema";
-import { BUSINESS_TIMEZONE, type BusinessDateRange } from "@/lib/dates/dates";
+import { BUSINESS_TIMEZONE, type BusinessDateRange, type ChartGranularity } from "@/lib/dates/dates";
 import { averageRupiah, grossMarginPercentage, toSafeInteger } from "@/lib/money/money";
 import type { BaseUnit, DisplayUnit } from "@/lib/units/units";
 import { abandonedPrintClaim } from "./print-service";
-import { sumAsSafeInteger, withinBusinessDays, withinCalendarDates } from "./range-filters";
+import { countUpTo, sumAsSafeInteger, withinBusinessDays, withinCalendarDates } from "./range-filters";
+import { afterTimeCursor, cursorText, type TimeCursor } from "./keyset";
 
 /**
  * Orders that count as real sales for reporting (PRD §6.12: "active order
@@ -19,7 +20,8 @@ export type DateRange = BusinessDateRange;
 
 export interface RowWindow {
   limit: number;
-  offset: number;
+  offset?: number;
+  after?: TimeCursor;
 }
 
 function ordersInRange(businessId: string, range: DateRange) {
@@ -83,6 +85,29 @@ export async function getSalesByDay(db: Database, businessId: string, range: Dat
   return db
     .select({
       day: sql<string>`to_char(${orders.createdAt} at time zone ${BUSINESS_TIMEZONE}, 'YYYY-MM-DD')`,
+      totalSales: sumAsSafeInteger(orders.total),
+      orderCount: sql`count(*)`.mapWith(Number),
+      cogsTotal: sumAsSafeInteger(orders.cogsTotal),
+      grossProfit: sumAsSafeInteger(orders.grossProfit),
+    })
+    .from(orders)
+    .where(and(ordersInRange(businessId, range), inArray(orders.status, [...ACTIVE_ORDER_STATUSES])))
+    .groupBy(sql`1`)
+    .orderBy(sql`1`);
+}
+
+/**
+ * Sales per chart bucket — `getSalesByDay` for "day", otherwise grouped by
+ * the Monday-start week or the calendar month in the business timezone, so
+ * a year-long dashboard range is ~53 or 13 points instead of 366. Same
+ * filters and sums as `getSalesByDay`; `day` is the bucket's first date.
+ */
+export async function getSalesTrend(db: Database, businessId: string, range: DateRange, granularity: ChartGranularity) {
+  if (granularity === "day") return getSalesByDay(db, businessId, range);
+  const unit = granularity === "week" ? sql.raw("'week'") : sql.raw("'month'");
+  return db
+    .select({
+      day: sql<string>`to_char(date_trunc(${unit}, ${orders.createdAt} at time zone ${BUSINESS_TIMEZONE}), 'YYYY-MM-DD')`,
       totalSales: sumAsSafeInteger(orders.total),
       orderCount: sql`count(*)`.mapWith(Number),
       cogsTotal: sumAsSafeInteger(orders.cogsTotal),
@@ -234,33 +259,54 @@ export async function getSalesByCategory(db: Database, businessId: string, range
  * price; every modifier's price adjustment (per unit, snapshotted at order
  * time) × line quantity is summed into `modifiers` instead. The two parts
  * add up to the same revenue `getSalesByCategory` reports.
+ *
+ * Modifiers are joined to this business's in-range lines and summed per
+ * line (`group by` the line's primary key) before the category rollup. The
+ * previous shape grouped *every* order_line_modifiers row in the
+ * installation per line before joining, so its cost tracked all tenants'
+ * history rather than this range. Measured with EXPLAIN (ANALYZE, BUFFERS)
+ * on 5 tenants / 913k lines / 548k modifiers: 1 day 253 ms -> 1.2 ms,
+ * 30 days 346 -> 72 ms, 366 days 415 -> 284 ms, identical totals (see
+ * docs/performance.md). A CTE and a per-line LATERAL were both slower than
+ * the original at a full year.
  */
 export async function getSalesByCategoryWithModifiers(db: Database, businessId: string, range: DateRange) {
-  const lineModifiers = db
-    .select({
-      orderLineId: orderLineModifiers.orderLineId,
-      unitPrice: sql<number>`sum(${orderLineModifiers.priceAdjustmentSnapshot})`.as("unit_price"),
-      optionCount: sql<number>`count(*)`.as("option_count"),
-    })
-    .from(orderLineModifiers)
-    .groupBy(orderLineModifiers.orderLineId)
-    .as("line_modifiers");
-  const modifierRevenue = sql`coalesce(${lineModifiers.unitPrice}, 0) * ${orderLines.quantity}`;
+  const scope = and(ordersInRange(businessId, range), inArray(orders.status, [...ACTIVE_ORDER_STATUSES]));
+  const result = await db.execute<{
+    categoryName: string;
+    revenue: string;
+    quantitySold: string;
+    modifierRevenue: string;
+    modifierQuantity: string;
+  }>(sql`
+    select coalesce(l.category_name, 'Uncategorized') as "categoryName",
+           coalesce(sum(l.line_total - coalesce(l.unit_price, 0) * l.quantity), 0)::bigint as revenue,
+           coalesce(sum(l.quantity), 0)::bigint as "quantitySold",
+           coalesce(sum(coalesce(l.unit_price, 0) * l.quantity), 0)::bigint as "modifierRevenue",
+           coalesce(sum(l.option_count * l.quantity), 0)::bigint as "modifierQuantity"
+    from (
+      select ${orderLines.categoryNameSnapshot} as category_name,
+             ${orderLines.lineTotal} as line_total,
+             ${orderLines.quantity} as quantity,
+             sum(${orderLineModifiers.priceAdjustmentSnapshot}) as unit_price,
+             count(${orderLineModifiers.id}) as option_count
+      from ${orderLines}
+      inner join ${orders} on ${orderLines.orderId} = ${orders.id}
+      left join ${orderLineModifiers} on ${orderLineModifiers.orderLineId} = ${orderLines.id}
+      where ${scope}
+      group by ${orderLines.id}
+    ) l
+    group by l.category_name
+    order by 2 desc
+  `);
 
-  const rows = await db
-    .select({
-      categoryName: sql<string>`coalesce(${orderLines.categoryNameSnapshot}, 'Uncategorized')`,
-      revenue: sumAsSafeInteger(sql`${orderLines.lineTotal} - ${modifierRevenue}`),
-      quantitySold: sumAsSafeInteger(orderLines.quantity),
-      modifierRevenue: sumAsSafeInteger(modifierRevenue),
-      modifierQuantity: sumAsSafeInteger(sql`coalesce(${lineModifiers.optionCount}, 0) * ${orderLines.quantity}`),
-    })
-    .from(orderLines)
-    .innerJoin(orders, eq(orderLines.orderId, orders.id))
-    .leftJoin(lineModifiers, eq(lineModifiers.orderLineId, orderLines.id))
-    .where(and(ordersInRange(businessId, range), inArray(orders.status, [...ACTIVE_ORDER_STATUSES])))
-    .groupBy(orderLines.categoryNameSnapshot)
-    .orderBy(desc(sql`2`));
+  const rows = result.rows.map((r) => ({
+    categoryName: r.categoryName,
+    revenue: toSafeInteger(r.revenue),
+    quantitySold: toSafeInteger(r.quantitySold),
+    modifierRevenue: toSafeInteger(r.modifierRevenue),
+    modifierQuantity: toSafeInteger(r.modifierQuantity),
+  }));
 
   return {
     categories: rows.map(({ categoryName, revenue, quantitySold }) => ({ categoryName, revenue, quantitySold })),
@@ -289,18 +335,27 @@ function reversedOrdersInRange(businessId: string, range: DateRange) {
   return and(ordersInRange(businessId, range), inArray(orders.status, [...REVERSED_ORDER_STATUSES]));
 }
 
-export async function countCancelledRefundedOrders(db: Database, businessId: string, range: DateRange) {
-  return db.$count(orders, reversedOrdersInRange(businessId, range));
+export async function countCancelledRefundedOrders(db: Database, businessId: string, range: DateRange, cap?: number) {
+  return countUpTo(db, orders, reversedOrdersInRange(businessId, range), cap);
 }
 
 export async function getCancelledRefundedOrders(db: Database, businessId: string, range: DateRange, window: RowWindow) {
   return db
-    .select()
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      status: orders.status,
+      total: orders.total,
+      cancellationReason: orders.cancellationReason,
+      refundReason: orders.refundReason,
+      createdAt: orders.createdAt,
+      cursorTs: cursorText(orders.createdAt),
+    })
     .from(orders)
-    .where(reversedOrdersInRange(businessId, range))
+    .where(and(reversedOrdersInRange(businessId, range), window.after ? afterTimeCursor(orders.createdAt, orders.id, window.after) : undefined))
     .orderBy(desc(orders.createdAt), desc(orders.id))
     .limit(window.limit)
-    .offset(window.offset);
+    .offset(window.offset ?? 0);
 }
 
 /**
@@ -318,15 +373,15 @@ export async function getFailedPrintJobs(db: Database, businessId: string) {
       uncertain: sql<boolean>`${printJobs.status} = 'PROCESSING'`,
     })
     .from(printJobs)
-    .innerJoin(orders, eq(printJobs.orderId, orders.id))
-    .where(and(eq(orders.businessId, businessId), or(eq(printJobs.status, "FAILED"), abandonedPrintClaim())))
+    .innerJoin(orders, and(eq(printJobs.orderId, orders.id), eq(orders.businessId, businessId)))
+    .where(and(eq(printJobs.businessId, businessId), or(eq(printJobs.status, "FAILED"), abandonedPrintClaim())))
     .orderBy(desc(printJobs.createdAt))
     .limit(20);
 }
 
 export async function getRecentOrders(db: Database, businessId: string, limit = 10) {
   return db
-    .select()
+    .select({ id: orders.id, orderNumber: orders.orderNumber, total: orders.total })
     .from(orders)
     .where(eq(orders.businessId, businessId))
     .orderBy(desc(orders.createdAt), desc(orders.id))

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ServiceError } from "./errors";
 import { and, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
@@ -17,6 +18,7 @@ import { calculateServiceCharge, calculateTax, parseTaxConfig } from "@/lib/sett
 import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
 import { ORDER_LIMITS, type SubmitOrderInput } from "@/lib/validation/order";
 import { recordAuditLog } from "./audit";
+import { countUpTo } from "./range-filters";
 import { lineDemandPerUnit, loadOrderCatalog, optionDemandPerUnit, type OrderCatalog } from "./order-consumption";
 import {
   insertMovementsAndApplyStock,
@@ -28,7 +30,7 @@ import {
 import type { ActorContext } from "./ingredient-service";
 import { abandonedPrintClaim } from "./print-service";
 
-export class OrderValidationError extends Error {}
+export class OrderValidationError extends ServiceError {}
 
 interface PreparedLine {
   id: string;
@@ -523,25 +525,24 @@ export async function getOrderById(db: Database, businessId: string, orderId: st
     .limit(1);
   if (!order) return null;
 
-  const lines = await db.select().from(orderLines).where(eq(orderLines.orderId, orderId));
-  const lineIds = lines.map((l) => l.id);
-
-  const modifiers =
-    lineIds.length > 0
-      ? await db.select().from(orderLineModifiers).where(inArray(orderLineModifiers.orderLineId, lineIds))
-      : [];
-
-  const consumption = await db
-    .select()
-    .from(orderIngredientConsumption)
-    .where(eq(orderIngredientConsumption.orderId, orderId));
-
-  // outcomeUnknown: still PROCESSING past its lease, so it may or may not have printed.
-  const prints = await db
-    .select({ ...getTableColumns(printJobs), outcomeUnknown: sql<boolean>`coalesce(${abandonedPrintClaim()}, false)` })
-    .from(printJobs)
-    .where(eq(printJobs.orderId, orderId))
-    .orderBy(desc(printJobs.createdAt));
+  // The order row above is the tenant check; everything below hangs off its
+  // id, and none of it depends on another read, so it runs concurrently.
+  // Modifiers join through their line rather than waiting for the line ids.
+  const [lines, modifiers, consumption, prints] = await Promise.all([
+    db.select().from(orderLines).where(eq(orderLines.orderId, orderId)),
+    db
+      .select(getTableColumns(orderLineModifiers))
+      .from(orderLineModifiers)
+      .innerJoin(orderLines, eq(orderLineModifiers.orderLineId, orderLines.id))
+      .where(eq(orderLines.orderId, orderId)),
+    db.select().from(orderIngredientConsumption).where(eq(orderIngredientConsumption.orderId, orderId)),
+    // outcomeUnknown: still PROCESSING past its lease, so it may or may not have printed.
+    db
+      .select({ ...getTableColumns(printJobs), outcomeUnknown: sql<boolean>`coalesce(${abandonedPrintClaim()}, false)` })
+      .from(printJobs)
+      .where(eq(printJobs.orderId, orderId))
+      .orderBy(desc(printJobs.createdAt)),
+  ]);
 
   return {
     order,
@@ -629,7 +630,7 @@ export async function listOrders(
   const where = and(...conditions);
   const [rows, totalItems] = await Promise.all([
     db.select().from(orders).where(where).orderBy(desc(orders.createdAt), desc(orders.id)).limit(limit).offset(offset),
-    db.$count(orders, where),
+    countUpTo(db, orders, where),
   ]);
   return { ...toPage(rows, page, pageSize), totalItems };
 }

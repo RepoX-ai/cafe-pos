@@ -71,7 +71,7 @@ describe.skipIf(!db)("POS menu stock availability (integration)", () => {
       .insert(modifierOptions)
       .values({ modifierGroupId: group.id, name: "Extra shot", priceAdjustment: 5_000 })
       .returning();
-    await db!.insert(menuItemModifierGroups).values({ menuItemId: menuItem.id, modifierGroupId: group.id });
+    await db!.insert(menuItemModifierGroups).values({ businessId: business.id, menuItemId: menuItem.id, modifierGroupId: group.id });
     // Ingredient only has 1000g; the modifier alone asks for more than that.
     await db!.insert(modifierRecipeLines).values({
       businessId: business.id,
@@ -171,8 +171,8 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
       .returning();
     await db!.insert(modifierRecipeLines).values({ businessId: business.id, modifierOptionId: extraSugar.id, ingredientId: short.id, quantityBaseUnits: "5" });
     await db!.insert(menuItemModifierGroups).values([
-      { menuItemId: menuItem.id, modifierGroupId: group.id },
-      { menuItemId: untracked.id, modifierGroupId: group.id },
+      { businessId: business.id, menuItemId: menuItem.id, modifierGroupId: group.id },
+      { businessId: business.id, menuItemId: untracked.id, modifierGroupId: group.id },
     ]);
 
     await seedTestFixture(db!); // another tenant, which must never leak in

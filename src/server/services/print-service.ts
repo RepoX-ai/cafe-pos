@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ServiceError } from "./errors";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { businesses, orders, printJobs } from "@/lib/db/schema";
@@ -32,7 +33,7 @@ function leaseSecondsFor(provider: string) {
 }
 
 /** Refusals a caller should show to the user rather than log as a fault. */
-export class PrintNotAllowedError extends Error {}
+export class PrintNotAllowedError extends ServiceError {}
 
 const CANCELLED_ORDER_PRINT_ERROR = "This order was cancelled — its receipt can no longer be printed.";
 

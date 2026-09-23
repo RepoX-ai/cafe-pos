@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { pageHref, pageNumbers, totalPageCount } from "@/lib/pagination";
+import { MAX_BROWSABLE_ROWS, pageHref, pageNumbers, totalPageCount } from "@/lib/pagination";
 import { pageButtonClassName, pageSummary } from "./pagination-styles";
 
 /**
@@ -40,7 +40,7 @@ export function ServerPagination({
             </Link>
           </>
         ) : (
-          pageSummary(page.rowCount, totalItems)
+          pageSummary(page.rowCount, totalItems, MAX_BROWSABLE_ROWS)
         )}
       </span>
       <div className="flex items-center gap-1">

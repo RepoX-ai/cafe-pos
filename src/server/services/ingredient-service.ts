@@ -1,4 +1,5 @@
 import { and, asc, count, eq, getTableColumns, isNotNull, lte, sql } from "drizzle-orm";
+import { NotFoundError, ServiceError } from "./errors";
 import type { Database } from "@/lib/db/client";
 import {
   ingredients,
@@ -24,7 +25,7 @@ function hasStockHistory() {
   return sql<boolean>`exists (select 1 from ${inventoryMovements} where ${inventoryMovements.ingredientId} = ${ingredients.id})`;
 }
 
-export class IngredientValidationError extends Error {}
+export class IngredientValidationError extends ServiceError {}
 
 function assertDisplayUnitMatches(baseUnit: BaseUnit, displayUnit: DisplayUnit | undefined) {
   if (displayUnit && baseUnitOfDisplayUnit(displayUnit) !== baseUnit) {
@@ -88,43 +89,45 @@ export interface ActorContext {
  * formula, blending over this seed like any other receipt.
  */
 export async function createIngredient(db: Database, actor: ActorContext, input: IngredientInput) {
-  assertDisplayUnitMatches(input.baseUnit, input.displayUnit);
-  const [row] = await db
-    .insert(ingredients)
-    .values({
+  return db.transaction(async (tx) => {
+    assertDisplayUnitMatches(input.baseUnit, input.displayUnit);
+    const [row] = await tx
+      .insert(ingredients)
+      .values({
+        businessId: actor.businessId,
+        name: input.name,
+        sku: input.sku || null,
+        category: input.category || null,
+        baseUnit: input.baseUnit,
+        displayUnit: input.displayUnit ?? null,
+        reorderLevelBaseUnits:
+          input.reorderLevelBaseUnits !== undefined ? String(input.reorderLevelBaseUnits) : null,
+        targetStockBaseUnits:
+          input.targetStockBaseUnits !== undefined ? String(input.targetStockBaseUnits) : null,
+        ...(input.startingCostPerPurchaseUnit !== undefined
+          ? {
+              averageCostPerBaseUnit: String(
+                input.startingCostPerPurchaseUnit / purchaseScaleFor(input.baseUnit).baseUnitsPer,
+              ),
+            }
+          : {}),
+        notes: input.notes || null,
+      })
+      .returning();
+
+    await recordAuditLog(tx, {
       businessId: actor.businessId,
-      name: input.name,
-      sku: input.sku || null,
-      category: input.category || null,
-      baseUnit: input.baseUnit,
-      displayUnit: input.displayUnit ?? null,
-      reorderLevelBaseUnits:
-        input.reorderLevelBaseUnits !== undefined ? String(input.reorderLevelBaseUnits) : null,
-      targetStockBaseUnits:
-        input.targetStockBaseUnits !== undefined ? String(input.targetStockBaseUnits) : null,
-      ...(input.startingCostPerPurchaseUnit !== undefined
-        ? {
-            averageCostPerBaseUnit: String(
-              input.startingCostPerPurchaseUnit / purchaseScaleFor(input.baseUnit).baseUnitsPer,
-            ),
-          }
-        : {}),
-      notes: input.notes || null,
-    })
-    .returning();
+      actorUserId: actor.userId,
+      action: "ingredient.created",
+      entityType: "ingredient",
+      entityId: row.id,
+      after: row,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "ingredient.created",
-    entityType: "ingredient",
-    entityId: row.id,
-    after: row,
-    ipAddress: actor.ipAddress,
-    userAgent: actor.userAgent,
+    return row;
   });
-
-  return row;
 }
 
 export async function updateIngredient(
@@ -133,59 +136,68 @@ export async function updateIngredient(
   id: string,
   input: IngredientUpdateInput,
 ) {
-  const before = await getIngredientById(db, actor.businessId, id);
-  if (!before) throw new Error("Ingredient not found");
-  // Display only, so it can change even after stock history exists — but
-  // never across classes, which would misread every quantity typed after.
-  assertDisplayUnitMatches(before.baseUnit, input.displayUnit);
-
-  let averageCostPerBaseUnit: string | undefined;
-  if (input.startingCostPerPurchaseUnit !== undefined) {
-    const [{ locked }] = await db
-      .select({ locked: hasStockHistory() })
+  return db.transaction(async (tx) => {
+    // Locked, not just read: the "no stock history yet" check below must
+    // still hold when the typed cost is written, and every stock movement
+    // (purchase, sale, count) takes this same row lock.
+    const [before] = await tx
+      .select()
       .from(ingredients)
-      .where(eq(ingredients.id, id));
-    if (locked) {
-      throw new IngredientValidationError(
-        "This ingredient already has stock history, so its cost comes from purchases and can't be typed in.",
+      .where(and(eq(ingredients.id, id), eq(ingredients.businessId, actor.businessId)))
+      .for("update");
+    if (!before) throw new NotFoundError("Ingredient not found");
+    // Display only, so it can change even after stock history exists — but
+    // never across classes, which would misread every quantity typed after.
+    assertDisplayUnitMatches(before.baseUnit, input.displayUnit);
+
+    let averageCostPerBaseUnit: string | undefined;
+    if (input.startingCostPerPurchaseUnit !== undefined) {
+      const [{ locked }] = await tx
+        .select({ locked: hasStockHistory() })
+        .from(ingredients)
+        .where(eq(ingredients.id, id));
+      if (locked) {
+        throw new IngredientValidationError(
+          "This ingredient already has stock history, so its cost comes from purchases and can't be typed in.",
+        );
+      }
+      averageCostPerBaseUnit = String(
+        input.startingCostPerPurchaseUnit / purchaseScaleFor(before.baseUnit).baseUnitsPer,
       );
     }
-    averageCostPerBaseUnit = String(
-      input.startingCostPerPurchaseUnit / purchaseScaleFor(before.baseUnit).baseUnitsPer,
-    );
-  }
 
-  const [row] = await db
-    .update(ingredients)
-    .set({
-      ...(averageCostPerBaseUnit !== undefined ? { averageCostPerBaseUnit } : {}),
-      ...(input.displayUnit ? { displayUnit: input.displayUnit } : {}),
-      name: input.name,
-      sku: input.sku || null,
-      category: input.category || null,
-      reorderLevelBaseUnits:
-        input.reorderLevelBaseUnits !== undefined ? String(input.reorderLevelBaseUnits) : null,
-      targetStockBaseUnits:
-        input.targetStockBaseUnits !== undefined ? String(input.targetStockBaseUnits) : null,
-      notes: input.notes || null,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(ingredients.id, id), eq(ingredients.businessId, actor.businessId)))
-    .returning();
+    const [row] = await tx
+      .update(ingredients)
+      .set({
+        ...(averageCostPerBaseUnit !== undefined ? { averageCostPerBaseUnit } : {}),
+        ...(input.displayUnit ? { displayUnit: input.displayUnit } : {}),
+        name: input.name,
+        sku: input.sku || null,
+        category: input.category || null,
+        reorderLevelBaseUnits:
+          input.reorderLevelBaseUnits !== undefined ? String(input.reorderLevelBaseUnits) : null,
+        targetStockBaseUnits:
+          input.targetStockBaseUnits !== undefined ? String(input.targetStockBaseUnits) : null,
+        notes: input.notes || null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(ingredients.id, id), eq(ingredients.businessId, actor.businessId)))
+      .returning();
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "ingredient.updated",
-    entityType: "ingredient",
-    entityId: id,
-    before,
-    after: row,
-    ipAddress: actor.ipAddress,
-    userAgent: actor.userAgent,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "ingredient.updated",
+      entityType: "ingredient",
+      entityId: id,
+      before,
+      after: row,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+
+    return row;
   });
-
-  return row;
 }
 
 /**
@@ -198,28 +210,30 @@ export async function setIngredientActive(
   id: string,
   active: boolean,
 ) {
-  const before = await getIngredientById(db, actor.businessId, id);
-  if (!before) throw new Error("Ingredient not found");
+  return db.transaction(async (tx) => {
+    const before = await getIngredientById(tx, actor.businessId, id);
+    if (!before) throw new NotFoundError("Ingredient not found");
 
-  const [row] = await db
-    .update(ingredients)
-    .set({ active, updatedAt: new Date() })
-    .where(and(eq(ingredients.id, id), eq(ingredients.businessId, actor.businessId)))
-    .returning();
+    const [row] = await tx
+      .update(ingredients)
+      .set({ active, updatedAt: new Date() })
+      .where(and(eq(ingredients.id, id), eq(ingredients.businessId, actor.businessId)))
+      .returning();
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: active ? "ingredient.restored" : "ingredient.archived",
-    entityType: "ingredient",
-    entityId: id,
-    before,
-    after: row,
-    ipAddress: actor.ipAddress,
-    userAgent: actor.userAgent,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: active ? "ingredient.restored" : "ingredient.archived",
+      entityType: "ingredient",
+      entityId: id,
+      before,
+      after: row,
+      ipAddress: actor.ipAddress,
+      userAgent: actor.userAgent,
+    });
+
+    return row;
   });
-
-  return row;
 }
 
 /**
@@ -268,7 +282,7 @@ export async function deleteIngredient(db: Database, actor: ActorContext, id: st
       .from(ingredients)
       .where(and(eq(ingredients.id, id), eq(ingredients.businessId, actor.businessId)))
       .limit(1);
-    if (!ingredient) throw new Error("Ingredient not found");
+    if (!ingredient) throw new NotFoundError("Ingredient not found");
 
     const usage = await countRecipeUsage(tx, actor.businessId, id);
 

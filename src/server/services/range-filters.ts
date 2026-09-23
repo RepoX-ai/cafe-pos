@@ -1,4 +1,7 @@
 import { and, gte, lt, lte, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import type { PgTable } from "drizzle-orm/pg-core";
+import type { Database } from "@/lib/db/client";
+import { MAX_BROWSABLE_ROWS } from "@/lib/pagination";
 import { businessDayBounds, type BusinessDateRange } from "@/lib/dates/dates";
 import { toSafeInteger } from "@/lib/money/money";
 
@@ -21,4 +24,17 @@ export function sumAsSafeInteger(expression: SQL | AnyColumn, filter?: SQL) {
   return filter
     ? sql`coalesce(sum(${expression}) filter (where ${filter}), 0)::bigint`.mapWith(toSafeInteger)
     : sql`coalesce(sum(${expression}), 0)::bigint`.mapWith(toSafeInteger);
+}
+
+/**
+ * COUNT(*) that stops after `cap + 1` matching rows. A list screen only
+ * needs to know the total up to what it can page through; counting a
+ * tenant's whole ledger or order history exactly was a full scan that grew
+ * with the history (measured ~100 ms for 550k ledger rows). A result above
+ * `cap` means "more than cap".
+ */
+export async function countUpTo(db: Database, table: PgTable, where: SQL | undefined, cap = MAX_BROWSABLE_ROWS): Promise<number> {
+  const limited = db.select({ one: sql`1`.as("one") }).from(table).where(where).limit(cap + 1).as("limited");
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(limited);
+  return row?.n ?? 0;
 }

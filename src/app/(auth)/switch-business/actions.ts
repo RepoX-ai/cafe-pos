@@ -7,6 +7,7 @@ import { requireCurrentUser } from "@/lib/auth/current-user";
 import { SESSION_COOKIE_NAME, setActiveMembership } from "@/lib/auth/session";
 import { recordAuditLog } from "@/server/services/audit";
 import { getRequestMeta } from "@/lib/http/request-meta";
+import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 
 export type SwitchBusinessResult = { ok: true } | { ok: false; error: string };
 
@@ -31,39 +32,45 @@ export async function switchBusinessAction(membershipId: string): Promise<Switch
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!token) return { ok: false, error: "Your session has expired. Sign in again." };
 
-  if (typeof membershipId !== "string" || membershipId.length === 0) {
+  if (typeof membershipId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(membershipId)) {
     return { ok: false, error: "Pick a business to switch to." };
   }
   if (membershipId === user.membershipId) return { ok: true };
+  if (!(await allowUserAction(db, RATE_LIMITS.switchBusiness(), user))) {
+    return { ok: false, error: "Too many switches in a short time. Wait a moment and try again." };
+  }
 
   const previousBusinessId = user.businessId;
+  const meta = await getRequestMeta();
   // The business comes back from the write itself rather than from the id
   // we were handed, so the audit lines name where the session actually
   // ended up. Re-reading the session here would not do: getCurrentUser is
-  // memoised per render and would hand back the pre-switch value.
-  const switched = await setActiveMembership(db, user.id, membershipId, token);
+  // memoised per render and would hand back the pre-switch value. The move
+  // and both audit lines commit together.
+  const switched = await db.transaction(async (tx) => {
+    const moved = await setActiveMembership(tx, user.id, membershipId, token);
+    if (!moved) return null;
+    await recordAuditLog(tx, {
+      businessId: previousBusinessId,
+      actorUserId: user.id,
+      action: "business.switched_away",
+      entityType: "business",
+      entityId: moved.businessId,
+      ...meta,
+    });
+    await recordAuditLog(tx, {
+      businessId: moved.businessId,
+      actorUserId: user.id,
+      action: "business.switched_to",
+      entityType: "business",
+      entityId: previousBusinessId,
+      ...meta,
+    });
+    return moved;
+  });
   if (!switched) {
     return { ok: false, error: "You don't have access to that business." };
   }
-
-  const meta = await getRequestMeta();
-
-  await recordAuditLog(db, {
-    businessId: previousBusinessId,
-    actorUserId: user.id,
-    action: "business.switched_away",
-    entityType: "business",
-    entityId: switched.businessId,
-    ...meta,
-  });
-  await recordAuditLog(db, {
-    businessId: switched.businessId,
-    actorUserId: user.id,
-    action: "business.switched_to",
-    entityType: "business",
-    entityId: previousBusinessId,
-    ...meta,
-  });
 
   revalidatePath("/", "layout");
   return { ok: true };

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
+import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
@@ -22,6 +23,7 @@ function parseExpenseForm(formData: FormData) {
     payee: formData.get("payee"),
     referenceNumber: formData.get("referenceNumber"),
     notes: formData.get("notes"),
+    idempotencyKey: formData.get("idempotencyKey") ?? undefined,
   });
 }
 
@@ -37,6 +39,7 @@ export async function createExpenseAction(
     if (!parsed.success) {
       return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
     }
+    if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) return { ok: false, error: "Too many changes in a short time. Wait a moment and try again." };
 
     await createExpense(db, { businessId: user.businessId, userId: user.id }, parsed.data);
     revalidatePath("/expenses");
@@ -54,12 +57,13 @@ export async function updateExpenseAction(
     requirePermission(user.roles, "expenses:write");
 
     const id = String(formData.get("id") ?? "");
-    if (!id) return { ok: false, error: "Missing expense id." };
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "Missing expense id." };
 
     const parsed = parseExpenseForm(formData);
     if (!parsed.success) {
       return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
     }
+    if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) return { ok: false, error: "Too many changes in a short time. Wait a moment and try again." };
 
     await updateExpense(db, { businessId: user.businessId, userId: user.id }, id, parsed.data);
     revalidatePath("/expenses");

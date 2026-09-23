@@ -16,6 +16,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { ActionMenu } from "@/components/ui/action-menu";
 import { EXPENSE_CATEGORIES } from "@/lib/validation/expense";
 import { createExpenseAction, updateExpenseAction, type ExpenseActionState } from "./actions";
+import { useSubmissionKey } from "@/components/ui/use-submission-key";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 interface CategoryTotal {
@@ -248,6 +249,12 @@ function shareOfTotal(part: number, total: number): string {
 function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone: () => void }) {
   const action = existing ? updateExpenseAction : createExpenseAction;
   const [state, formAction, isPending] = useActionState<ExpenseActionState, FormData>(action, undefined);
+  // New expenses only (edits are naturally idempotent). A new key once a
+  // response arrives; kept across a retry that got none.
+  const [submissionKey, rotateSubmissionKey] = useSubmissionKey();
+  useEffect(() => {
+    if (state) rotateSubmissionKey();
+  }, [state, rotateSubmissionKey]);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, existing ? "Expense saved." : "Expense recorded.");
 
@@ -258,6 +265,7 @@ function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone
 
   return (
     <form action={formAction} className="grid grid-cols-2 gap-4">
+      {existing ? null : <input type="hidden" name="idempotencyKey" value={submissionKey} />}
       {existing ? <input type="hidden" name="id" value={existing.id} /> : null}
 
       <Field label="Category" htmlFor="category" error={errorState?.fieldErrors?.category}>

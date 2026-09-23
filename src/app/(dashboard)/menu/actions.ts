@@ -4,11 +4,14 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/client";
+import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
+import { toUserMessage } from "@/server/services/errors";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import {
   categoryInputSchema,
+  itemModifierGroupsSchema,
   menuItemInputSchema,
   modifierGroupInputSchema,
   modifierOptionInputSchema,
@@ -39,6 +42,7 @@ import {
 } from "@/server/services/menu-service";
 import { saveMenuImage } from "@/server/services/menu-image-upload";
 import { invalidatePosMenuCache } from "@/server/services/pos-menu-cache";
+import { ServiceError } from "@/server/services/errors";
 
 export type FormActionState =
   | { ok: true }
@@ -48,6 +52,13 @@ export type FormActionState =
 async function actor() {
   const user = await requireCurrentUser();
   return { user, actor: { businessId: user.businessId, userId: user.id } };
+}
+
+/** Per-user quota on menu/recipe writes; surfaces as a controlled `{ ok: false }` via asActionResult. */
+async function throttleCatalogWrite(user: { businessId: string; id: string }) {
+  if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) {
+    throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");
+  }
 }
 
 function touchPosMenu(businessId: string) {
@@ -68,9 +79,13 @@ function menuAction<T>(run: () => Promise<T>) {
 async function resolveImageUrl(
   formData: FormData,
   businessId: string,
+  userId: string,
 ): Promise<{ ok: true; imageUrl: string } | { ok: false; error: string }> {
   const file = formData.get("imageFile");
   if (file instanceof File && file.size > 0) {
+    if (!(await allowUserAction(db, RATE_LIMITS.upload(), { businessId, id: userId }))) {
+      return { ok: false, error: "Too many photo uploads. Wait a few minutes and try again." };
+    }
     const saved = await saveMenuImage(file, businessId);
     if (!saved.ok) return { ok: false, error: saved.error };
     return { ok: true, imageUrl: saved.url };
@@ -84,6 +99,7 @@ export async function createCategoryAction(_prev: FormActionState, formData: For
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     const parsed = categoryInputSchema.safeParse({
       name: formData.get("name"),
       displayOrder: formData.get("displayOrder") || 0,
@@ -101,6 +117,7 @@ export async function setCategoryActiveAction(formData: FormData): Promise<void>
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     await setCategoryActive(db, ctx, String(formData.get("id")), formData.get("active") === "true");
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
@@ -121,6 +138,7 @@ export async function deleteCategoryAction(formData: FormData): Promise<void> {
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     await deleteCategory(db, ctx, String(formData.get("id")));
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
@@ -137,7 +155,8 @@ export async function createMenuItemAction(_prev: FormActionState, formData: For
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
-    const image = await resolveImageUrl(formData, ctx.businessId);
+    await throttleCatalogWrite(user);
+    const image = await resolveImageUrl(formData, ctx.businessId, ctx.userId);
     if (!image.ok) return { ok: false, error: image.error, fieldErrors: { imageUrl: image.error } };
     const parsed = menuItemInputSchema.safeParse({
       name: formData.get("name"),
@@ -166,8 +185,9 @@ export async function updateMenuItemAction(_prev: FormActionState, formData: For
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     const id = String(formData.get("id") ?? "");
-    const image = await resolveImageUrl(formData, ctx.businessId);
+    const image = await resolveImageUrl(formData, ctx.businessId, ctx.userId);
     if (!image.ok) return { ok: false, error: image.error, fieldErrors: { imageUrl: image.error } };
     const parsed = menuItemInputSchema.safeParse({
       name: formData.get("name"),
@@ -194,6 +214,7 @@ export async function setMenuItemActiveAction(formData: FormData): Promise<void>
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     const id = String(formData.get("id"));
     await setMenuItemActive(db, ctx, id, formData.get("active") === "true");
     revalidatePath("/menu");
@@ -215,6 +236,7 @@ export async function deleteMenuItemAction(formData: FormData): Promise<void> {
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     await deleteMenuItem(db, ctx, String(formData.get("id")));
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
@@ -243,6 +265,7 @@ export async function createVariantWithRecipeAction(
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
 
     const parsedVariant = variantInputSchema.safeParse(variantInput);
     if (!parsedVariant.success) {
@@ -277,7 +300,7 @@ export async function createVariantWithRecipeAction(
       touchPosMenu(ctx.businessId);
       return { ok: true, variantId: variant.id };
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return { ok: false, error: toUserMessage(error, "dashboard/menu") };
     }
   });
 }
@@ -287,6 +310,7 @@ export async function updateVariantAction(_prev: FormActionState, formData: Form
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     const menuItemId = String(formData.get("menuItemId") ?? "");
     const variantId = String(formData.get("variantId") ?? "");
     const parsed = variantInputSchema.safeParse({
@@ -308,6 +332,7 @@ export async function setVariantActiveAction(formData: FormData): Promise<void> 
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     const menuItemId = String(formData.get("menuItemId"));
     await setVariantActive(db, ctx, menuItemId, String(formData.get("variantId")), formData.get("active") === "true");
     revalidatePath(`/menu/${menuItemId}`);
@@ -323,6 +348,7 @@ export async function deleteVariantAction(formData: FormData): Promise<void> {
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     const menuItemId = String(formData.get("menuItemId"));
     await deleteVariant(db, ctx, menuItemId, String(formData.get("variantId")));
     revalidatePath(`/menu/${menuItemId}`);
@@ -341,6 +367,7 @@ export async function createModifierGroupAction(_prev: FormActionState, formData
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     const parsed = modifierGroupInputSchema.safeParse({
       name: formData.get("name"),
       required: formData.get("required") === "on",
@@ -360,6 +387,7 @@ export async function setModifierGroupActiveAction(formData: FormData): Promise<
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     await setModifierGroupActive(db, ctx, String(formData.get("id")), formData.get("active") === "true");
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
@@ -374,6 +402,7 @@ export async function createModifierOptionAction(_prev: FormActionState, formDat
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     const groupId = String(formData.get("groupId") ?? "");
     const parsed = modifierOptionInputSchema.safeParse({
       name: formData.get("name"),
@@ -394,6 +423,7 @@ export async function setModifierOptionActiveAction(formData: FormData): Promise
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     await setModifierOptionActive(
       db,
       ctx,
@@ -416,12 +446,13 @@ export async function saveModifierOptionRecipeAction(input: unknown): Promise<Sa
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "recipes:write");
+    await throttleCatalogWrite(user);
     const parsed = modifierRecipeInputSchema.safeParse(input);
     if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Check the recipe ingredients." };
     try {
       await saveModifierOptionRecipe(db, ctx, parsed.data);
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      return { ok: false, error: toUserMessage(error, "dashboard/menu") };
     }
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
@@ -434,6 +465,7 @@ export async function deleteModifierGroupAction(formData: FormData): Promise<voi
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     await deleteModifierGroup(db, ctx, String(formData.get("id")));
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
@@ -448,6 +480,7 @@ export async function deleteModifierOptionAction(formData: FormData): Promise<vo
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    await throttleCatalogWrite(user);
     await deleteModifierOption(db, ctx, String(formData.get("groupId")), String(formData.get("optionId")));
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
@@ -462,7 +495,10 @@ export async function setItemModifierGroupsAction(menuItemId: string, groupIds: 
   const result = await menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
-    await setItemModifierGroups(db, ctx, menuItemId, groupIds);
+    const parsed = itemModifierGroupsSchema.safeParse({ menuItemId, groupIds });
+    if (!parsed.success) throw new ServiceError(parsed.error.issues[0]?.message ?? "Invalid modifier groups.");
+    await throttleCatalogWrite(user);
+    await setItemModifierGroups(db, ctx, parsed.data.menuItemId, parsed.data.groupIds);
     revalidatePath(`/menu/${menuItemId}`);
     touchPosMenu(ctx.businessId);
   });

@@ -35,6 +35,6 @@ export function ItemThumbnail({
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={imageUrl} alt={name} className={`${box} object-cover`} onError={() => setFailed(true)} />
+    <img src={imageUrl} alt={name} loading="lazy" decoding="async" className={`${box} object-cover`} onError={() => setFailed(true)} />
   );
 }

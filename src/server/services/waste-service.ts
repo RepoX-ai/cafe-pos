@@ -9,23 +9,28 @@ import type { WasteInput } from "@/lib/validation/waste";
 import { recordAuditLog } from "./audit";
 import { InsufficientStockError, insertMovementsAndApplyStock, lockIngredientsForUpdate } from "./inventory-service";
 import type { ActorContext } from "./ingredient-service";
-import { withinBusinessDays } from "./range-filters";
+import { countUpTo, withinBusinessDays } from "./range-filters";
+import { ServiceError } from "./errors";
+import { BOUNDS } from "@/lib/validation/bounds";
+import { afterTimeCursor, cursorText, type TimeCursor } from "./keyset";
+import { runIdempotent } from "./request-idempotency";
 
 /** Newest first; `range` filters on created_at by Jakarta business day. */
-function wasteFilter(businessId: string, range?: BusinessDateRange) {
+function wasteFilter(businessId: string, range?: BusinessDateRange, after?: TimeCursor) {
   const conditions = [eq(wasteRecords.businessId, businessId)];
   if (range) conditions.push(withinBusinessDays(wasteRecords.createdAt, range));
+  if (after) conditions.push(afterTimeCursor(wasteRecords.createdAt, wasteRecords.id, after));
   return and(...conditions);
 }
 
-export async function countWasteRecords(db: Database, businessId: string, opts: { range?: BusinessDateRange } = {}) {
-  return db.$count(wasteRecords, wasteFilter(businessId, opts.range));
+export async function countWasteRecords(db: Database, businessId: string, opts: { range?: BusinessDateRange; cap?: number } = {}) {
+  return countUpTo(db, wasteRecords, wasteFilter(businessId, opts.range), opts.cap);
 }
 
 export async function listWasteRecords(
   db: Database,
   businessId: string,
-  opts: { range?: BusinessDateRange; limit: number; offset: number },
+  opts: { range?: BusinessDateRange; limit: number; offset?: number; after?: TimeCursor },
 ) {
   return db
     .select({
@@ -39,13 +44,14 @@ export async function listWasteRecords(
       estimatedCost: wasteRecords.estimatedCost,
       notes: wasteRecords.notes,
       createdAt: wasteRecords.createdAt,
+      cursorTs: cursorText(wasteRecords.createdAt),
     })
     .from(wasteRecords)
-    .leftJoin(ingredients, eq(wasteRecords.ingredientId, ingredients.id))
-    .where(wasteFilter(businessId, opts.range))
+    .leftJoin(ingredients, and(eq(wasteRecords.ingredientId, ingredients.id), eq(ingredients.businessId, businessId)))
+    .where(wasteFilter(businessId, opts.range, opts.after))
     .orderBy(desc(wasteRecords.createdAt), desc(wasteRecords.id))
     .limit(opts.limit)
-    .offset(opts.offset);
+    .offset(opts.offset ?? 0);
 }
 
 /**
@@ -58,60 +64,73 @@ export async function listWasteRecords(
  */
 export async function createWasteRecord(db: Database, actor: ActorContext, input: WasteInput) {
   return db.transaction(async (tx) => {
-    const locked = await lockIngredientsForUpdate(tx, actor.businessId, [input.ingredientId]);
-    const ingredient = locked.get(input.ingredientId)!;
-    const units = toQuantityUnits(input.quantityBaseUnits);
-    const remaining = toQuantityUnits(ingredient.currentQuantityBaseUnits) - units;
-    if (remaining < 0n) {
-      throw new InsufficientStockError(ingredient.name, Number(formatQuantityUnits(-remaining)));
-    }
-    const estimatedCost = microsToRupiah(multiplyQuantityByRate(input.quantityBaseUnits, ingredient.averageCostPerBaseUnit));
-
-    const [waste] = await tx
-      .insert(wasteRecords)
-      .values({
-        businessId: actor.businessId,
-        ingredientId: input.ingredientId,
-        ingredientNameSnapshot: ingredient.name,
-        ingredientBaseUnitSnapshot: ingredient.baseUnit,
-        quantityBaseUnits: formatQuantityUnits(units),
-        reason: input.reason,
-        estimatedCost,
-        notes: input.notes || null,
-        createdBy: actor.userId,
-      })
-      .returning();
-
-    await insertMovementsAndApplyStock(
+    const { result } = await runIdempotent(
       tx,
-      [
-        {
-          id: randomUUID(),
+      { businessId: actor.businessId, operation: "waste.create", key: input.idempotencyKey, payload: input },
+      async (wasteId) => {
+        const locked = await lockIngredientsForUpdate(tx, actor.businessId, [input.ingredientId]);
+        const ingredient = locked.get(input.ingredientId)!;
+        const units = toQuantityUnits(input.quantityBaseUnits);
+        const remaining = toQuantityUnits(ingredient.currentQuantityBaseUnits) - units;
+        if (remaining < 0n) {
+          throw new InsufficientStockError(ingredient.name, Number(formatQuantityUnits(-remaining)));
+        }
+        const estimatedCost = microsToRupiah(multiplyQuantityByRate(input.quantityBaseUnits, ingredient.averageCostPerBaseUnit));
+        if (estimatedCost > BOUNDS.maxInt) throw new ServiceError("This waste entry is too large to record.");
+
+        const [waste] = await tx
+          .insert(wasteRecords)
+          .values({
+            id: wasteId,
+            businessId: actor.businessId,
+            ingredientId: input.ingredientId,
+            ingredientNameSnapshot: ingredient.name,
+            ingredientBaseUnitSnapshot: ingredient.baseUnit,
+            quantityBaseUnits: formatQuantityUnits(units),
+            reason: input.reason,
+            estimatedCost,
+            notes: input.notes || null,
+            createdBy: actor.userId,
+          })
+          .returning();
+
+        await insertMovementsAndApplyStock(
+          tx,
+          [
+            {
+              id: randomUUID(),
+              businessId: actor.businessId,
+              ingredientId: input.ingredientId,
+              movementType: "WASTE",
+              quantityUnits: -units,
+              unitCost: ingredient.averageCostPerBaseUnit,
+              totalCost: estimatedCost,
+              sourceType: "waste_record",
+              sourceId: waste.id,
+              reason: input.reason,
+              notes: input.notes ?? null,
+              createdBy: actor.userId,
+            },
+          ],
+          locked,
+        );
+
+        await recordAuditLog(tx, {
           businessId: actor.businessId,
-          ingredientId: input.ingredientId,
-          movementType: "WASTE",
-          quantityUnits: -units,
-          unitCost: ingredient.averageCostPerBaseUnit,
-          totalCost: estimatedCost,
-          sourceType: "waste_record",
-          sourceId: waste.id,
-          reason: input.reason,
-          notes: input.notes ?? null,
-          createdBy: actor.userId,
-        },
-      ],
-      locked,
+          actorUserId: actor.userId,
+          action: "waste.recorded",
+          entityType: "waste_record",
+          entityId: waste.id,
+          after: waste,
+        });
+
+        return waste;
+      },
+      async (id) => {
+        const [row] = await tx.select().from(wasteRecords).where(and(eq(wasteRecords.id, id), eq(wasteRecords.businessId, actor.businessId)));
+        return row;
+      },
     );
-
-    await recordAuditLog(tx, {
-      businessId: actor.businessId,
-      actorUserId: actor.userId,
-      action: "waste.recorded",
-      entityType: "waste_record",
-      entityId: waste.id,
-      after: waste,
-    });
-
-    return waste;
+    return result;
   });
 }

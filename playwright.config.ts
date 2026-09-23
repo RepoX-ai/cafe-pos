@@ -21,6 +21,13 @@ export default defineConfig({
       name: "ipad-landscape",
       use: { ...devices["iPad (gen 7) landscape"] },
     },
+    // The café's till is an Android Galaxy Tab running Chrome. Also the
+    // project to use against a production build on plain http://localhost:
+    // WebKit won't keep the production (Secure) session cookie there.
+    {
+      name: "android-tablet",
+      use: { ...devices["Galaxy Tab S4 landscape"] },
+    },
   ],
   // APP_URL points the tests at a server you started yourself (handy when a
   // dev server is already running, since Next refuses a second one).

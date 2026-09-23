@@ -55,7 +55,7 @@ export async function loadOrderCatalog(db: Database, businessId: string, lines: 
           })
           .from(menuItemVariants)
           .innerJoin(menuItems, eq(menuItemVariants.menuItemId, menuItems.id))
-          .leftJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
+          .leftJoin(menuCategories, and(eq(menuItems.categoryId, menuCategories.id), eq(menuCategories.businessId, businessId)))
           .where(and(inArray(menuItemVariants.id, variantIds), eq(menuItems.businessId, businessId)))
       : [];
 
@@ -73,7 +73,7 @@ export async function loadOrderCatalog(db: Database, businessId: string, lines: 
             variantCount: sql<number>`(select count(*)::int from menu_item_variants v where v.menu_item_id = ${menuItems.id})`,
           })
           .from(menuItems)
-          .leftJoin(menuCategories, eq(menuItems.categoryId, menuCategories.id))
+          .leftJoin(menuCategories, and(eq(menuItems.categoryId, menuCategories.id), eq(menuCategories.businessId, businessId)))
           .where(and(inArray(menuItems.id, baseItemIds), eq(menuItems.businessId, businessId)))
       : [];
 
@@ -90,7 +90,13 @@ export async function loadOrderCatalog(db: Database, businessId: string, lines: 
     })
     .from(menuItemModifierGroups)
     .innerJoin(modifierGroups, eq(modifierGroups.id, menuItemModifierGroups.modifierGroupId))
-    .where(and(inArray(menuItemModifierGroups.menuItemId, itemIds), eq(modifierGroups.businessId, businessId)));
+    .where(
+      and(
+        inArray(menuItemModifierGroups.menuItemId, itemIds),
+        eq(menuItemModifierGroups.businessId, businessId),
+        eq(modifierGroups.businessId, businessId),
+      ),
+    );
 
   const optionRows =
     optionIds.length > 0
@@ -115,7 +121,7 @@ export async function loadOrderCatalog(db: Database, businessId: string, lines: 
     const latest = db
       .selectDistinctOn([recipes.menuItemVariantId], { id: recipes.id, variantId: recipes.menuItemVariantId })
       .from(recipes)
-      .where(and(inArray(recipes.menuItemVariantId, trackedVariantIds), eq(recipes.active, true)))
+      .where(and(inArray(recipes.menuItemVariantId, trackedVariantIds), eq(recipes.active, true), eq(recipes.businessId, businessId)))
       .orderBy(recipes.menuItemVariantId, desc(recipes.version))
       .as("latest_recipe");
     const rows = await db
@@ -144,7 +150,7 @@ export async function loadOrderCatalog(db: Database, businessId: string, lines: 
         wastePercentage: modifierRecipeLines.wastePercentage,
       })
       .from(modifierRecipeLines)
-      .where(inArray(modifierRecipeLines.modifierOptionId, optionIds));
+      .where(and(inArray(modifierRecipeLines.modifierOptionId, optionIds), eq(modifierRecipeLines.businessId, businessId)));
     for (const row of rows) {
       const list = modifierLinesByOption.get(row.modifierOptionId) ?? [];
       list.push(row);

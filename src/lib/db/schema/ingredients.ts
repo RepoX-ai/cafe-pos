@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { boolean, index, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, foreignKey, index, numeric, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { businesses } from "./core";
 import { baseUnitEnum, ingredientDisplayUnitEnum } from "./enums";
 import { suppliers } from "./suppliers";
@@ -39,11 +39,19 @@ export const ingredients = pgTable("ingredients", {
   })
     .notNull()
     .default("0"),
-  preferredSupplierId: uuid("preferred_supplier_id").references(() => suppliers.id, {
-    onDelete: "set null",
-  }),
+  // Same-business only (composite FK below). Suppliers are archived, never
+  // deleted, so there is no ON DELETE action to lose.
+  preferredSupplierId: uuid("preferred_supplier_id"),
   active: boolean("active").notNull().default(true),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("ingredients_business_id_idx").on(table.businessId)]);
+}, (table) => [
+  index("ingredients_business_id_idx").on(table.businessId),
+  unique("ingredients_business_id_id_key").on(table.businessId, table.id),
+  foreignKey({
+    name: "ingredients_preferred_supplier_same_business_fk",
+    columns: [table.businessId, table.preferredSupplierId],
+    foreignColumns: [suppliers.businessId, suppliers.id],
+  }),
+]);

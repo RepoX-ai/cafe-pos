@@ -14,6 +14,10 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 FROM base AS build
+# Inlined into both the server and the browser bundles, so the two always
+# format dates in the same zone (src/lib/dates). Changing it needs a rebuild.
+ARG NEXT_PUBLIC_BUSINESS_TIMEZONE=Asia/Jakarta
+ENV NEXT_PUBLIC_BUSINESS_TIMEZONE=$NEXT_PUBLIC_BUSINESS_TIMEZONE
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

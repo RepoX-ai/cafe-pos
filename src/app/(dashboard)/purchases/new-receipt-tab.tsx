@@ -11,6 +11,7 @@ import { inputClassName } from "@/components/ui/form-styles";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/components/ui/toast";
 import { createPurchaseAction } from "./actions";
+import { useSubmissionKey } from "@/components/ui/use-submission-key";
 import type { IngredientOption, LineDraft, SupplierRow } from "./purchase-types";
 
 let keySeq = 0;
@@ -58,6 +59,7 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
   const [supplierId, setSupplierId] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [submissionKey, rotateSubmissionKey] = useSubmissionKey();
   const [lines, setLines] = useState<LineDraft[]>([emptyLine()]);
   const [isPending, setIsPending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -114,7 +116,10 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
   async function submit() {
     setResult(null);
     setIsPending(true);
-    const res = await createPurchaseAction({
+    let res: Awaited<ReturnType<typeof createPurchaseAction>>;
+    try {
+      res = await createPurchaseAction({
+      idempotencyKey: submissionKey,
       supplierId: supplierId || undefined,
       invoiceNumber: invoiceNumber || undefined,
       purchaseDate,
@@ -125,7 +130,17 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
         conversionToBaseUnits: Number(l.conversionToBaseUnits),
         unitPurchaseCost: Number(l.unitPurchaseCost),
       })),
-    });
+      });
+    } catch {
+      // No response: the receipt may or may not have been saved. The same
+      // key goes with the retry, so it can't be recorded twice.
+      setIsPending(false);
+      const text = "Couldn't reach the server. Check the connection and submit again — it won't be recorded twice.";
+      setResult({ ok: false, text });
+      showToast("error", text);
+      return;
+    }
+    rotateSubmissionKey();
     setIsPending(false);
     if (res.ok) {
       showToast("success", "Purchase receipt finalized — stock and average cost updated.");

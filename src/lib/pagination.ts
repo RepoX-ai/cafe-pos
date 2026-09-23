@@ -6,7 +6,16 @@
  */
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
-const MAX_PAGE = 100_000;
+
+/**
+ * How deep an offset-paginated screen can go: the newest 10,000 rows of a
+ * list. Each deeper page costs an OFFSET scan of every row before it (100k
+ * ledger rows measured ~70 ms; the old cap allowed 2M), so older rows are
+ * reached with the list's date filter or search, or the CSV export, instead.
+ * List counts stop at this cap too — see `countUpTo`.
+ */
+export const MAX_BROWSABLE_ROWS = 10_000;
+const MAX_PAGE = MAX_BROWSABLE_ROWS / DEFAULT_PAGE_SIZE;
 
 export interface Page<T> {
   rows: T[];
@@ -22,8 +31,9 @@ export function parsePageParam(value: string | string[] | undefined): number {
 }
 
 export function pageWindow(page = 1, pageSize = DEFAULT_PAGE_SIZE) {
-  const safePage = Number.isInteger(page) && page >= 1 ? Math.min(page, MAX_PAGE) : 1;
   const safeSize = Number.isInteger(pageSize) ? Math.min(Math.max(pageSize, 1), MAX_PAGE_SIZE) : DEFAULT_PAGE_SIZE;
+  const maxPage = Math.ceil(MAX_BROWSABLE_ROWS / safeSize);
+  const safePage = Number.isInteger(page) && page >= 1 ? Math.min(page, maxPage) : 1;
   return { page: safePage, pageSize: safeSize, limit: safeSize + 1, offset: (safePage - 1) * safeSize };
 }
 
@@ -43,7 +53,7 @@ export function toPage<T>(rows: T[], page: number, pageSize: number): Page<T> {
 }
 
 export function totalPageCount(totalItems: number, pageSize: number): number {
-  return Math.max(1, Math.ceil(totalItems / pageSize));
+  return Math.max(1, Math.ceil(Math.min(totalItems, MAX_BROWSABLE_ROWS) / pageSize));
 }
 
 /**

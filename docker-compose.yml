@@ -4,6 +4,64 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "5"
 
+# Settings the app reads at runtime. Anything unset falls back to the app's
+# own default (see .env.example); a value that is set but malformed stops the
+# app at startup rather than being ignored.
+x-app-environment: &app-environment
+  APP_URL: ${APP_URL:-http://localhost:3000}
+  # Required. device (Bluetooth printer on the tablet), browser, or mock.
+  PRINT_PROVIDER: ${PRINT_PROVIDER:?Set PRINT_PROVIDER in .env (device, browser or mock)}
+  NEXT_PUBLIC_ALLOW_PRINTER_SIM: ${NEXT_PUBLIC_ALLOW_PRINTER_SIM:-}
+  PRINT_JOB_LEASE_SECONDS: ${PRINT_JOB_LEASE_SECONDS:-}
+  PRINT_JOB_MAX_ATTEMPTS: ${PRINT_JOB_MAX_ATTEMPTS:-}
+  STORAGE_PROVIDER: local
+  MENU_IMAGE_DIR: /app/var/uploads/menu
+  MAX_BUSINESSES: ${MAX_BUSINESSES:-}
+  # Client IP from the host's reverse proxy. Exactly one of these is required
+  # in production (see docs/deployment.md § Client IP and rate limits).
+  TRUSTED_PROXY_COUNT: ${TRUSTED_PROXY_COUNT:-}
+  TRUSTED_CLIENT_IP_HEADER: ${TRUSTED_CLIENT_IP_HEADER:-}
+  TRUSTED_CLIENT_IP_NONE: ${TRUSTED_CLIENT_IP_NONE:-}
+  # Connection pools and timeouts (docs/deployment.md § Database connections).
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-}
+  DATABASE_REPORT_POOL_MAX: ${DATABASE_REPORT_POOL_MAX:-}
+  DATABASE_STATEMENT_TIMEOUT_MS: ${DATABASE_STATEMENT_TIMEOUT_MS:-}
+  DATABASE_REPORT_STATEMENT_TIMEOUT_MS: ${DATABASE_REPORT_STATEMENT_TIMEOUT_MS:-}
+  DATABASE_LOCK_TIMEOUT_MS: ${DATABASE_LOCK_TIMEOUT_MS:-}
+  DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: ${DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS:-}
+  DATABASE_REPORT_IDLE_IN_TRANSACTION_TIMEOUT_MS: ${DATABASE_REPORT_IDLE_IN_TRANSACTION_TIMEOUT_MS:-}
+  DATABASE_CONNECT_TIMEOUT_MS: ${DATABASE_CONNECT_TIMEOUT_MS:-}
+  DATABASE_SESSION_TIMEOUTS: ${DATABASE_SESSION_TIMEOUTS:-}
+  # CSV export bounds.
+  EXPORT_MAX_ROWS: ${EXPORT_MAX_ROWS:-}
+  EXPORT_MAX_SECONDS: ${EXPORT_MAX_SECONDS:-}
+  EXPORT_MAX_CONCURRENT: ${EXPORT_MAX_CONCURRENT:-}
+  # bcrypt concurrency (login, staff password resets).
+  BCRYPT_MAX_CONCURRENT: ${BCRYPT_MAX_CONCURRENT:-}
+  BCRYPT_MAX_QUEUE: ${BCRYPT_MAX_QUEUE:-}
+  # Rate-limit overrides ("<attempts>/<seconds>").
+  RATE_LIMIT_LOGIN_IP: ${RATE_LIMIT_LOGIN_IP:-}
+  RATE_LIMIT_LOGIN_ACCOUNT_IP: ${RATE_LIMIT_LOGIN_ACCOUNT_IP:-}
+  RATE_LIMIT_LOGIN_ACCOUNT: ${RATE_LIMIT_LOGIN_ACCOUNT:-}
+  RATE_LIMIT_CHECKOUT: ${RATE_LIMIT_CHECKOUT:-}
+  RATE_LIMIT_CHECKOUT_RETRY: ${RATE_LIMIT_CHECKOUT_RETRY:-}
+  RATE_LIMIT_PRINT: ${RATE_LIMIT_PRINT:-}
+  RATE_LIMIT_EXPORT: ${RATE_LIMIT_EXPORT:-}
+  RATE_LIMIT_ORDER_MUTATION: ${RATE_LIMIT_ORDER_MUTATION:-}
+  RATE_LIMIT_STAFF_WRITE: ${RATE_LIMIT_STAFF_WRITE:-}
+  RATE_LIMIT_INVENTORY_WRITE: ${RATE_LIMIT_INVENTORY_WRITE:-}
+  RATE_LIMIT_CATALOG_WRITE: ${RATE_LIMIT_CATALOG_WRITE:-}
+  RATE_LIMIT_UPLOAD: ${RATE_LIMIT_UPLOAD:-}
+  RATE_LIMIT_REPORT_READ: ${RATE_LIMIT_REPORT_READ:-}
+  RATE_LIMIT_CREATE_BUSINESS: ${RATE_LIMIT_CREATE_BUSINESS:-}
+  RATE_LIMIT_SWITCH_BUSINESS: ${RATE_LIMIT_SWITCH_BUSINESS:-}
+  # Structured logs: thresholds for db.slow_query / db.slow_transaction / db.pool_wait.
+  SLOW_QUERY_MS: ${SLOW_QUERY_MS:-}
+  SLOW_TRANSACTION_MS: ${SLOW_TRANSACTION_MS:-}
+  POOL_WAIT_WARN_MS: ${POOL_WAIT_WARN_MS:-}
+  LOG_LEVEL: ${LOG_LEVEL:-}
+  NODE_ENV: production
+
 services:
   db:
     image: postgres:16-alpine
@@ -12,6 +70,8 @@ services:
     environment:
       POSTGRES_USER: postgres
       # No insecure default — set POSTGRES_PASSWORD in `.env` (see .env.example).
+      # This is the schema-owner (migration) credential; the app itself
+      # connects as the least-privilege role below.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env — no insecure default}
       POSTGRES_DB: cafe_pos
     # Bind to loopback only. Publishing 0.0.0.0:5432 is unsafe on any host
@@ -31,25 +91,48 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Fixed at build time: the browser formats dates too (see src/lib/dates).
+        NEXT_PUBLIC_BUSINESS_TIMEZONE: ${NEXT_PUBLIC_BUSINESS_TIMEZONE:-Asia/Jakarta}
     restart: unless-stopped
     logging: *default-logging
     depends_on:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/cafe_pos
+      <<: *app-environment
+      # Least-privilege runtime role (rows only; no DDL, no ledger rewrites).
+      # Created and granted by `docker compose run --rm migrate` — see
+      # docs/deployment.md § Upgrading an existing install to the app role.
+      DATABASE_URL: postgres://${APP_DB_ROLE:-cafe_pos_app}:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env (see docs/deployment.md)}@db:5432/cafe_pos
       # No insecure default — set AUTH_SECRET in `.env` (openssl rand -base64 32).
       AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env — no insecure default}
-      APP_URL: http://localhost:3000
-      BUSINESS_TIMEZONE: Asia/Jakarta
-      PRINT_PROVIDER: ${PRINT_PROVIDER:-mock}
-      STORAGE_PROVIDER: local
-      MENU_IMAGE_DIR: /app/var/uploads/menu
-      NODE_ENV: production
     volumes:
       - cafe_pos_menu_images:/app/var/uploads/menu
+    # Loopback only: the host's reverse proxy (Nginx, docs/deployment.md) is
+    # the only way in. Publishing on 0.0.0.0 would let clients skip the proxy
+    # and forge the X-Forwarded-For / X-Real-IP headers the app trusts.
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
+
+  # One-off: `docker compose run --rm migrate`. Holds the owner credentials
+  # the running app never sees; applies migrations, then creates/updates the
+  # app role and its grants.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BUSINESS_TIMEZONE: ${NEXT_PUBLIC_BUSINESS_TIMEZONE:-Asia/Jakarta}
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MIGRATION_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/cafe_pos
+      APP_DB_ROLE: ${APP_DB_ROLE:-cafe_pos_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env (see docs/deployment.md)}
+    command: ["npm", "run", "db:migrate"]
 
 volumes:
   cafe_pos_db_data:

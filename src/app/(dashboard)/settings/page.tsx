@@ -1,3 +1,4 @@
+import { configuredPrintProvider } from "@/printing";
 import type { Metadata } from "next";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db } from "@/lib/db/client";
@@ -46,7 +47,7 @@ export default async function SettingsPage() {
             hasReceiptLogo: Boolean(business.logoRasterBase64),
           }}
         />
-        <PrinterSection providerName={process.env.PRINT_PROVIDER || "mock"} />
+        <PrinterSection providerName={configuredPrintProvider()} />
         <SettingsForm
           business={{
             name: business.name,

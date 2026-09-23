@@ -16,6 +16,7 @@ import { Modal } from "@/components/ui/modal";
 import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import { createWasteRecordAction, type WasteActionState } from "./actions";
+import { useSubmissionKey } from "@/components/ui/use-submission-key";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
@@ -126,6 +127,11 @@ export function WasteClient({
 
 function RecordWasteForm({ ingredients, onDone }: { ingredients: IngredientOption[]; onDone: () => void }) {
   const [state, formAction, isPending] = useActionState<WasteActionState, FormData>(createWasteRecordAction, undefined);
+  // A new key once a response arrives; kept across a retry that got none.
+  const [submissionKey, rotateSubmissionKey] = useSubmissionKey();
+  useEffect(() => {
+    if (state) rotateSubmissionKey();
+  }, [state, rotateSubmissionKey]);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Waste recorded.");
   const [ingredientId, setIngredientId] = useState("");
@@ -149,6 +155,7 @@ function RecordWasteForm({ ingredients, onDone }: { ingredients: IngredientOptio
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+        <input type="hidden" name="idempotencyKey" value={submissionKey} />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(2,minmax(0,1fr))]">
         <Field label="Ingredient" htmlFor="ingredientId" error={errorState?.fieldErrors?.ingredientId}>
           <Select id="ingredientId" name="ingredientId" required value={ingredientId} onChange={setIngredientId}>

@@ -106,6 +106,48 @@
       "when": 1789799065362,
       "tag": "0014_stormy_sinister_six",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790127700756,
+      "tag": "0015_tenant_assignment_business_column",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790127710927,
+      "tag": "0016_tenant_integrity_preflight",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790127830504,
+      "tag": "0017_tenant_keys_recipe_uniques_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790127837012,
+      "tag": "0018_tenant_composite_foreign_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790129983769,
+      "tag": "0019_enable_pg_trgm",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790129991601,
+      "tag": "0020_orders_number_trigram_index",
+      "breakpoints": true
     }
   ]
 }

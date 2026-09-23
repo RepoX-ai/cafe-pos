@@ -1,4 +1,6 @@
 import { unstable_rethrow } from "next/navigation";
+import { ServiceError } from "@/server/services/errors";
+import { WorkLimitExceededError } from "@/lib/work-limiter";
 import { PermissionDeniedError } from "./permissions";
 
 /** Stable copy returned to Server Action callers — never the raw permission name. */
@@ -16,6 +18,11 @@ export type ControlledActionError = { ok: false; error: string };
 export function mapControlledActionError(error: unknown): ControlledActionError | null {
   if (error instanceof PermissionDeniedError) {
     return { ok: false, error: PERMISSION_DENIED_MESSAGE };
+  }
+  // Written for the user (not found in your business, conflict, validation).
+  // Anything else still propagates, so Next.js masks it and onRequestError logs it.
+  if (error instanceof ServiceError || error instanceof WorkLimitExceededError) {
+    return { ok: false, error: error.message };
   }
   if (error instanceof Error && error.message === "Not authenticated") {
     return { ok: false, error: UNAUTHENTICATED_MESSAGE };

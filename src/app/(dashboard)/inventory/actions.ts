@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
+import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 import { requireCurrentUser } from "@/lib/auth/current-user";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
@@ -32,10 +33,12 @@ export async function createManualAdjustmentAction(
       quantityBaseUnits: formData.get("quantityBaseUnits"),
       reason: formData.get("reason"),
       notes: formData.get("notes"),
+      idempotencyKey: formData.get("idempotencyKey") ?? undefined,
     });
     if (!parsed.success) {
       return { ok: false, error: "Check the highlighted fields.", fieldErrors: flattenZodErrors(parsed.error) };
     }
+    if (!(await allowUserAction(db, RATE_LIMITS.inventoryWrite(), user))) return { ok: false, error: "Too many changes in a short time. Wait a moment and try again." };
 
     const business = await getBusinessById(db, user.businessId);
     try {
@@ -68,6 +71,7 @@ export async function submitStockCountAction(input: unknown): Promise<InventoryA
     if (!parsed.success) {
       return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid stock count." };
     }
+    if (!(await allowUserAction(db, RATE_LIMITS.inventoryWrite(), user))) return { ok: false, error: "Too many changes in a short time. Wait a moment and try again." };
 
     await createAndSubmitStockCount(db, { businessId: user.businessId, userId: user.id }, parsed.data);
     revalidatePath("/inventory");

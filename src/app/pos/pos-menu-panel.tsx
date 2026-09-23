@@ -126,6 +126,8 @@ function ItemThumbnail({ item }: { item: PosMenuItem }) {
     <img
       src={item.imageUrl}
       alt=""
+      loading="lazy"
+      decoding="async"
       className="h-24 w-full shrink-0 object-cover"
       onError={() => setFailed(true)}
     />

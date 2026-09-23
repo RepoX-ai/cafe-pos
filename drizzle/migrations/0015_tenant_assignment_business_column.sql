@@ -1,0 +1,1 @@
+ALTER TABLE "menu_item_modifier_groups" ADD COLUMN "business_id" uuid;

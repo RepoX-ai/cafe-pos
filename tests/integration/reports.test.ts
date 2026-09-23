@@ -43,7 +43,7 @@ describe.skipIf(!db)("reports (integration)", () => {
 
     const [group] = await db!.insert(modifierGroups).values({ businessId: business.id, name: "Extras", required: false, maxSelections: 1 }).returning();
     const [option] = await db!.insert(modifierOptions).values({ modifierGroupId: group.id, name: "Extra shot", priceAdjustment: 5_000 }).returning();
-    await db!.insert(menuItemModifierGroups).values({ menuItemId: menuItem.id, modifierGroupId: group.id });
+    await db!.insert(menuItemModifierGroups).values({ businessId: business.id, menuItemId: menuItem.id, modifierGroupId: group.id });
 
     const withModifier = await submitOrder(db!, { businessId: business.id, userId: user.id }, {
       idempotencyKey: "report-modifier",

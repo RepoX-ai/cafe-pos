@@ -19,6 +19,7 @@ import {
   type DisplayUnit,
 } from "@/lib/units/units";
 import { createManualAdjustmentAction, submitStockCountAction, type InventoryActionState } from "./actions";
+import { useSubmissionKey } from "@/components/ui/use-submission-key";
 import { useToast } from "@/components/ui/toast";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
 
@@ -305,6 +306,11 @@ function AdjustStockForm({ ingredients, onDone }: { ingredients: IngredientRow[]
   );
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Adjustment recorded.");
+  // A new key once a response arrives; kept across a retry that got none.
+  const [submissionKey, rotateSubmissionKey] = useSubmissionKey();
+  useEffect(() => {
+    if (state) rotateSubmissionKey();
+  }, [state, rotateSubmissionKey]);
   const [direction, setDirection] = useState<"in" | "out">("in");
   const [ingredientId, setIngredientId] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -318,6 +324,7 @@ function AdjustStockForm({ ingredients, onDone }: { ingredients: IngredientRow[]
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      <input type="hidden" name="idempotencyKey" value={submissionKey} />
       <input type="hidden" name="direction" value={direction} />
       <div
         role="group"
@@ -444,6 +451,8 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
     });
   }
 
+  const [countSubmissionKey, rotateCountSubmissionKey] = useSubmissionKey();
+
   async function submit() {
     setIsPending(true);
     setResult(null);
@@ -451,7 +460,18 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
       .filter((i) => counts[i.id] !== undefined && counts[i.id] !== "")
       .map((i) => ({ ingredientId: i.id, countedQuantity: Number(countedBase(i)) }));
 
-    const res = await submitStockCountAction({ lines });
+    let res: Awaited<ReturnType<typeof submitStockCountAction>>;
+    try {
+      res = await submitStockCountAction({ lines, idempotencyKey: countSubmissionKey });
+    } catch {
+      // No response: the count may or may not have been saved; the retry reuses the key.
+      setIsPending(false);
+      const text = "Couldn't reach the server. Check the connection and submit again — it won't be recorded twice.";
+      setResult({ ok: false, text });
+      showToast("error", text);
+      return;
+    }
+    rotateCountSubmissionKey();
     setIsPending(false);
     if (res?.ok) {
       showToast("success", "Stock count submitted.");

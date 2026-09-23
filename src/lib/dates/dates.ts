@@ -5,8 +5,34 @@ import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
  * the single place that converts to/from the business display timezone
  * (Asia/Jakarta, WIB, UTC+7 — no DST) for anything shown to staff or
  * exported in reports.
+ *
+ * One timezone for the whole install, the same in the server and in the
+ * browser. It is fixed at build time (NEXT_PUBLIC_BUSINESS_TIMEZONE,
+ * default Asia/Jakarta) because client components format dates too, and a
+ * runtime-only variable is undefined in the browser — the two used to be
+ * able to disagree. `businesses.timezone` is not read anywhere; every café
+ * on one install shares this zone. Startup refuses a runtime
+ * BUSINESS_TIMEZONE that differs from it (see assertBusinessTimezoneConfig).
  */
-export const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || "Asia/Jakarta";
+export const BUSINESS_TIMEZONE = process.env.NEXT_PUBLIC_BUSINESS_TIMEZONE || "Asia/Jakarta";
+
+export class BusinessTimezoneConfigError extends Error {}
+
+/** Startup check: the build-time zone is a real IANA zone and any runtime BUSINESS_TIMEZONE agrees with it. */
+export function assertBusinessTimezoneConfig(env: Record<string, string | undefined> = process.env, buildZone = BUSINESS_TIMEZONE): void {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: buildZone });
+  } catch {
+    throw new BusinessTimezoneConfigError(`NEXT_PUBLIC_BUSINESS_TIMEZONE "${buildZone}" is not a valid IANA timezone.`);
+  }
+  const runtime = env.BUSINESS_TIMEZONE?.trim();
+  if (runtime && runtime !== buildZone) {
+    throw new BusinessTimezoneConfigError(
+      `BUSINESS_TIMEZONE is "${runtime}" but this build uses "${buildZone}". The timezone is fixed at build time ` +
+        "so the server and browser agree: rebuild with NEXT_PUBLIC_BUSINESS_TIMEZONE set, or unset BUSINESS_TIMEZONE.",
+    );
+  }
+}
 
 export function formatBusinessDateTime(date: Date, pattern = "yyyy-MM-dd HH:mm:ss"): string {
   return formatInTimeZone(date, BUSINESS_TIMEZONE, pattern);
@@ -33,9 +59,26 @@ export interface BusinessDateRange {
 
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** True for a real Y-M-D calendar date (rejects e.g. 2026-02-30). */
+/**
+ * The calendar dates this app accepts anywhere. Far outside any café's
+ * records, but bounded: year 0001 or 9999 used to pass validation and then
+ * break day arithmetic (9999-12-31 + 1 day is not a 4-digit year) or make a
+ * report walk millions of days.
+ */
+export const MIN_CALENDAR_DATE = "2000-01-01";
+export const MAX_CALENDAR_DATE = "2099-12-31";
+
+/**
+ * Longest range an interactive report screen, the dashboard or a CSV export
+ * will cover in one request. A longer request is shortened to end on its
+ * `to` date (the most recent part), and the page says so.
+ */
+export const MAX_REPORT_RANGE_DAYS = 366;
+
+/** True for a real Y-M-D calendar date within the supported years (rejects e.g. 2026-02-30). */
 export function isCalendarDate(value: unknown): value is string {
   if (typeof value !== "string" || !CALENDAR_DATE.test(value)) return false;
+  if (value < MIN_CALENDAR_DATE || value > MAX_CALENDAR_DATE) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
@@ -52,6 +95,59 @@ export function resolveBusinessDateRange(
   const start = isCalendarDate(from) ? from : defaults.from;
   const end = isCalendarDate(to) ? to : defaults.to;
   return start <= end ? { from: start, to: end } : { from: end, to: start };
+}
+
+/**
+ * `resolveBusinessDateRange`, then capped at `maxDays` (default
+ * MAX_REPORT_RANGE_DAYS) by moving `from` forward. `clamped` tells the page
+ * to say the range was shortened rather than silently showing less.
+ */
+export function resolveReportDateRange(
+  from: string | null | undefined,
+  to: string | null | undefined,
+  defaults: BusinessDateRange,
+  maxDays = MAX_REPORT_RANGE_DAYS,
+): { range: BusinessDateRange; clamped: boolean } {
+  const range = resolveBusinessDateRange(from, to, defaults);
+  if (calendarDaysInclusive(range) <= maxDays) return { range, clamped: false };
+  return { range: { from: shiftBusinessDate(range.to, -(maxDays - 1)), to: range.to }, clamped: true };
+}
+
+export type ChartGranularity = "day" | "week" | "month";
+
+/**
+ * How to bucket a trend chart over `days` so it never has more than ~62
+ * points: daily up to two months, weekly (Monday-start) up to ~6 months,
+ * monthly beyond. The SQL groups by the same unit, so totals are unchanged.
+ */
+export function chartGranularity(days: number): ChartGranularity {
+  if (days <= 62) return "day";
+  if (days <= 190) return "week";
+  return "month";
+}
+
+/** Start date of the bucket containing `calendarDate` (Monday for weeks, the 1st for months). */
+export function bucketStart(calendarDate: string, granularity: ChartGranularity): string {
+  if (granularity === "day") return calendarDate;
+  if (granularity === "month") return `${calendarDate.slice(0, 7)}-01`;
+  const weekday = new Date(`${calendarDate}T00:00:00Z`).getUTCDay(); // 0 = Sunday
+  return shiftBusinessDate(calendarDate, -((weekday + 6) % 7));
+}
+
+/** Every bucket start from the bucket containing `range.from` through the one containing `range.to`. */
+export function bucketStarts(range: BusinessDateRange, granularity: ChartGranularity): string[] {
+  const starts: string[] = [];
+  let cursor = bucketStart(range.from, granularity);
+  while (cursor <= range.to) {
+    starts.push(cursor);
+    if (granularity === "day") cursor = shiftBusinessDate(cursor, 1);
+    else if (granularity === "week") cursor = shiftBusinessDate(cursor, 7);
+    else {
+      const [year, month] = cursor.split("-").map(Number);
+      cursor = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    }
+  }
+  return starts;
 }
 
 /**

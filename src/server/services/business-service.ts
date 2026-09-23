@@ -1,4 +1,5 @@
 import { and, asc, count, eq, sql } from "drizzle-orm";
+import { ServiceError } from "./errors";
 import type { Database } from "@/lib/db/client";
 import { businesses, locations, membershipRoles, memberships, roles } from "@/lib/db/schema";
 import { serializeTaxConfig } from "@/lib/settings/tax";
@@ -6,6 +7,7 @@ import type { BusinessSettingsInput } from "@/lib/validation/settings";
 import type { BrandingInput, CreateBusinessInput } from "@/lib/validation/business";
 import { normalizeHexColor } from "@/lib/branding/branding";
 import { recordAuditLog } from "./audit";
+import { lockAccount } from "./locks";
 import type { ActorContext } from "./ingredient-service";
 
 export async function getBusinessById(db: Database, businessId: string) {
@@ -22,35 +24,37 @@ export async function updateBusinessSettings(
   actor: ActorContext,
   input: BusinessSettingsInput,
 ) {
-  const before = await getBusinessById(db, actor.businessId);
+  return db.transaction(async (tx) => {
+    const before = await getBusinessById(tx, actor.businessId);
 
-  const [row] = await db
-    .update(businesses)
-    .set({
-      name: input.name,
-      receiptFooter: input.receiptFooter || null,
-      orderNumberPrefix: input.orderNumberPrefix,
-      taxConfig: input.taxEnabled
-        ? serializeTaxConfig({ percent: input.taxPercent, inclusive: input.taxInclusive })
-        : null,
-      serviceChargePercent: input.serviceChargeEnabled ? String(input.serviceChargePercent) : null,
-      allowNegativeStock: input.allowNegativeStock,
-      updatedAt: new Date(),
-    })
-    .where(eq(businesses.id, actor.businessId))
-    .returning();
+    const [row] = await tx
+      .update(businesses)
+      .set({
+        name: input.name,
+        receiptFooter: input.receiptFooter || null,
+        orderNumberPrefix: input.orderNumberPrefix,
+        taxConfig: input.taxEnabled
+          ? serializeTaxConfig({ percent: input.taxPercent, inclusive: input.taxInclusive })
+          : null,
+        serviceChargePercent: input.serviceChargeEnabled ? String(input.serviceChargePercent) : null,
+        allowNegativeStock: input.allowNegativeStock,
+        updatedAt: new Date(),
+      })
+      .where(eq(businesses.id, actor.businessId))
+      .returning();
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "settings.updated",
-    entityType: "business",
-    entityId: actor.businessId,
-    before,
-    after: row,
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "settings.updated",
+      entityType: "business",
+      entityId: actor.businessId,
+      before,
+      after: row,
+    });
+
+    return row;
   });
-
-  return row;
 }
 
 export interface OwnedBusinessRow {
@@ -116,7 +120,7 @@ export async function countBusinesses(db: Database): Promise<number> {
   return Number(row?.value ?? 0);
 }
 
-export class BusinessLimitError extends Error {
+export class BusinessLimitError extends ServiceError {
   constructor(limit: number) {
     super(
       `This install is limited to ${limit} business${limit === 1 ? "" : "es"}. ` +
@@ -143,6 +147,9 @@ export async function createBusiness(
   return db.transaction(async (tx) => {
     // Serialise creations so the count below cannot be raced past.
     await tx.execute(sql`select pg_advisory_xact_lock(${CREATE_BUSINESS_LOCK})`);
+    // Attaching a membership to the caller's account changes whether it is
+    // "linked elsewhere", so it takes the account lock like staff linking.
+    await lockAccount(tx, actor.userId);
     const limit = businessLimit();
     if ((await countBusinesses(tx)) >= limit) throw new BusinessLimitError(limit);
 
@@ -197,42 +204,44 @@ export async function updateBranding(
   actor: ActorContext,
   input: BrandingInput & { logoUrl?: string | null },
 ) {
-  const before = await getBusinessById(db, actor.businessId);
+  return db.transaction(async (tx) => {
+    const before = await getBusinessById(tx, actor.businessId);
 
-  const clearing = input.removeLogo;
-  const hasNewLogo = Boolean(input.logoUrl);
-  const hasRaster = Boolean(input.logoRasterBase64 && input.logoRasterWidth && input.logoRasterHeight);
+    const clearing = input.removeLogo;
+    const hasNewLogo = Boolean(input.logoUrl);
+    const hasRaster = Boolean(input.logoRasterBase64 && input.logoRasterWidth && input.logoRasterHeight);
 
-  const [row] = await db
-    .update(businesses)
-    .set({
-      brandColor: normalizeHexColor(input.brandColor ?? null),
-      ...(clearing
-        ? { logoUrl: null, logoRasterBase64: null, logoRasterWidth: null, logoRasterHeight: null }
-        : hasNewLogo
-          ? {
-              logoUrl: input.logoUrl,
-              // A browser too old to rasterise still gets the on-screen
-              // logo; the receipt simply keeps printing the name.
-              logoRasterBase64: hasRaster ? input.logoRasterBase64 : null,
-              logoRasterWidth: hasRaster ? input.logoRasterWidth : null,
-              logoRasterHeight: hasRaster ? input.logoRasterHeight : null,
-            }
-          : {}),
-      updatedAt: new Date(),
-    })
-    .where(eq(businesses.id, actor.businessId))
-    .returning();
+    const [row] = await tx
+      .update(businesses)
+      .set({
+        brandColor: normalizeHexColor(input.brandColor ?? null),
+        ...(clearing
+          ? { logoUrl: null, logoRasterBase64: null, logoRasterWidth: null, logoRasterHeight: null }
+          : hasNewLogo
+            ? {
+                logoUrl: input.logoUrl,
+                // A browser too old to rasterise still gets the on-screen
+                // logo; the receipt simply keeps printing the name.
+                logoRasterBase64: hasRaster ? input.logoRasterBase64 : null,
+                logoRasterWidth: hasRaster ? input.logoRasterWidth : null,
+                logoRasterHeight: hasRaster ? input.logoRasterHeight : null,
+              }
+            : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(businesses.id, actor.businessId))
+      .returning();
 
-  await recordAuditLog(db, {
-    businessId: actor.businessId,
-    actorUserId: actor.userId,
-    action: "branding.updated",
-    entityType: "business",
-    entityId: actor.businessId,
-    before: { brandColor: before?.brandColor ?? null, logoUrl: before?.logoUrl ?? null },
-    after: { brandColor: row.brandColor, logoUrl: row.logoUrl },
+    await recordAuditLog(tx, {
+      businessId: actor.businessId,
+      actorUserId: actor.userId,
+      action: "branding.updated",
+      entityType: "business",
+      entityId: actor.businessId,
+      before: { brandColor: before?.brandColor ?? null, logoUrl: before?.logoUrl ?? null },
+      after: { brandColor: row.brandColor, logoUrl: row.logoUrl },
+    });
+
+    return row;
   });
-
-  return row;
 }

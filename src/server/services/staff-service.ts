@@ -21,7 +21,9 @@ import { invalidateAllUserSessions, invalidateMembershipSessions } from "@/lib/a
 import type { RoleName } from "@/lib/permissions/permissions";
 import type { CreateStaffInput, UpdateStaffInput } from "@/lib/validation/staff";
 import { recordAuditLog } from "./audit";
+import { ConflictError, NotFoundError, ServiceError } from "./errors";
 import type { ActorContext } from "./ingredient-service";
+import { lockAccount, lockBusinessRoster } from "./locks";
 
 /**
  * A staff row is a *membership*, not an account. `id` stays the user id
@@ -88,7 +90,12 @@ function generateTempPassword(): string {
   return randomBytes(12).toString("base64url");
 }
 
-/** Does this account work anywhere other than `businessId`? */
+/**
+ * Does this account work anywhere other than `businessId`? Only meaningful
+ * as an authorization decision while the caller holds `lockAccount` for the
+ * user — linking takes the same lock, so the answer can't change before the
+ * caller commits.
+ */
 async function hasOtherMemberships(db: Database, userId: string, businessId: string): Promise<boolean> {
   const [row] = await db
     .select({ value: count() })
@@ -103,7 +110,7 @@ async function requireMembership(db: Database, userId: string, businessId: strin
     .from(memberships)
     .where(and(eq(memberships.userId, userId), eq(memberships.businessId, businessId)))
     .limit(1);
-  if (!membership) throw new Error("User not found");
+  if (!membership) throw new NotFoundError("User not found");
   return membership;
 }
 
@@ -124,6 +131,10 @@ export type CreateStaffResult = {
  * password or other memberships. The only thing this business gains is a
  * membership row it is entitled to grant.
  *
+ * Linking holds the account lock (see locks.ts), so it can never interleave
+ * with another café's password reset, identity edit or account deletion
+ * that has just decided the account belongs to that café alone.
+ *
  * SEC-009: revealing that an email already has an account (link vs create,
  * “already on your staff list”, email clash on update) is intentional for
  * this multi-café linking UX — not a login oracle. See docs/security-ops-notes.md.
@@ -134,24 +145,24 @@ export async function createStaff(
   input: CreateStaffInput,
 ): Promise<CreateStaffResult> {
   const [role] = await db.select().from(roles).where(eq(roles.name, input.role)).limit(1);
-  if (!role) throw new Error(`Role "${input.role}" is not set up. Run the seed script to create the role catalog.`);
+  if (!role) throw new ServiceError(`Role "${input.role}" is not set up. Run the seed script to create the role catalog.`);
 
-  const [existing] = await db.select().from(users).where(eq(users.email, input.email)).limit(1);
-
-  if (existing) {
-    const [alreadyHere] = await db
-      .select({ id: memberships.id })
-      .from(memberships)
-      .where(and(eq(memberships.userId, existing.id), eq(memberships.businessId, actor.businessId)))
-      .limit(1);
-    if (alreadyHere) {
-      throw new Error("This person is already on your staff list.");
-    }
-
+  async function linkExisting(existingId: string): Promise<CreateStaffResult> {
     const user = await db.transaction(async (tx) => {
+      const account = await lockAccount(tx, existingId);
+      if (!account) throw new ConflictError("That account was removed a moment ago. Try adding them again.");
+      const [existing] = await tx.select().from(users).where(eq(users.id, existingId)).limit(1);
+
+      const [alreadyHere] = await tx
+        .select({ id: memberships.id })
+        .from(memberships)
+        .where(and(eq(memberships.userId, existingId), eq(memberships.businessId, actor.businessId)))
+        .limit(1);
+      if (alreadyHere) throw new ServiceError("This person is already on your staff list.");
+
       const [membership] = await tx
         .insert(memberships)
-        .values({ userId: existing.id, businessId: actor.businessId })
+        .values({ userId: existingId, businessId: actor.businessId })
         .returning();
       await tx.insert(membershipRoles).values({ membershipId: membership.id, roleId: role.id });
 
@@ -160,48 +171,65 @@ export async function createStaff(
         actorUserId: actor.userId,
         action: "user.linked",
         entityType: "user",
-        entityId: existing.id,
+        entityId: existingId,
         after: { name: existing.name, email: existing.email, role: input.role },
         metadata: { linkedExistingAccount: true },
       });
-
       return existing;
     });
-
     return { user, tempPassword: null, linkedExistingAccount: true };
   }
 
+  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1);
+  if (existing) return linkExisting(existing.id);
+
+  // Hashing is the expensive part and happens before any transaction.
   const tempPassword = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
 
-  // User, membership, role and audit row land together or not at all —
-  // never an account with no business, or a membership with no role.
-  const user = await db.transaction(async (tx) => {
-    const [created] = await tx
-      .insert(users)
-      .values({ name: input.name, email: input.email, passwordHash })
-      .returning();
+  try {
+    // User, membership, role and audit row land together or not at all —
+    // never an account with no business, or a membership with no role.
+    const user = await db.transaction(async (tx) => {
+      const [created] = await tx
+        .insert(users)
+        .values({ name: input.name, email: input.email, passwordHash })
+        .returning();
 
-    const [membership] = await tx
-      .insert(memberships)
-      .values({ userId: created.id, businessId: actor.businessId })
-      .returning();
+      const [membership] = await tx
+        .insert(memberships)
+        .values({ userId: created.id, businessId: actor.businessId })
+        .returning();
 
-    await tx.insert(membershipRoles).values({ membershipId: membership.id, roleId: role.id });
+      await tx.insert(membershipRoles).values({ membershipId: membership.id, roleId: role.id });
 
-    await recordAuditLog(tx, {
-      businessId: actor.businessId,
-      actorUserId: actor.userId,
-      action: "user.created",
-      entityType: "user",
-      entityId: created.id,
-      after: { name: created.name, email: created.email, role: input.role },
+      await recordAuditLog(tx, {
+        businessId: actor.businessId,
+        actorUserId: actor.userId,
+        action: "user.created",
+        entityType: "user",
+        entityId: created.id,
+        after: { name: created.name, email: created.email, role: input.role },
+      });
+
+      return created;
     });
+    return { user, tempPassword, linkedExistingAccount: false };
+  } catch (error) {
+    // Someone created this email concurrently (here or at another café):
+    // link to the account that won instead of failing.
+    if (!isUniqueViolation(error, "users_email_idx")) throw error;
+    const [winner] = await db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1);
+    if (!winner) throw error;
+    return linkExisting(winner.id);
+  }
+}
 
-    return created;
-  });
-
-  return { user, tempPassword, linkedExistingAccount: false };
+function isUniqueViolation(error: unknown, constraint: string): boolean {
+  for (let current = error as { code?: string; constraint?: string; cause?: unknown } | undefined; current; current = current.cause as typeof current) {
+    if (current.code === "23505" && current.constraint === constraint) return true;
+  }
+  return false;
 }
 
 /**
@@ -209,10 +237,26 @@ export async function createStaff(
  * their membership — never `users.active`, which is a global kill switch
  * this screen has no business touching. Somebody stood down at one café
  * keeps working at another.
+ *
+ * Deactivating can remove the last active Owner, so it runs under the
+ * business's roster lock and re-checks that inside it, exactly like
+ * demotion and deletion.
  */
 export async function setStaffActive(db: Database, actor: ActorContext, userId: string, active: boolean) {
   return db.transaction(async (tx) => {
+    await lockBusinessRoster(tx, actor.businessId);
     const membership = await requireMembership(tx, userId, actor.businessId);
+
+    if (!active) {
+      if (userId === actor.userId) throw new ServiceError("You can't deactivate your own account.");
+      const roleNames = await loadStaffRoles(tx, membership.id);
+      if (roleNames.includes("super_admin")) {
+        throw new ServiceError("Super Admin accounts are managed outside this screen and can't be deactivated here.");
+      }
+      if (roleNames.includes("owner") && membership.active) {
+        await assertNotLastOwner(tx, actor.businessId, userId, "deactivating them");
+      }
+    }
 
     const [row] = await tx
       .update(memberships)
@@ -248,6 +292,11 @@ export async function setStaffActive(db: Database, actor: ActorContext, userId: 
  * Refused outright for an account that also works at another business:
  * the password is the key to every café that account can reach, so
  * handing one owner the ability to reset it would hand them the others.
+ * That check and the write happen under the account lock, which linking
+ * also takes — so a café that links the account concurrently either
+ * commits first (and this reset is refused) or links an account whose
+ * reset has already committed. The temporary password is hashed before
+ * the lock is taken; a refused reset just discards it.
  */
 export async function resetStaffPassword(
   db: Database,
@@ -256,16 +305,23 @@ export async function resetStaffPassword(
 ): Promise<{ tempPassword: string }> {
   await requireMembership(db, userId, actor.businessId);
 
-  if (await hasOtherMemberships(db, userId, actor.businessId)) {
-    throw new Error(
-      "This account also works at another business, so its password isn't yours to reset. Ask them to change it themselves.",
-    );
-  }
-
   const tempPassword = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
 
   await db.transaction(async (tx) => {
+    if (!(await lockAccount(tx, userId))) throw new NotFoundError("User not found");
+    const membership = await requireMembership(tx, userId, actor.businessId);
+
+    const roleNames = await loadStaffRoles(tx, membership.id);
+    if (roleNames.includes("super_admin")) {
+      throw new ServiceError("Super Admin accounts are managed outside this screen and their password can't be reset here.");
+    }
+    if (await hasOtherMemberships(tx, userId, actor.businessId)) {
+      throw new ServiceError(
+        "This account also works at another business, so its password isn't yours to reset. Ask them to change it themselves.",
+      );
+    }
+
     await tx.update(users).set({ passwordHash, updatedAt: new Date() }).where(eq(users.id, userId));
     await invalidateAllUserSessions(tx, userId);
 
@@ -292,10 +348,14 @@ async function loadStaffRoles(db: Database, membershipId: string): Promise<RoleN
 
 /**
  * Guards against locking the business out of its own admin screens: an
- * Owner may only be demoted or deleted while some *other* active Owner
- * remains. Deactivated owners don't count — they can't log in to undo it.
- * Counted over memberships, so an Owner here who is a Cashier elsewhere
- * is still this café's only Owner.
+ * Owner may only be demoted, deactivated or deleted while some *other*
+ * active Owner remains. Deactivated owners don't count — they can't log in
+ * to undo it. Counted over memberships, so an Owner here who is a Cashier
+ * elsewhere is still this café's only Owner.
+ *
+ * Callers must hold `lockBusinessRoster` for the business: otherwise two
+ * owners demoting each other at the same moment would each see the other
+ * as the one who remains.
  */
 async function assertNotLastOwner(db: Database, businessId: string, userId: string, action: string) {
   const [remaining] = await db
@@ -314,13 +374,17 @@ async function assertNotLastOwner(db: Database, businessId: string, userId: stri
       ),
     );
   if (Number(remaining?.value ?? 0) === 0) {
-    throw new Error(`This is the only active Owner — ${action} would leave nobody able to manage staff or settings.`);
+    throw new ServiceError(`This is the only active Owner — ${action} would leave nobody able to manage staff or settings.`);
   }
 }
 
 /**
  * Edits a staff member's role, and — when the account belongs to this
  * business alone — their name and email.
+ *
+ * Runs under the roster lock (a role change can demote the last Owner) and
+ * the account lock (the "belongs to this business alone" check must still
+ * hold when the shared account is written), in that order.
  *
  * Sessions are deliberately left alone: they're keyed to the user id, not
  * the email, and roles are re-read from the database on every request, so
@@ -334,14 +398,16 @@ export async function updateStaff(
   input: UpdateStaffInput,
 ) {
   return db.transaction(async (tx) => {
+    await lockBusinessRoster(tx, actor.businessId);
+    if (!(await lockAccount(tx, userId))) throw new NotFoundError("User not found");
     const membership = await requireMembership(tx, userId, actor.businessId);
 
     const [existing] = await tx.select().from(users).where(eq(users.id, userId)).limit(1);
-    if (!existing) throw new Error("User not found");
+    if (!existing) throw new NotFoundError("User not found");
 
     const currentRoles = await loadStaffRoles(tx, membership.id);
     if (currentRoles.includes("super_admin")) {
-      throw new Error("Super Admin accounts are managed outside this screen and can't be edited here.");
+      throw new ServiceError("Super Admin accounts are managed outside this screen and can't be edited here.");
     }
 
     // The role is per-café and always yours to set. Name and email live on
@@ -350,33 +416,37 @@ export async function updateStaff(
     const linkedElsewhere = await hasOtherMemberships(tx, userId, actor.businessId);
     const identityChanged = input.name !== existing.name || input.email !== existing.email;
     if (linkedElsewhere && identityChanged) {
-      throw new Error(
+      throw new ServiceError(
         "This account also works at another business, so its name and email can only be changed by them. You can still change their role here.",
       );
     }
 
     if (input.email !== existing.email) {
       const [clash] = await tx.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1);
-      if (clash && clash.id !== userId) throw new Error("A user with this email already exists.");
+      if (clash && clash.id !== userId) throw new ServiceError("A user with this email already exists.");
     }
 
     const roleChanged = currentRoles.length !== 1 || currentRoles[0] !== input.role;
-    if (roleChanged && currentRoles.includes("owner")) {
+    if (roleChanged && currentRoles.includes("owner") && membership.active) {
       await assertNotLastOwner(tx, actor.businessId, userId, "changing their role");
     }
 
     const [roleRow] = await tx.select().from(roles).where(eq(roles.name, input.role)).limit(1);
-    if (!roleRow) throw new Error(`Role "${input.role}" is not set up.`);
+    if (!roleRow) throw new ServiceError(`Role "${input.role}" is not set up.`);
 
-    const updated = identityChanged
-      ? (
-          await tx
-            .update(users)
-            .set({ name: input.name, email: input.email, updatedAt: new Date() })
-            .where(eq(users.id, userId))
-            .returning()
-        )[0]
-      : existing;
+    let updated = existing;
+    if (identityChanged) {
+      try {
+        [updated] = await tx
+          .update(users)
+          .set({ name: input.name, email: input.email, updatedAt: new Date() })
+          .where(eq(users.id, userId))
+          .returning();
+      } catch (error) {
+        if (isUniqueViolation(error, "users_email_idx")) throw new ServiceError("A user with this email already exists.");
+        throw error;
+      }
+    }
 
     if (roleChanged) {
       await tx.delete(membershipRoles).where(eq(membershipRoles.membershipId, membership.id));
@@ -519,6 +589,13 @@ export interface DeleteStaffResult {
  * café's, so only the membership is removed and their name stays on this
  * business's history.
  *
+ * Holds the roster lock (they may be the last Owner) and then the account
+ * lock, so a café linking this account at the same moment either commits
+ * first — and only this café's membership is removed — or waits and finds
+ * the account gone. The account delete itself also refuses to run while
+ * any other membership exists, as a last line of defence against a cascade
+ * into another business.
+ *
  * The audit row is written inside the same transaction and before the
  * delete, and `audit_logs.entity_id` is a plain text column with no
  * foreign key, so the log keeps a permanent record of which name and
@@ -526,20 +603,22 @@ export interface DeleteStaffResult {
  */
 export async function deleteStaff(db: Database, actor: ActorContext, userId: string): Promise<DeleteStaffResult> {
   return db.transaction(async (tx) => {
+    if (userId === actor.userId) {
+      throw new ServiceError("You can't delete your own account.");
+    }
+
+    await lockBusinessRoster(tx, actor.businessId);
+    if (!(await lockAccount(tx, userId))) throw new NotFoundError("User not found");
     const membership = await requireMembership(tx, userId, actor.businessId);
 
     const [user] = await tx.select().from(users).where(eq(users.id, userId)).limit(1);
-    if (!user) throw new Error("User not found");
-
-    if (userId === actor.userId) {
-      throw new Error("You can't delete your own account.");
-    }
+    if (!user) throw new NotFoundError("User not found");
 
     const roleNames = await loadStaffRoles(tx, membership.id);
     if (roleNames.includes("super_admin")) {
-      throw new Error("Super Admin accounts are managed outside this screen and can't be deleted here.");
+      throw new ServiceError("Super Admin accounts are managed outside this screen and can't be deleted here.");
     }
-    if (roleNames.includes("owner")) {
+    if (roleNames.includes("owner") && membership.active) {
       await assertNotLastOwner(tx, actor.businessId, userId, "deleting them");
     }
 
@@ -561,7 +640,16 @@ export async function deleteStaff(db: Database, actor: ActorContext, userId: str
       return { user, accountDeleted: false };
     }
 
-    await tx.delete(users).where(eq(users.id, userId));
+    const deleted = await tx
+      .delete(users)
+      .where(
+        and(
+          eq(users.id, userId),
+          sql`not exists (select 1 from ${memberships} m where m.user_id = ${userId} and m.business_id <> ${actor.businessId})`,
+        ),
+      )
+      .returning({ id: users.id });
+    if (deleted.length === 0) throw new ConflictError("This account was just added to another business. Reload and try again.");
     return { user, accountDeleted: true };
   });
 }

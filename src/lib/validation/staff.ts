@@ -7,7 +7,7 @@ export const ROLE_NAMES = ["owner", "manager", "cashier", "inventory_staff", "vi
 
 export const createStaffInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(200),
-  email: z.string().trim().email("Enter a valid email").toLowerCase(),
+  email: z.string().trim().max(254).email("Enter a valid email").toLowerCase(),
   role: z.enum(ROLE_NAMES),
 });
 

@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   boolean,
+  foreignKey,
   index,
   integer,
   pgTable,
   text,
   timestamp,
+  unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { businesses } from "./core";
@@ -20,16 +23,22 @@ export const menuCategories = pgTable("menu_categories", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("menu_categories_business_id_idx").on(table.businessId)]);
+}, (table) => [
+  index("menu_categories_business_id_idx").on(table.businessId),
+  // Target of the composite (business_id, category_id) foreign key below.
+  unique("menu_categories_business_id_id_key").on(table.businessId, table.id),
+]);
 
 export const menuItems = pgTable("menu_items", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
   businessId: uuid("business_id")
     .notNull()
     .references(() => businesses.id, { onDelete: "restrict" }),
-  categoryId: uuid("category_id").references(() => menuCategories.id, {
-    onDelete: "set null",
-  }),
+  // Tenant-checked by the composite foreign key below, which is also the
+  // only FK on this column: a category must belong to the item's own
+  // business. It has no ON DELETE action (a composite SET NULL would null
+  // business_id too), so deleteCategory un-assigns items before deleting.
+  categoryId: uuid("category_id"),
   name: text("name").notNull(),
   description: text("description"),
   imageUrl: text("image_url"),
@@ -46,7 +55,16 @@ export const menuItems = pgTable("menu_items", {
   updatedBy: uuid("updated_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("menu_items_business_id_idx").on(table.businessId)]);
+}, (table) => [
+  index("menu_items_business_id_idx").on(table.businessId),
+  unique("menu_items_business_id_id_key").on(table.businessId, table.id),
+  foreignKey({
+    name: "menu_items_category_same_business_fk",
+    columns: [table.businessId, table.categoryId],
+    foreignColumns: [menuCategories.businessId, menuCategories.id],
+  }),
+  index("menu_items_category_id_idx").on(table.categoryId),
+]);
 
 export const menuItemVariants = pgTable("menu_item_variants", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -74,7 +92,10 @@ export const modifierGroups = pgTable("modifier_groups", {
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("modifier_groups_business_id_idx").on(table.businessId)]);
+}, (table) => [
+  index("modifier_groups_business_id_idx").on(table.businessId),
+  unique("modifier_groups_business_id_id_key").on(table.businessId, table.id),
+]);
 
 export const modifierOptions = pgTable("modifier_options", {
   id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
@@ -99,16 +120,27 @@ export const menuItemModifierGroups = pgTable(
   "menu_item_modifier_groups",
   {
     id: uuid("id").primaryKey().$defaultFn(() => randomUUID()),
-    menuItemId: uuid("menu_item_id")
+    // Both sides of the assignment must belong to this business; the two
+    // composite foreign keys below are what enforce it.
+    businessId: uuid("business_id")
       .notNull()
-      .references(() => menuItems.id, { onDelete: "cascade" }),
-    modifierGroupId: uuid("modifier_group_id")
-      .notNull()
-      .references(() => modifierGroups.id, { onDelete: "cascade" }),
+      .references(() => businesses.id, { onDelete: "restrict" }),
+    menuItemId: uuid("menu_item_id").notNull(),
+    modifierGroupId: uuid("modifier_group_id").notNull(),
     displayOrder: integer("display_order").notNull().default(0),
   },
   (table) => [
-    index("menu_item_modifier_groups_menu_item_id_idx").on(table.menuItemId),
+    uniqueIndex("menu_item_modifier_groups_item_group_idx").on(table.menuItemId, table.modifierGroupId),
     index("menu_item_modifier_groups_group_id_idx").on(table.modifierGroupId),
+    foreignKey({
+      name: "menu_item_modifier_groups_item_same_business_fk",
+      columns: [table.businessId, table.menuItemId],
+      foreignColumns: [menuItems.businessId, menuItems.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "menu_item_modifier_groups_group_same_business_fk",
+      columns: [table.businessId, table.modifierGroupId],
+      foreignColumns: [modifierGroups.businessId, modifierGroups.id],
+    }).onDelete("cascade"),
   ],
 );

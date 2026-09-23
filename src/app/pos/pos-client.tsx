@@ -236,8 +236,15 @@ export function PosClient({
 
   useEffect(() => {
     const IDLE_REFRESH_MS = 60_000;
+    // Waking the tablet fires focus, visibilitychange and online within the
+    // same moment; one re-render covers all of them.
+    const MIN_REFRESH_GAP_MS = 5_000;
+    let lastRefreshAt = 0;
     function refreshCatalog() {
       if (busy.current || document.hidden || !navigator.onLine) return;
+      const now = Date.now();
+      if (now - lastRefreshAt < MIN_REFRESH_GAP_MS) return;
+      lastRefreshAt = now;
       router.refresh();
     }
     const timer = setInterval(refreshCatalog, IDLE_REFRESH_MS);

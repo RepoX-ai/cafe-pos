@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { and, eq } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { stockCountLines, stockCounts } from "@/lib/db/schema";
 import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
@@ -6,6 +7,7 @@ import type { StockCountInput } from "@/lib/validation/stock-count";
 import { recordAuditLog } from "./audit";
 import { insertMovementsAndApplyStock, lockIngredientsForUpdate, type MovementInput } from "./inventory-service";
 import type { ActorContext } from "./ingredient-service";
+import { runIdempotent } from "./request-idempotency";
 
 /**
  * Counts submit in one step here (the UI shows the system-vs-counted
@@ -23,68 +25,80 @@ export async function createAndSubmitStockCount(
   input: StockCountInput,
 ) {
   return db.transaction(async (tx) => {
-    const [count] = await tx
-      .insert(stockCounts)
-      .values({
-        businessId: actor.businessId,
-        status: "SUBMITTED",
-        countedBy: actor.userId,
-        submittedAt: new Date(),
-      })
-      .returning();
+    const { result } = await runIdempotent(
+      tx,
+      { businessId: actor.businessId, operation: "stock_count.submit", key: input.idempotencyKey, payload: input },
+      async (countId) => {
+        const [count] = await tx
+          .insert(stockCounts)
+          .values({
+            id: countId,
+            businessId: actor.businessId,
+            status: "SUBMITTED",
+            countedBy: actor.userId,
+            submittedAt: new Date(),
+          })
+          .returning();
 
-    const locked = await lockIngredientsForUpdate(tx, actor.businessId, input.lines.map((line) => line.ingredientId));
+        const locked = await lockIngredientsForUpdate(tx, actor.businessId, input.lines.map((line) => line.ingredientId));
 
-    // An ingredient counted twice is corrected twice, each line against
-    // the quantity the previous line set.
-    const running = new Map<string, bigint>();
-    const lineRows: (typeof stockCountLines.$inferInsert)[] = [];
-    const movements: MovementInput[] = [];
+        // An ingredient counted twice is corrected twice, each line against
+        // the quantity the previous line set.
+        const running = new Map<string, bigint>();
+        const lineRows: (typeof stockCountLines.$inferInsert)[] = [];
+        const movements: MovementInput[] = [];
 
-    for (const line of input.lines) {
-      const ingredient = locked.get(line.ingredientId)!;
-      const systemUnits = running.get(line.ingredientId) ?? toQuantityUnits(ingredient.currentQuantityBaseUnits);
-      const countedUnits = toQuantityUnits(line.countedQuantity);
-      const differenceUnits = countedUnits - systemUnits;
-      running.set(line.ingredientId, countedUnits);
+        for (const line of input.lines) {
+          const ingredient = locked.get(line.ingredientId)!;
+          const systemUnits = running.get(line.ingredientId) ?? toQuantityUnits(ingredient.currentQuantityBaseUnits);
+          const countedUnits = toQuantityUnits(line.countedQuantity);
+          const differenceUnits = countedUnits - systemUnits;
+          running.set(line.ingredientId, countedUnits);
 
-      lineRows.push({
-        stockCountId: count.id,
-        ingredientId: line.ingredientId,
-        ingredientNameSnapshot: ingredient.name,
-        ingredientBaseUnitSnapshot: ingredient.baseUnit,
-        systemQuantity: formatQuantityUnits(systemUnits),
-        countedQuantity: formatQuantityUnits(countedUnits),
-        differenceQuantity: formatQuantityUnits(differenceUnits),
-      });
+          lineRows.push({
+            stockCountId: count.id,
+            ingredientId: line.ingredientId,
+            ingredientNameSnapshot: ingredient.name,
+            ingredientBaseUnitSnapshot: ingredient.baseUnit,
+            systemQuantity: formatQuantityUnits(systemUnits),
+            countedQuantity: formatQuantityUnits(countedUnits),
+            differenceQuantity: formatQuantityUnits(differenceUnits),
+          });
 
-      if (differenceUnits !== 0n) {
-        movements.push({
-          id: randomUUID(),
+          if (differenceUnits !== 0n) {
+            movements.push({
+              id: randomUUID(),
+              businessId: actor.businessId,
+              ingredientId: line.ingredientId,
+              movementType: "STOCK_COUNT_CORRECTION",
+              quantityUnits: differenceUnits,
+              sourceType: "stock_count",
+              sourceId: count.id,
+              reason: "Stock count correction",
+              createdBy: actor.userId,
+            });
+          }
+        }
+
+        if (lineRows.length > 0) await tx.insert(stockCountLines).values(lineRows);
+        await insertMovementsAndApplyStock(tx, movements, locked);
+
+        await recordAuditLog(tx, {
           businessId: actor.businessId,
-          ingredientId: line.ingredientId,
-          movementType: "STOCK_COUNT_CORRECTION",
-          quantityUnits: differenceUnits,
-          sourceType: "stock_count",
-          sourceId: count.id,
-          reason: "Stock count correction",
-          createdBy: actor.userId,
+          actorUserId: actor.userId,
+          action: "stock_count.submitted",
+          entityType: "stock_count",
+          entityId: count.id,
+          metadata: input,
         });
-      }
-    }
 
-    if (lineRows.length > 0) await tx.insert(stockCountLines).values(lineRows);
-    await insertMovementsAndApplyStock(tx, movements, locked);
-
-    await recordAuditLog(tx, {
-      businessId: actor.businessId,
-      actorUserId: actor.userId,
-      action: "stock_count.submitted",
-      entityType: "stock_count",
-      entityId: count.id,
-      metadata: input,
-    });
-
-    return count;
+        return count;
+      },
+      async (id) => {
+        const [row] = await tx.select().from(stockCounts).where(and(eq(stockCounts.id, id), eq(stockCounts.businessId, actor.businessId)));
+        return row;
+      },
+    );
+    return result;
   });
 }

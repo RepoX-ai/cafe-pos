@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { NotFoundError, ServiceError } from "./errors";
+import { BOUNDS } from "@/lib/validation/bounds";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
@@ -14,10 +15,12 @@ import {
 import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
 import type { BusinessDateRange } from "@/lib/dates/dates";
 import { recordAuditLog } from "./audit";
-import { withinBusinessDays } from "./range-filters";
+import { countUpTo, withinBusinessDays } from "./range-filters";
+import { afterTimeCursor, cursorText, type TimeCursor } from "./keyset";
 import type { ActorContext } from "./ingredient-service";
+import { runIdempotent } from "./request-idempotency";
 
-export class InsufficientStockError extends Error {
+export class InsufficientStockError extends ServiceError {
   constructor(
     public ingredientName: string,
     public shortfallBaseUnits: number,
@@ -57,7 +60,7 @@ export async function lockIngredientsForUpdate(
     .orderBy(asc(ingredients.id))
     .for("update");
   for (const row of rows) locked.set(row.id, row);
-  if (locked.size !== ids.length) throw new Error("Ingredient not found");
+  if (locked.size !== ids.length) throw new NotFoundError("Ingredient not found");
   return locked;
 }
 
@@ -102,6 +105,13 @@ export async function insertMovementsAndApplyStock(
     if (!ingredient) throw new Error("Ingredient must be locked before its stock changes");
     const current = nextQuantity.get(movement.ingredientId) ?? toQuantityUnits(ingredient.currentQuantityBaseUnits);
     nextQuantity.set(movement.ingredientId, current + movement.quantityUnits);
+  }
+  // numeric(16,4) holds 12 integer digits; refuse here rather than as a raw overflow.
+  const limit = toQuantityUnits(BOUNDS.maxQuantity);
+  for (const [id, quantity] of nextQuantity) {
+    if (quantity > limit || quantity < -limit) {
+      throw new ServiceError(`The resulting stock of "${locked.get(id)!.name}" would be too large to record.`);
+    }
   }
 
   await tx.insert(inventoryMovements).values(
@@ -153,6 +163,8 @@ export interface ManualAdjustmentInput {
   quantityBaseUnits: number; // always positive; direction determines sign
   reason: string;
   notes?: string;
+  /** Client-generated; makes a lost-response retry return the first adjustment (see request-idempotency). */
+  idempotencyKey?: string;
 }
 
 /**
@@ -168,64 +180,72 @@ export async function createManualAdjustment(
   opts: { allowNegativeStock: boolean },
 ) {
   return db.transaction(async (tx) => {
-    const locked = await lockIngredientsForUpdate(tx, actor.businessId, [input.ingredientId]);
-    const ingredient = locked.get(input.ingredientId)!;
-    const units = toQuantityUnits(input.quantityBaseUnits);
-    const quantityUnits = input.direction === "in" ? units : -units;
-
-    const remaining = toQuantityUnits(ingredient.currentQuantityBaseUnits) + quantityUnits;
-    if (remaining < 0n && !opts.allowNegativeStock) {
-      throw new InsufficientStockError(ingredient.name, Number(formatQuantityUnits(-remaining)));
-    }
-
-    const movementId = randomUUID();
-    await insertMovementsAndApplyStock(
+    const { result } = await runIdempotent(
       tx,
-      [
-        {
-          id: movementId,
+      { businessId: actor.businessId, operation: "inventory.adjust", key: input.idempotencyKey, payload: input },
+      async (movementId) => {
+        const locked = await lockIngredientsForUpdate(tx, actor.businessId, [input.ingredientId]);
+        const ingredient = locked.get(input.ingredientId)!;
+        const units = toQuantityUnits(input.quantityBaseUnits);
+        const quantityUnits = input.direction === "in" ? units : -units;
+
+        const remaining = toQuantityUnits(ingredient.currentQuantityBaseUnits) + quantityUnits;
+        if (remaining < 0n && !opts.allowNegativeStock) {
+          throw new InsufficientStockError(ingredient.name, Number(formatQuantityUnits(-remaining)));
+        }
+
+        await insertMovementsAndApplyStock(
+          tx,
+          [
+            {
+              id: movementId,
+              businessId: actor.businessId,
+              ingredientId: input.ingredientId,
+              movementType: input.direction === "in" ? "MANUAL_ADJUSTMENT_IN" : "MANUAL_ADJUSTMENT_OUT",
+              quantityUnits,
+              sourceType: "manual_adjustment",
+              reason: input.reason,
+              notes: input.notes ?? null,
+              createdBy: actor.userId,
+            },
+          ],
+          locked,
+        );
+
+        await recordAuditLog(tx, {
           businessId: actor.businessId,
-          ingredientId: input.ingredientId,
-          movementType: input.direction === "in" ? "MANUAL_ADJUSTMENT_IN" : "MANUAL_ADJUSTMENT_OUT",
-          quantityUnits,
-          sourceType: "manual_adjustment",
-          reason: input.reason,
-          notes: input.notes ?? null,
-          createdBy: actor.userId,
-        },
-      ],
-      locked,
+          actorUserId: actor.userId,
+          action: "inventory.manual_adjustment",
+          entityType: "inventory_movement",
+          entityId: movementId,
+          metadata: input,
+        });
+
+        return { id: movementId };
+      },
+      async (id) => ({ id }),
     );
-
-    await recordAuditLog(tx, {
-      businessId: actor.businessId,
-      actorUserId: actor.userId,
-      action: "inventory.manual_adjustment",
-      entityType: "inventory_movement",
-      entityId: movementId,
-      metadata: input,
-    });
-
-    return { id: movementId };
+    return result;
   });
 }
 
 /** Ledger rows, newest first; `range` filters on created_at by Jakarta business day. */
-function movementFilter(businessId: string, opts: { ingredientId?: string; range?: BusinessDateRange }) {
+function movementFilter(businessId: string, opts: { ingredientId?: string; range?: BusinessDateRange; after?: TimeCursor }) {
   const conditions = [eq(inventoryMovements.businessId, businessId)];
   if (opts.ingredientId) conditions.push(eq(inventoryMovements.ingredientId, opts.ingredientId));
   if (opts.range) conditions.push(withinBusinessDays(inventoryMovements.createdAt, opts.range));
+  if (opts.after) conditions.push(afterTimeCursor(inventoryMovements.createdAt, inventoryMovements.id, opts.after));
   return and(...conditions);
 }
 
-export async function countMovements(db: Database, businessId: string, opts: { ingredientId?: string; range?: BusinessDateRange } = {}) {
-  return db.$count(inventoryMovements, movementFilter(businessId, opts));
+export async function countMovements(db: Database, businessId: string, opts: { ingredientId?: string; range?: BusinessDateRange; cap?: number } = {}) {
+  return countUpTo(db, inventoryMovements, movementFilter(businessId, opts), opts.cap);
 }
 
 export async function listMovements(
   db: Database,
   businessId: string,
-  opts: { ingredientId?: string; range?: BusinessDateRange; limit?: number; offset?: number } = {},
+  opts: { ingredientId?: string; range?: BusinessDateRange; limit?: number; offset?: number; after?: TimeCursor } = {},
 ) {
 
   return db
@@ -248,9 +268,10 @@ export async function listMovements(
       reason: inventoryMovements.reason,
       notes: inventoryMovements.notes,
       createdAt: inventoryMovements.createdAt,
+      cursorTs: cursorText(inventoryMovements.createdAt),
     })
     .from(inventoryMovements)
-    .leftJoin(ingredients, eq(inventoryMovements.ingredientId, ingredients.id))
+    .leftJoin(ingredients, and(eq(inventoryMovements.ingredientId, ingredients.id), eq(ingredients.businessId, businessId)))
     .where(movementFilter(businessId, opts))
     .orderBy(desc(inventoryMovements.createdAt), desc(inventoryMovements.id))
     .limit(opts.limit ?? 200)
@@ -312,7 +333,7 @@ export async function describeMovementSources(
       ? db
           .select({ id: purchases.id, invoiceNumber: purchases.invoiceNumber, supplierName: suppliers.name })
           .from(purchases)
-          .leftJoin(suppliers, eq(purchases.supplierId, suppliers.id))
+          .leftJoin(suppliers, and(eq(purchases.supplierId, suppliers.id), eq(suppliers.businessId, businessId)))
           .where(and(eq(purchases.businessId, businessId), inArray(purchases.id, purchaseIds)))
       : [],
   ]);

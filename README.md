@@ -37,9 +37,9 @@ npm run dev                      # http://localhost:3000
 Or run the whole stack (app + db) in Docker:
 
 ```bash
-docker compose up --build
-docker compose run --rm app npm run db:migrate
-docker compose run --rm app npm run db:seed
+docker compose up -d --build db
+docker compose run --rm migrate            # owner credentials; also creates the app's DB role
+docker compose up -d --build app           # http://localhost:3000, connects as the app role
 ```
 
 ### Option B — Local Node + local/managed Postgres
@@ -366,7 +366,8 @@ a client module.
 - **Local**: Docker Compose (above), or Node + any Postgres.
 - **Staging**: Vercel (app) + any managed Postgres (Supabase, Neon, RDS,
   ...) — set `DATABASE_URL` and the rest of `.env.example` as project env
-  vars, then run `npm run db:migrate` once against the staging database,
+  vars, then run `npm run db:migrate` once against the staging database
+  (with the owner's `MIGRATION_DATABASE_URL`),
   followed by `npm run db:create-owner` to create the account you'll log
   in with. `npm run db:seed` is **not** an option here: it refuses to run
   with `NODE_ENV=production`, because it creates accounts behind a

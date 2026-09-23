@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Download } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
-import { db } from "@/lib/db/client";
-import { formatBusinessDateTime, resolveBusinessDateRange, todayInBusinessTimezone, type BusinessDateRange } from "@/lib/dates/dates";
+import { db as appDb, reportDb as db } from "@/lib/db/client";
+import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
+import { formatBusinessDateTime, MAX_REPORT_RANGE_DAYS, resolveReportDateRange, todayInBusinessTimezone, type BusinessDateRange } from "@/lib/dates/dates";
 import { formatIDR, formatIDRRate } from "@/lib/money/money";
 import { pageWindow, parsePageParam, toPage, type Page } from "@/lib/pagination";
 import { Select } from "@/components/ui/form-field";
@@ -37,10 +38,18 @@ export default async function ReportsPage({
 }) {
   const user = await requirePageAccess("reports:read");
   const { type: typeParam, from, to, page } = await searchParams;
+  if (!(await allowUserAction(appDb, RATE_LIMITS.reportRead(), user))) {
+    return (
+      <div className="mx-auto max-w-[1440px]">
+        <p className="text-sm text-[var(--color-text-secondary)]">Too many report requests in a short time. Wait a minute, then reload.</p>
+      </div>
+    );
+  }
 
   const type: ReportType = typeParam && isReportType(typeParam) ? typeParam : "sales_by_day";
   const today = todayInBusinessTimezone();
-  const range = resolveBusinessDateRange(from, to, { from: today, to: today });
+  // Capped at MAX_REPORT_RANGE_DAYS — the same cap the CSV export applies.
+  const { range, clamped } = resolveReportDateRange(from, to, { from: today, to: today });
   const fromDate = range.from;
   const toDate = range.to;
 
@@ -89,6 +98,12 @@ export default async function ReportsPage({
           Export CSV
         </a>
       </form>
+
+      {clamped ? (
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+          Ranges are limited to {MAX_REPORT_RANGE_DAYS} days, so this shows {fromDate} to {toDate}.
+        </p>
+      ) : null}
 
       <div className="mt-6">{table}</div>
     </div>
