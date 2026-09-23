@@ -297,7 +297,7 @@ export default async function DashboardPage({
           )}
         </Widget>
 
-        <Widget title="Sales by category">
+        <Widget title="Sales by category" subtitle="Gross, before order-level discounts">
           <PieChart
             data={[
               ...salesByCategory.categories.map((r) => ({ label: r.categoryName, value: r.revenue, caption: `${r.quantitySold} sold` })),
@@ -313,7 +313,7 @@ export default async function DashboardPage({
           />
         </Widget>
 
-        <Widget title="Payment methods">
+        <Widget title="Payment methods" subtitle="Net, after discounts and tax/service charge">
           <PieChart
             data={salesByPaymentMethod.map((r) => ({
               label: r.paymentMethodLabel,
@@ -337,13 +337,24 @@ function ReportsThrottled() {
   );
 }
 
-function Widget({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+function Widget({
+  title,
+  subtitle,
+  children,
+  className,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     // h-full so widgets sharing a grid row (e.g. Low stock / Out of stock) stretch to match
     // each other's height instead of each shrink-wrapping its own row count.
     <div className={`flex h-full flex-col rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 ${className ?? ""}`}>
-      <h2 className="mb-2 text-sm font-semibold text-[var(--color-text-primary)]">{title}</h2>
-      <div className="flex flex-1 flex-col divide-y divide-[var(--color-border)]">{children}</div>
+      <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">{title}</h2>
+      {subtitle ? <p className="mb-2 text-xs text-[var(--color-text-muted)]">{subtitle}</p> : null}
+      <div className={`flex flex-1 flex-col divide-y divide-[var(--color-border)] ${subtitle ? "" : "mt-2"}`}>{children}</div>
     </div>
   );
 }
