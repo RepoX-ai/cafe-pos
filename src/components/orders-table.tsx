@@ -43,7 +43,8 @@ export function OrdersTable({
   if (orders.length === 0) {
     return (
       <div>
-        <table className="w-full min-w-[880px] border-collapse text-sm">
+        <p className="px-4 py-10 text-center text-[var(--color-text-secondary)] sm:hidden">No orders found.</p>
+        <table className="hidden w-full min-w-[880px] border-collapse text-sm sm:table">
           <tbody>
             <tr>
               <td className="px-4 py-10 text-center text-[var(--color-text-secondary)]">No orders found.</td>

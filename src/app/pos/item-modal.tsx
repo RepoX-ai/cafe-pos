@@ -98,9 +98,9 @@ export function ItemModal({
 
   return (
     <Dialog open label={item.name} onClose={onClose} className="max-w-[520px]">
-      <div className="relative flex max-h-[90vh] w-full max-w-[520px] flex-col rounded-t-[var(--radius-lg)] bg-[var(--color-surface)] shadow-lg sm:rounded-[var(--radius-lg)]">
+      <div className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-[520px] min-w-0 flex-col rounded-[var(--radius-lg)] bg-[var(--color-surface)] shadow-lg sm:rounded-[var(--radius-lg)]">
         <div className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] px-6 py-4">
-          <div className="flex items-start gap-3">
+          <div className="flex min-w-0 items-start gap-3">
             {item.imageUrl && !imageFailed ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -114,7 +114,7 @@ export function ItemModal({
                 <ImageOff size={16} className="text-[var(--color-text-muted)]" />
               </div>
             )}
-            <div>
+            <div className="min-w-0">
               <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">{item.name}</h2>
               {item.description ? <p className="mt-0.5 text-sm text-[var(--color-text-secondary)]">{item.description}</p> : null}
             </div>
@@ -124,7 +124,7 @@ export function ItemModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           {item.variants.length > 1 ? (
             <div className="mb-5">
               <p className="mb-2 text-sm font-medium text-[var(--color-text-primary)]">Size</p>
@@ -204,7 +204,7 @@ export function ItemModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-4 border-t border-[var(--color-border)] px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] px-4 py-3 sm:flex-nowrap sm:px-6 sm:py-4">
           <div className="flex items-center gap-3">
             <QuantityStepper
               value={quantity}
@@ -214,7 +214,7 @@ export function ItemModal({
           </div>
           <Button
             size="lg"
-            className="flex-1"
+            className="min-w-0 flex-1"
             disabled={missingRequired.length > 0 || (item.variants.length > 0 && !variant?.inStock)}
             onClick={handleAdd}
           >

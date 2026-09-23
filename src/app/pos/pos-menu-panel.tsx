@@ -25,17 +25,17 @@ export function PosMenuPanel({
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6 py-3">
-        <div className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:gap-3">
+        <div className="flex min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 lg:shrink-0">
           <Search size={16} className="text-[var(--color-text-muted)]" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search menu"
-            className="w-40 text-sm outline-none"
+            className="min-w-0 flex-1 text-base outline-none sm:text-sm lg:w-40"
           />
         </div>
-        <div className="flex gap-2 overflow-x-auto">
+        <div className="flex min-w-0 w-full gap-2 overflow-x-auto pb-1 lg:w-auto lg:flex-1">
           <button
             onClick={() => setActiveCategory("all")}
             className={`shrink-0 rounded-full border px-4 py-2 text-sm font-medium ${
@@ -62,11 +62,11 @@ export function PosMenuPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 pb-24 sm:p-6 lg:pb-6">
         {filteredItems.length === 0 ? (
           <p className="mt-10 text-center text-sm text-[var(--color-text-secondary)]">No menu items match.</p>
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
             {filteredItems.map((item) => {
               const prices = item.variants.length > 0 ? item.variants.map((v) => v.price) : [item.basePrice];
               const minPrice = Math.min(...prices);
@@ -92,8 +92,8 @@ export function PosMenuPanel({
                       Out of stock
                     </span>
                   ) : null}
-                  <div className="flex flex-col gap-0.5 px-4 pb-4">
-                    <span className="text-sm font-semibold text-[var(--color-text-primary)]">{item.name}</span>
+                  <div className="flex min-w-0 flex-col gap-0.5 px-3 pb-3 sm:px-4 sm:pb-4">
+                    <span className="break-words text-sm font-semibold text-[var(--color-text-primary)]">{item.name}</span>
                     <span className="tabular-nums text-sm text-[var(--color-text-secondary)]">
                       {minPrice === maxPrice ? formatIDR(minPrice) : `${formatIDR(minPrice)}–${formatIDR(maxPrice)}`}
                     </span>

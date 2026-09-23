@@ -61,7 +61,7 @@ export function SettingsForm({
           <Checkbox name="taxEnabled" defaultChecked={tax !== null} />
           Apply tax to orders
         </label>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Tax percent" htmlFor="taxPercent">
             <input
               id="taxPercent"

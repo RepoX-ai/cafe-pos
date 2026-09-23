@@ -55,8 +55,8 @@ export function StatCard({
       </div>
       {/* All card numbers share one size/weight so the row reads as one set — emphasis is by
           border/background above, not a bigger number. */}
-      <div className="mt-1 flex items-baseline gap-2">
-        <p className={`text-xl font-semibold tabular-nums ${color}`}>{value}</p>
+      <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-2">
+        <p className={`min-w-0 break-all text-xl font-semibold tabular-nums ${color}`}>{value}</p>
         {trend ? (
           <span
             className={`flex items-center gap-0.5 text-xs font-medium tabular-nums ${

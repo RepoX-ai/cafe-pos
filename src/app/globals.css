@@ -151,6 +151,11 @@ body {
   outline-offset: 2px;
 }
 
+@media (max-width: 639px) {
+  /* iOS zooms focused controls below 16px, hiding neighboring form fields. */
+  input, select, textarea { font-size: 16px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

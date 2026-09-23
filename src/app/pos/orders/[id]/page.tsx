@@ -44,14 +44,14 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
 
 
   return (
-    <div className="force-light-theme min-h-screen bg-[var(--color-page-bg)] px-6 py-6">
+    <div className="force-light-theme min-h-dvh bg-[var(--color-page-bg)] px-4 py-5 sm:px-6 sm:py-6">
       <div className="mx-auto max-w-[900px]">
         <Link href="/pos/orders" className="inline-flex items-center gap-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
           <ArrowLeft size={14} />
           Back to order history
         </Link>
 
-        <div className="mt-2 flex items-center justify-between">
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{order.orderNumber}</h1>
             <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
@@ -72,8 +72,8 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
           </div>
         ) : null}
 
-        <section className="mt-6 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-          <table className="w-full border-collapse text-sm">
+        <section className="mt-6 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+          <table className="w-full min-w-[540px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                 <th className="px-4 py-3">Item</th>

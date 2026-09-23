@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import { Select } from "@/components/ui/form-field";
@@ -27,6 +27,8 @@ import {
  */
 export function PosCartPanel({
   cart,
+  mobileOpen,
+  onClose,
   orderType,
   setOrderType,
   tableLabel,
@@ -54,6 +56,8 @@ export function PosCartPanel({
   handleSubmit,
 }: {
   cart: CartLine[];
+  mobileOpen: boolean;
+  onClose: () => void;
   orderType: OrderType;
   setOrderType: (value: OrderType) => void;
   tableLabel: string;
@@ -102,9 +106,9 @@ export function PosCartPanel({
   }
 
   return (
-    <aside className="flex w-[380px] shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)]">
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-5 py-3.5">
-        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Current order</h2>
+    <aside id="pos-cart" aria-label="Current order" className={`${mobileOpen ? "flex" : "hidden"} fixed inset-0 z-30 min-h-0 w-full flex-col overflow-y-auto bg-[var(--color-surface)] max-lg:pb-[env(safe-area-inset-bottom)] lg:static lg:flex lg:w-[380px] lg:shrink-0 lg:overflow-hidden lg:border-l lg:border-[var(--color-border)]`}>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--color-border)] px-4 py-3.5 sm:px-5">
+        <div className="flex items-center gap-2"><button type="button" onClick={onClose} aria-label="Close order" className="rounded-[var(--radius-sm)] p-2 text-[var(--color-text-secondary)] lg:hidden"><X size={20} /></button><h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Current order</h2></div>
         <div className="flex gap-1 rounded-[var(--radius-sm)] bg-[var(--color-page-bg)] p-0.5">
           {(["dine_in", "takeaway"] as const).map((t) => (
             <button
@@ -120,7 +124,7 @@ export function PosCartPanel({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
+      <div className="shrink-0 px-4 py-3 sm:px-5 lg:min-h-0 lg:flex-1 lg:shrink lg:overflow-y-auto">
         {cart.length === 0 ? (
           <p className="mt-8 text-center text-sm text-[var(--color-text-secondary)]">Cart is empty. Tap a menu item to add it.</p>
         ) : (
@@ -165,13 +169,13 @@ export function PosCartPanel({
         )}
       </div>
 
-      <div className="shrink-0 border-t border-[var(--color-border)] px-5 py-4">
-        <div className="mb-3 grid grid-cols-2 gap-2">
+      <div className="shrink-0 border-t border-[var(--color-border)] px-4 py-4 sm:px-5">
+        <div className="mb-3 grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
           <input
             value={tableLabel}
             onChange={(e) => setTableLabel(e.target.value)}
             placeholder="Table / customer"
-            className="h-10 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2.5 text-sm outline-none focus:border-[var(--color-accent-primary)]"
+            className="h-10 min-w-0 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2.5 text-sm outline-none focus:border-[var(--color-accent-primary)]"
           />
           <Select
             value={paymentMethod}

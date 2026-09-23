@@ -28,9 +28,9 @@ export function Modal({ open, title, description, onClose, children, maxWidthCla
         // wherever it was declared in the DOM, so a modal opened from a
         // right-aligned table cell rendered its whole form right-aligned.
         // Content alignment shouldn't depend on the call site.
-        className={`relative flex max-h-[85vh] w-full ${maxWidthClassName} flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] text-left shadow-lg`}
+        className={`relative flex max-h-[calc(100dvh-2rem)] w-full min-w-0 ${maxWidthClassName} flex-col rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] text-left shadow-lg`}
       >
-        <div className="flex items-start justify-between border-b border-[var(--color-border)] px-6 py-4">
+        <div className="flex items-start justify-between border-b border-[var(--color-border)] px-4 py-4 sm:px-6">
           <div>
             <h2 className="text-base font-semibold text-[var(--color-text-primary)]">{title}</h2>
             {description ? (
@@ -45,7 +45,7 @@ export function Modal({ open, title, description, onClose, children, maxWidthCla
             <X size={18} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">{children}</div>
       </div>
     </Dialog>
   );

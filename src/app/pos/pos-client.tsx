@@ -6,12 +6,12 @@ import { submitOrderInputSchema, type SubmitOrderInput } from "@/lib/validation/
 import type { PrintJobPayload } from "@/printing/printer-provider";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, History, KeyRound, LogOut, Printer, WifiOff } from "lucide-react";
+import { ChevronDown, History, KeyRound, LogOut, Printer, ShoppingBag, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
 import type { TaxConfig } from "@/lib/settings/tax";
 import { calculateServiceCharge, calculateTax } from "@/lib/settings/tax";
-import { sumRupiah } from "@/lib/money/money";
+import { formatIDR, sumRupiah } from "@/lib/money/money";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { BrandLogo } from "@/components/brand-logo";
 import { BusinessSwitcher, type BusinessOption } from "@/components/business-switcher";
@@ -89,6 +89,7 @@ export function PosClient({
   const [search, setSearch] = useState("");
   const [configuring, setConfiguring] = useState<PosMenuItem | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [orderType, setOrderType] = useState<OrderType>("dine_in");
   const [tableLabel, setTableLabel] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
@@ -420,14 +421,28 @@ export function PosClient({
     }
   }
 
+  useEffect(() => {
+    if (!mobileCartOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileCartOpen(false);
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [mobileCartOpen]);
+
   if (confirmation) {
     return <PosOrderConfirmation confirmation={confirmation} resetOrder={resetOrder} printer={printer} />;
   }
 
   return (
-    <div style={brandStyle} className="force-light-theme flex h-screen flex-col bg-[var(--color-page-bg)]">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6">
-        <div className="flex items-center gap-3">
+    <div style={brandStyle} className="force-light-theme flex h-dvh min-w-0 flex-col overflow-hidden bg-[var(--color-page-bg)]">
+      <header className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           {businessOptions.length > 1 ? (
             <div ref={storeMenuRef} className="relative">
               <button
@@ -438,7 +453,7 @@ export function PosClient({
                 className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1 pl-1 pr-2 text-left hover:bg-[var(--color-selected-surface)]"
               >
                 <BrandLogo className="h-9" alt={businessName} name={businessName} src={logoUrl} markOnly />
-                <span className="min-w-0 max-w-[13rem]">
+                <span className="min-w-0 max-w-[5rem] sm:max-w-[13rem]">
                   <span className="block truncate text-sm font-medium text-[var(--color-text-primary)]">
                     {businessName}
                   </span>
@@ -464,7 +479,7 @@ export function PosClient({
               ) : null}
             </div>
           ) : (
-            <BrandLogo className="h-9" alt={businessName} name={businessName} src={logoUrl} />
+            <BrandLogo className="h-9 max-w-[6rem] overflow-hidden sm:max-w-[13rem]" alt={businessName} name={businessName} src={logoUrl} />
           )}
           {!isOnline ? (
             <span className="flex items-center gap-1.5 rounded-full bg-[var(--color-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--color-danger)]">
@@ -473,7 +488,7 @@ export function PosClient({
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-3">
           <button
             type="button"
             onClick={() =>
@@ -481,23 +496,24 @@ export function PosClient({
                 showToast("error", error instanceof Error ? error.message : "Could not connect to the printer."),
               )
             }
-            className={`flex h-8 items-center gap-1.5 rounded-[var(--radius-sm)] border px-3 text-xs font-medium ${
+            aria-label={printer.isConnected ? "Printer connected" : "Connect printer"}
+            className={`flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border px-2 text-xs font-medium sm:px-3 ${
               printer.isConnected
                 ? "border-[var(--color-success)] text-[var(--color-success)]"
                 : "border-[var(--color-border)] hover:bg-[var(--color-selected-surface)]"
             }`}
           >
-            <Printer size={12} />
-            {printer.isConnected ? (printer.deviceName ?? "Printer ready") : "Connect printer"}
-            {printer.isAsleep ? " (asleep)" : ""}
+            <Printer size={16} />
+            <span className="hidden sm:inline">{printer.isConnected ? (printer.deviceName ?? "Printer ready") : "Connect printer"}{printer.isAsleep ? " (asleep)" : ""}</span>
           </button>
           {canViewOrderHistory ? (
             <Link
               href="/pos/orders"
-              className="flex h-8 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 text-xs font-medium hover:bg-[var(--color-selected-surface)]"
+              aria-label="Order history"
+              className="flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-2 text-xs font-medium hover:bg-[var(--color-selected-surface)] sm:px-3"
             >
-              <History size={12} />
-              Order history
+              <History size={16} />
+              <span className="hidden sm:inline">Order history</span>
             </Link>
           ) : null}
           <div ref={userMenuRef} className="relative">
@@ -506,12 +522,13 @@ export function PosClient({
               onClick={() => setUserMenuOpen((prev) => !prev)}
               aria-haspopup="menu"
               aria-expanded={userMenuOpen}
-              className="flex items-center gap-2 rounded-[var(--radius-sm)] py-1.5 pl-1.5 pr-1.5 text-left hover:bg-[var(--color-selected-surface)]"
+              aria-label={`Account: ${userName}`}
+              className="flex items-center gap-1 rounded-[var(--radius-sm)] py-1.5 pl-1.5 pr-1.5 text-left hover:bg-[var(--color-selected-surface)] sm:gap-2"
             >
               <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-selected-surface)] text-xs font-semibold text-[var(--color-accent-primary)]">
                 {initials(userName)}
               </div>
-              <div>
+              <div className="hidden sm:block">
                 <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{userName}</p>
                 <p className="text-xs text-[var(--color-text-muted)]">{roleLabel}</p>
               </div>
@@ -550,8 +567,8 @@ export function PosClient({
         </div>
       </header>
 
-      {pending ? <div role="alert" className="p-4">A submission needs confirmation. <Button disabled={isSubmitting || !isOnline} onClick={handleSubmit}>Retry saved order</Button>{submitError ? <p>{submitError}</p> : null}</div> : null}
-      <div inert={!!pending || isSubmitting || !draftLoaded} className="flex min-h-0 flex-1">
+      {pending ? <div role="alert" className="flex flex-wrap items-center gap-2 p-4 text-sm">A submission needs confirmation. <Button disabled={isSubmitting || !isOnline} onClick={handleSubmit}>Retry saved order</Button>{submitError ? <p>{submitError}</p> : null}</div> : null}
+      <div inert={!!pending || isSubmitting || !draftLoaded} className="flex min-h-0 min-w-0 flex-1">
         <PosMenuPanel
           categories={categories}
           filteredItems={filteredItems}
@@ -564,6 +581,8 @@ export function PosClient({
 
         <PosCartPanel
           cart={cart}
+          mobileOpen={mobileCartOpen}
+          onClose={() => setMobileCartOpen(false)}
           orderType={orderType}
           setOrderType={setOrderType}
           tableLabel={tableLabel}
@@ -591,6 +610,17 @@ export function PosClient({
           handleSubmit={handleSubmit}
         />
       </div>
+
+      <button
+        type="button"
+        onClick={() => setMobileCartOpen(true)}
+        aria-controls="pos-cart"
+        aria-expanded={mobileCartOpen}
+        className="absolute inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-10 flex min-h-12 items-center justify-between rounded-[var(--radius-md)] bg-[var(--color-accent-primary)] px-4 text-sm font-semibold text-[var(--color-accent-contrast)] shadow-lg lg:hidden"
+      >
+        <span className="flex items-center gap-2"><ShoppingBag size={18} /> Current order ({cart.reduce((sum, line) => sum + line.quantity, 0)})</span>
+        <span>{formatIDR(total)}</span>
+      </button>
 
       {configuring ? (
         <ItemModal item={configuring} onClose={() => setConfiguring(null)} onAdd={addToCart} />

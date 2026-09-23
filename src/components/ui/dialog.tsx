@@ -20,7 +20,7 @@ export function Dialog({ open, label, onClose, children, className = "" }: {
       const rect = event.currentTarget.getBoundingClientRect();
       if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose();
     } }}
-    className={`m-auto max-h-[90vh] w-[calc(100%-2rem)] overflow-visible rounded-[var(--radius-lg)] bg-[var(--color-surface)] p-0 text-[var(--color-text-primary)] backdrop:bg-black/30 ${className}`}>
+    className={`m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-visible rounded-[var(--radius-lg)] bg-[var(--color-surface)] p-0 text-[var(--color-text-primary)] backdrop:bg-black/30 ${className}`}>
     {open ? children : null}
   </dialog>;
 }

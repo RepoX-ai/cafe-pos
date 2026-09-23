@@ -93,7 +93,7 @@ export function ExpensesClient({
       <div>
         {/* A rise in spend is bad news, so every trend arrow here reads inverted
             against the dashboard's revenue cards. */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
           <StatCard
             icon={Wallet}
             label="Recorded spending"
@@ -193,7 +193,7 @@ export function ExpensesClient({
         </div>
         <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
+          <table className="w-full min-w-[680px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                 <th className="px-4 py-3">Date</th>
@@ -270,7 +270,7 @@ function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone
   }, [state]);
 
   return (
-    <form action={formAction} className="grid grid-cols-2 gap-4">
+    <form action={formAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       {existing ? null : <input type="hidden" name="idempotencyKey" value={submissionKey} />}
       {existing ? <input type="hidden" name="id" value={existing.id} /> : null}
 
@@ -303,19 +303,19 @@ function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone
       <Field label="Reference #" htmlFor="referenceNumber">
         <input id="referenceNumber" name="referenceNumber" defaultValue={existing?.referenceNumber ?? ""} className={inputClassName} />
       </Field>
-      <div className="col-span-2">
+      <div className="sm:col-span-2">
         <Field label="Notes" htmlFor="notes">
           <textarea id="notes" name="notes" defaultValue={existing?.notes ?? ""} className={textareaClassName} />
         </Field>
       </div>
 
       {errorState?.error ? (
-        <p role="alert" className="col-span-2 rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
+        <p role="alert" className="rounded-[var(--radius-sm)] bg-[var(--color-danger-bg)] px-3 py-2 text-sm text-[var(--color-danger)]">
           {errorState.error}
         </p>
       ) : null}
 
-      <div className="col-span-2 mt-2 flex justify-end gap-2">
+      <div className="mt-2 sm:col-span-2 flex justify-end gap-2">
         <Button type="button" variant="secondary" onClick={onDone}>
           Cancel
         </Button>

@@ -22,6 +22,8 @@ import {
   Users,
   History,
   ChevronDown,
+  Menu,
+  X,
 } from "lucide-react";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { BusinessSwitcher, type BusinessOption } from "@/components/business-switcher";
@@ -82,6 +84,7 @@ export function AdminShell({
 }: AdminShellProps) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -100,6 +103,20 @@ export function AdminShell({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [userMenuOpen]);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onEscape);
+    };
+  }, [mobileNavOpen]);
 
   // Restore the user's last choice after mount (avoids an SSR/client
   // markup mismatch — first paint always matches the server's default).
@@ -146,17 +163,20 @@ export function AdminShell({
     // there. Dark mode is still admin-only: /pos and /login pin themselves
     // light with `.force-light-theme`.
     <>
-      <div style={brandStyle} className="flex h-screen overflow-hidden bg-[var(--color-page-bg)]">
+      <div style={brandStyle} className="flex h-dvh min-w-0 overflow-hidden bg-[var(--color-page-bg)]">
+        {mobileNavOpen ? (
+          <button type="button" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} className="fixed inset-0 z-30 bg-black/40 md:hidden" />
+        ) : null}
         <aside
-          className={`flex h-screen shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] transition-[width] duration-150 ${
-            collapsed ? "w-[68px]" : "w-[220px]"
-          }`}
+          id="admin-navigation"
+          aria-label="Main navigation"
+          className={`${mobileNavOpen ? "visible translate-x-0" : "invisible -translate-x-full"} fixed inset-y-0 left-0 z-40 flex w-[min(280px,85vw)] flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] transition-transform duration-150 md:static md:z-auto md:h-dvh md:shrink-0 md:visible md:translate-x-0 md:transition-[width] ${collapsed ? "md:w-[68px]" : "md:w-[220px]"}`}
         >
           <div
-            className={`flex h-14 shrink-0 items-center border-b border-[var(--color-border)] px-4 ${
-              collapsed ? "justify-center" : "justify-between gap-2"
-            }`}
+            className={`flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4 ${collapsed ? "md:justify-center" : ""}` }
           >
+            <button type="button" onClick={() => setMobileNavOpen(false)} aria-label="Close menu" className="order-last rounded-[var(--radius-sm)] p-2 md:hidden"><X size={20} /></button>
+            {collapsed ? <div className="md:hidden"><BrandLogo className="h-8" alt={businessName} name={businessName} src={logoUrl} /></div> : null}
             {!collapsed ? (
               <>
                 <div className="flex min-w-0 items-center">
@@ -165,7 +185,7 @@ export function AdminShell({
                 <button
                   onClick={toggleCollapsed}
                   title="Collapse sidebar"
-                  className="shrink-0 rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
+                  className="hidden shrink-0 rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)] md:block"
                 >
                   <PanelLeftClose size={16} />
                 </button>
@@ -174,24 +194,24 @@ export function AdminShell({
               <button
                 onClick={toggleCollapsed}
                 title="Expand sidebar"
-                className="rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)]"
+                className="hidden rounded-[var(--radius-sm)] p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-page-bg)] hover:text-[var(--color-text-primary)] md:block"
               >
                 <PanelLeftOpen size={18} />
               </button>
             )}
           </div>
 
-          <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
+          <nav onClick={(event) => { if ((event.target as HTMLElement).closest("a")) setMobileNavOpen(false); }} className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
             {canUsePos ? (
               <Link
                 href="/pos"
                 title="Open POS"
                 className={`mb-2 flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 text-sm font-medium text-[var(--color-text-primary)] hover:bg-[var(--color-page-bg)] ${
-                  collapsed ? "justify-center" : ""
+                  collapsed ? "md:justify-center" : ""
                 }`}
               >
                 <ShoppingBag size={16} className="shrink-0" />
-                {!collapsed ? "Open POS" : null}
+                <span className={collapsed ? "md:hidden" : ""}>Open POS</span>
               </Link>
             ) : null}
             {NAV_GROUP_ORDER.map((group) => {
@@ -216,7 +236,7 @@ export function AdminShell({
                           href={item.href}
                           title={item.label}
                           className={`flex items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-2 text-sm font-medium transition-colors ${
-                            collapsed ? "justify-center" : ""
+                            collapsed ? "md:justify-center" : ""
                           } ${
                             active
                               ? "bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"
@@ -224,7 +244,7 @@ export function AdminShell({
                           }`}
                         >
                           <Icon size={16} className="shrink-0" />
-                          {!collapsed ? item.label : null}
+                          <span className={collapsed ? "md:hidden" : ""}>{item.label}</span>
                         </Link>
                       );
                     })}
@@ -236,7 +256,9 @@ export function AdminShell({
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-14 shrink-0 items-center justify-end gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-6">
+          <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 md:justify-end md:px-6">
+            <button type="button" onClick={() => setMobileNavOpen(true)} aria-label="Open menu" aria-controls="admin-navigation" aria-expanded={mobileNavOpen} className="rounded-[var(--radius-sm)] p-2 md:hidden"><Menu size={20} /></button>
+            <div className="flex items-center gap-2 md:gap-3">
             <ThemeToggle />
             <div ref={userMenuRef} className="relative">
               <button
@@ -249,7 +271,7 @@ export function AdminShell({
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-selected-surface)] text-xs font-semibold text-[var(--color-accent-primary)]">
                   {initials(userName)}
                 </div>
-                <div className="min-w-0">
+                <div className="hidden min-w-0 sm:block">
                   <p className="truncate text-sm font-medium text-[var(--color-text-primary)]">{userName}</p>
                   <p className="truncate text-xs text-[var(--color-text-muted)]">
                     {businessOptions.length > 1 ? `${roleLabel} · ${businessName}` : roleLabel}
@@ -293,8 +315,9 @@ export function AdminShell({
                 </div>
               ) : null}
             </div>
+            </div>
           </header>
-          <main className="min-w-0 flex-1 overflow-y-auto px-6 py-6 md:px-12 md:py-8 xl:px-20">{children}</main>
+          <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 md:px-12 md:py-8 xl:px-20">{children}</main>
         </div>
       </div>
     </>

@@ -159,7 +159,7 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Field label="Supplier" htmlFor="supplierId">
           <Select id="supplierId" value={supplierId} onChange={setSupplierId}>
             <option value="">No supplier</option>
