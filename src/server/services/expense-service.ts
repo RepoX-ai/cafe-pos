@@ -1,7 +1,7 @@
 import { and, desc, eq, getTableColumns, gte, lte, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import { averageRupiah } from "@/lib/money/money";
-import { expenses } from "@/lib/db/schema";
+import { expenses, purchases, suppliers } from "@/lib/db/schema";
 import type { ExpenseInput } from "@/lib/validation/expense";
 import { recordAuditLog } from "./audit";
 import { NotFoundError } from "./errors";
@@ -172,4 +172,60 @@ export async function updateExpense(db: Database, actor: ActorContext, id: strin
 
     return row;
   });
+}
+
+/**
+ * One dated cash-outflow ledger. A purchase remains a purchase record; reading
+ * it here avoids a duplicate editable expense and includes historical receipts.
+ * Each half is tenant/date scoped before UNION ALL, then the combined rows are
+ * ordered and paged together so no receipt disappears between expense pages.
+ */
+export type SpendingLedgerRow = {
+  id: string;
+  source: "expense" | "purchase";
+  paidAt: string | null;
+  category: string;
+  amount: number;
+  expenseDate: string;
+  payee: string | null;
+  referenceNumber: string | null;
+  notes: string | null;
+  recurring: boolean;
+};
+
+export async function listSpendingLedgerInRange(
+  db: Database,
+  businessId: string,
+  range: CalendarRange,
+  window: { limit: number; offset: number },
+): Promise<SpendingLedgerRow[]> {
+  const result = await db.execute<SpendingLedgerRow>(sql`
+    select id, source, category, amount, "expenseDate", "paidAt", payee, "referenceNumber", notes, recurring
+    from (
+      select ${expenses.id} as id, 'expense'::text as source,
+        ${expenses.category} as category, ${expenses.amount} as amount,
+        to_char(${expenses.expenseDate}, 'YYYY-MM-DD') as "expenseDate", null::text as "paidAt", ${expenses.payee} as payee,
+        ${expenses.referenceNumber} as "referenceNumber", ${expenses.notes} as notes,
+        ${expenses.recurring} as recurring, ${expenses.createdAt} as created_at
+      from ${expenses}
+      where ${expenses.businessId} = ${businessId}
+        and ${expenses.expenseDate} between ${range.from} and ${range.to}
+      union all
+      select ${purchases.id} as id, 'purchase'::text as source,
+        'Ingredient purchase'::text as category, ${purchases.totalCost} as amount,
+        to_char(${purchases.purchaseDate}, 'YYYY-MM-DD') as "expenseDate",
+        to_char(${purchases.paidAt}, 'YYYY-MM-DD') as "paidAt", ${suppliers.name} as payee,
+        ${purchases.invoiceNumber} as "referenceNumber", null::text as notes,
+        false as recurring, ${purchases.createdAt} as created_at
+      from ${purchases}
+      left join ${suppliers} on ${purchases.supplierId} = ${suppliers.id}
+        and ${suppliers.businessId} = ${businessId}
+      where ${purchases.businessId} = ${businessId}
+        and ${purchases.status} = 'FINALIZED'
+        and ${purchases.purchaseDate} between ${range.from} and ${range.to}
+    ) ledger
+    order by "expenseDate" desc, created_at desc, id desc
+    limit ${window.limit} offset ${window.offset}
+  `);
+  return result.rows;
 }

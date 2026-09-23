@@ -13,6 +13,7 @@ export const purchaseInputSchema = z.object({
   supplierId: z.string().uuid().optional().or(z.literal("")),
   invoiceNumber: z.string().trim().max(100).optional().or(z.literal("")),
   purchaseDate: calendarDateSchema,
+  paidAt: calendarDateSchema.nullable().optional(),
   lines: z
     .array(purchaseLineInputSchema)
     .min(1, "Add at least one ingredient line")

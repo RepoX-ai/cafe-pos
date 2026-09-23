@@ -9,6 +9,7 @@ import { formatDisplayDateTime } from "@/lib/dates/dates";
 import { BASE_UNIT_LABEL } from "@/lib/units/units";
 import { getPurchaseWithLines } from "@/server/services/purchase-service";
 import { Badge } from "@/components/ui/badge";
+import { PurchasePayment } from "./purchase-payment";
 
 export const metadata: Metadata = {
   title: "Purchase — CaféOps",
@@ -41,6 +42,14 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
         </div>
         <Badge tone={purchase.status === "FINALIZED" ? "success" : "neutral"}>{purchase.status}</Badge>
       </div>
+
+      <section className="mt-6 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Supplier payment</h2>
+          <Badge tone={purchase.paidAt ? "success" : "warning"}>{purchase.paidAt ? `Paid ${purchase.paidAt}` : "Payment unconfirmed"}</Badge>
+        </div>
+        <PurchasePayment id={purchase.id} paidAt={purchase.paidAt} />
+      </section>
 
       <section className="mt-6 overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         <table className="w-full min-w-[720px] border-collapse text-sm">

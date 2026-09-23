@@ -16,14 +16,15 @@ export function HistoryTab({ purchases, pagination }: { purchases: PurchaseRow[]
             <th className="px-4 py-3">Date</th>
             <th className="px-4 py-3">Supplier</th>
             <th className="px-4 py-3">Invoice</th>
-            <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Stock</th>
+            <th className="px-4 py-3">Payment</th>
             <th className="px-4 py-3">Total</th>
           </tr>
         </thead>
         <tbody>
           {purchases.length === 0 ? (
             <tr>
-              <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+              <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                 No purchases recorded yet.
               </td>
             </tr>
@@ -39,6 +40,7 @@ export function HistoryTab({ purchases, pagination }: { purchases: PurchaseRow[]
                 <td className="px-4 py-3">
                   <Badge tone={p.status === "FINALIZED" ? "success" : "neutral"}>{p.status}</Badge>
                 </td>
+                <td className="px-4 py-3"><Badge tone={p.paidAt ? "success" : "warning"}>{p.paidAt ? `Paid ${p.paidAt}` : "Unconfirmed"}</Badge></td>
                 <td className="px-4 py-3 tabular-nums">{formatIDR(p.totalCost)}</td>
               </tr>
             ))

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { ingredients, menuItems } from "@/lib/db/schema";
+import { ingredients, menuItems, recipeLines, recipes } from "@/lib/db/schema";
 import { getTestDb, seedTestFixture } from "./helpers";
 import { submitOrder, cancelOrder, getOrderById } from "@/server/services/order-service";
 import { InsufficientStockError } from "@/server/services/inventory-service";
@@ -9,6 +9,19 @@ import { createAndFinalizePurchase } from "@/server/services/purchase-service";
 const db = getTestDb();
 
 describe.skipIf(!db)("order submission (integration)", () => {
+  it("rejects a stale POS order after a variant loses its ingredient recipe", async () => {
+    const { business, user, variant, menuItem } = await seedTestFixture(db!);
+    const [recipe] = await db!.select({ id: recipes.id }).from(recipes).where(eq(recipes.menuItemVariantId, variant.id));
+    await db!.delete(recipeLines).where(eq(recipeLines.recipeId, recipe.id));
+
+    await expect(submitOrder(db!, { businessId: business.id, userId: user.id }, {
+      idempotencyKey: "unfinished-recipe-order",
+      orderType: "dine_in",
+      discountTotal: 0,
+      lines: [{ menuItemId: menuItem.id, menuItemVariantId: variant.id, quantity: 1, modifierOptionIds: [] }],
+    })).rejects.toThrow(/no completed recipe/);
+  });
+
   it("consumes recipe ingredients and records COGS/gross profit", async () => {
     const { business, user, variant, menuItem } = await seedTestFixture(db!, {
       openingStock: "1000",

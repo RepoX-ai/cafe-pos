@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
 import {
   date,
   foreignKey,
@@ -27,6 +28,8 @@ export const purchases = pgTable("purchases", {
   supplierId: uuid("supplier_id"),
   invoiceNumber: text("invoice_number"),
   purchaseDate: date("purchase_date").notNull(),
+  // Null means payment has not been confirmed. Existing receipts remain unknown.
+  paidAt: date("paid_at"),
   status: purchaseStatusEnum("status").notNull().default("DRAFT"),
   // Whole Rupiah; sum of purchase_lines.total_line_cost.
   totalCost: integer("total_cost").notNull().default(0),
@@ -37,6 +40,7 @@ export const purchases = pgTable("purchases", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("purchases_business_purchase_date_idx").on(table.businessId, table.purchaseDate),
+  index("purchases_business_paid_at_idx").on(table.businessId, table.paidAt).where(sql`${table.paidAt} is not null`),
   foreignKey({
     name: "purchases_supplier_same_business_fk",
     columns: [table.businessId, table.supplierId],

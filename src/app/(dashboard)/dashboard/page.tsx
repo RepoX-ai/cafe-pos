@@ -13,6 +13,7 @@ import {
   PiggyBank,
   XCircle,
   Trash2,
+  Banknote,
 } from "lucide-react";
 import { requirePageAccess } from "@/lib/auth/guards";
 import { db, reportDb } from "@/lib/db/client";
@@ -39,6 +40,7 @@ import {
 } from "@/lib/dates/dates";
 import { Badge } from "@/components/ui/badge";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
+import { getPaidPurchaseSpend } from "@/server/services/purchase-service";
 import { getMenuItemImages } from "@/server/services/menu-service";
 import { DateRangeForm } from "@/components/ui/date-range-form";
 import { StatCard as Card, computeTrend } from "@/components/ui/stat-card";
@@ -85,7 +87,7 @@ export default async function DashboardPage({
   // reports pool (DATABASE_REPORT_POOL_MAX): they queue there instead of
   // taking the connections checkout needs. Images below stay sequential —
   // they need ranking IDs.
-  const [summary, previousSummary, stockAlerts, rankings, recentOrders, failedPrints, salesTrend, salesByCategory, salesByPaymentMethod] = await Promise.all([
+  const [summary, previousSummary, stockAlerts, rankings, recentOrders, failedPrints, salesTrend, salesByCategory, salesByPaymentMethod, paidPurchases, previousPaidPurchases] = await Promise.all([
     getSalesSummary(reportDb, user.businessId, range),
     getSalesSummary(reportDb, user.businessId, previousRange),
     getStockAlerts(reportDb, user.businessId, 6),
@@ -97,7 +99,12 @@ export default async function DashboardPage({
     getSalesTrend(reportDb, user.businessId, chartRange, granularity),
     getSalesByCategoryWithModifiers(reportDb, user.businessId, range),
     getSalesByPaymentMethod(reportDb, user.businessId, range),
+    getPaidPurchaseSpend(reportDb, user.businessId, range),
+    getPaidPurchaseSpend(reportDb, user.businessId, previousRange),
   ]);
+
+  const estimatedCashMovement = summary.totalSales - summary.expensesTotal - paidPurchases.total;
+  const previousCashMovement = previousSummary.totalSales - previousSummary.expensesTotal - previousPaidPurchases.total;
 
   const salesByBucket = new Map(salesTrend.map((d) => [d.day, d]));
   const trendData: TrendPoint[] = bucketStarts(chartRange, granularity).map((day) => {
@@ -160,20 +167,22 @@ export default async function DashboardPage({
           previousLabel={`vs. ${formatIDR(previousSummary.grossProfit)} last period`}
         />
         <Card icon={Percent} label="Gross margin" value={summary.grossMarginPercentage !== null ? `${summary.grossMarginPercentage.toFixed(1)}%` : "—"} />
-        <Card icon={CreditCard} label="Expenses" value={formatIDR(summary.expensesTotal)} />
+        <Card icon={CreditCard} label="Operating expenses" value={formatIDR(summary.expensesTotal)} />
         <Card
           icon={PiggyBank}
-          label="Est. net profit"
+          label="Estimated profit"
           value={formatIDR(summary.estimatedNetProfit)}
           trend={computeTrend(summary.estimatedNetProfit, previousSummary.estimatedNetProfit)}
           previousLabel={`vs. ${formatIDR(previousSummary.estimatedNetProfit)} last period`}
           emphasize
         />
+        <Card icon={Banknote} label="Paid supplier purchases" value={formatIDR(paidPurchases.total)} />
+        <Card icon={Wallet} label="Est. cash movement" value={formatIDR(estimatedCashMovement)} trend={computeTrend(estimatedCashMovement, previousCashMovement)} />
         <Card icon={XCircle} label="Cancelled/refunded" value={formatIDR(summary.cancelledRefundedAmount)} tone="danger" />
         <Card icon={Trash2} label="Waste cost" value={formatIDR(summary.wasteCost)} tone="warning" />
       </div>
       <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-        Estimated net profit is gross profit minus recorded expenses — not audited accounting profit.
+        Estimated profit = sales − sold-item COGS − operating expenses − ingredient waste. Estimated cash movement = sales − operating expenses − confirmed supplier payments. It assumes POS sales were collected and manual expenses were paid; it is not a bank balance.
       </p>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">

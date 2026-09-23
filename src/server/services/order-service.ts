@@ -181,6 +181,9 @@ function validateLine(catalog: OrderCatalog, line: SubmitOrderInput["lines"][num
     variantName = variant.variantName;
     categoryName = variant.categoryName;
     basePrice = variant.variantPrice;
+    if (!catalog.recipeLinesByVariant.get(variant.variantId)?.length) {
+      throw new OrderValidationError(`"${variant.variantName}" has no completed recipe and cannot be ordered.`);
+    }
     hasRecipe = variant.tracksInventory;
   } else {
     const item = catalog.baseItems.get(line.menuItemId);

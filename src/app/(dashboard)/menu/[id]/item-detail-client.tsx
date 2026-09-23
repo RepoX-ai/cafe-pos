@@ -50,6 +50,10 @@ interface Variant {
   name: string;
   price: number;
   active: boolean;
+  recipeStatus: {
+    hasRecipe: boolean;
+    missingIngredients: { name: string; needed: number; available: number; unit: string }[];
+  };
 }
 
 interface Category {
@@ -126,11 +130,26 @@ export function ItemDetailClient({
         ) : (
           <div className="flex flex-col divide-y divide-[var(--color-border)]">
             {variants.map((v) => (
-              <div key={v.id} className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-2">
+              <div key={v.id} className="flex items-start justify-between gap-4 py-3">
+                <div className="flex flex-col gap-1.5"><div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium text-[var(--color-text-primary)]">{v.name}</span>
                   <span className="tabular-nums text-sm text-[var(--color-text-secondary)]">{formatIDR(v.price)}</span>
                   <Badge tone={v.active ? "success" : "neutral"}>{v.active ? "Active" : "Archived"}</Badge>
+                  {!v.recipeStatus.hasRecipe ? <Badge tone="warning">Recipe unfinished · hidden from POS</Badge> : null}
+                  {v.recipeStatus.missingIngredients.length > 0 ? <Badge tone="warning">Restock needed</Badge> : null}
+                </div>
+                {v.recipeStatus.missingIngredients.length > 0 ? (
+                  <ul className="text-xs text-[var(--color-danger)]">
+                    {v.recipeStatus.missingIngredients.map((ingredient) => (
+                      <li key={ingredient.name}>
+                        {ingredient.name}: {ingredient.available} {ingredient.unit} available, {ingredient.needed} {ingredient.unit} needed
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {!v.recipeStatus.hasRecipe ? (
+                  <Link className="text-xs text-[var(--color-accent-primary)] underline" href={`/menu/${item.id}/recipe?variant=${v.id}`}>Add ingredients to make this variant orderable</Link>
+                ) : null}
                 </div>
                 <div className="flex items-center justify-end">
                   <VariantRowActions
@@ -343,7 +362,7 @@ function VariantForm({
             onAddLine={addLine}
           />
           <p className="mt-1.5 text-xs text-[var(--color-text-muted)]">
-            You can leave this empty and add ingredients later from the variant&apos;s Recipe link.
+            If you leave this empty, the variant stays hidden from POS until you add ingredients through its Recipe action.
           </p>
         </div>
       ) : null}

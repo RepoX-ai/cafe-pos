@@ -165,13 +165,43 @@ export async function getMenuItemById(db: Database, businessId: string, id: stri
     .where(eq(menuItemVariants.menuItemId, id))
     .orderBy(asc(menuItemVariants.displayOrder), asc(menuItemVariants.name));
 
+  const activeRecipes = variants.length ? await db
+    .select({ id: recipes.id, variantId: recipes.menuItemVariantId })
+    .from(recipes)
+    .where(and(eq(recipes.businessId, businessId), eq(recipes.active, true), inArray(recipes.menuItemVariantId, variants.map((v) => v.id))))
+    : [];
+  const statusLines = activeRecipes.length ? await db
+    .select({
+      recipeId: recipeLines.recipeId,
+      ingredientName: ingredients.name,
+      required: recipeLines.quantityBaseUnits,
+      wastePercentage: recipeLines.wastePercentage,
+      available: ingredients.currentQuantityBaseUnits,
+      unit: ingredients.baseUnit,
+    })
+    .from(recipeLines)
+    .innerJoin(ingredients, and(eq(recipeLines.ingredientId, ingredients.id), eq(ingredients.businessId, businessId)))
+    .where(inArray(recipeLines.recipeId, activeRecipes.map((r) => r.id)))
+    : [];
+  const recipeByVariant = new Map(activeRecipes.map((r) => [r.id, r.variantId]));
+  const statusByVariant = new Map<string, { hasRecipe: boolean; missingIngredients: { name: string; needed: number; available: number; unit: string }[] }>();
+  for (const variant of variants) statusByVariant.set(variant.id, { hasRecipe: false, missingIngredients: [] });
+  for (const line of statusLines) {
+    const status = statusByVariant.get(recipeByVariant.get(line.recipeId) ?? "");
+    if (!status) continue;
+    status.hasRecipe = true;
+    const needed = effectiveQuantity(Number(line.required), Number(line.wastePercentage ?? 0));
+    const available = Number(line.available);
+    if (available < needed) status.missingIngredients.push({ name: line.ingredientName, needed, available, unit: line.unit });
+  }
+
   const assignedGroups = await db
     .select({ modifierGroupId: menuItemModifierGroups.modifierGroupId })
     .from(menuItemModifierGroups)
     .where(and(eq(menuItemModifierGroups.menuItemId, id), eq(menuItemModifierGroups.businessId, businessId)))
     .orderBy(asc(menuItemModifierGroups.displayOrder));
 
-  return { item, variants, assignedModifierGroupIds: assignedGroups.map((g) => g.modifierGroupId) };
+  return { item, variants: variants.map((variant) => ({ ...variant, recipeStatus: statusByVariant.get(variant.id)! })), assignedModifierGroupIds: assignedGroups.map((g) => g.modifierGroupId) };
 }
 
 export async function createMenuItem(db: Database, actor: ActorContext, input: MenuItemInput) {
@@ -973,7 +1003,7 @@ export async function getPosMenu(
           .where(and(inArray(modifierOptions.modifierGroupId, groupIds), eq(modifierOptions.active, true)))
       : [],
 
-    checkStock && variantIds.length > 0
+    variantIds.length > 0
       ? db
           .select({ id: recipes.id, variantId: recipes.menuItemVariantId, version: recipes.version })
           .from(recipes)
@@ -1023,6 +1053,7 @@ export async function getPosMenu(
       : [],
   ]);
 
+  const recipeReady = new Set(lines.map((line) => recipeIdToVariantId.get(line.recipeId)).filter((id): id is string => !!id));
   const variantAvailability = new Map<string, boolean>();
   for (const line of lines) {
     const variantId = recipeIdToVariantId.get(line.recipeId);
@@ -1071,8 +1102,8 @@ export async function getPosMenu(
 
   // Items with no active variant are still orderable — sold directly off
   // their basePrice (see order-service.submitOrder).
-  const posItems: PosMenuItem[] = items.map((item) => {
-    const itemVariants = (variantsByItem.get(item.id) ?? []).map((v) => ({
+  const posItems: PosMenuItem[] = items.filter((item) => { const itemVariants = variantsByItem.get(item.id) ?? []; return itemVariants.length === 0 || itemVariants.some((variant) => recipeReady.has(variant.id)); }).map((item) => {
+    const itemVariants = (variantsByItem.get(item.id) ?? []).filter((v) => recipeReady.has(v.id)).map((v) => ({
       ...v,
       inStock: item.tracksInventory ? (variantAvailability.get(v.id) ?? true) : true,
     }));

@@ -19,6 +19,7 @@ export interface PurchaseRow {
   id: string;
   invoiceNumber: string | null;
   purchaseDate: string;
+  paidAt: string | null;
   status: string;
   totalCost: number;
   supplierName: string | null;

@@ -59,6 +59,8 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
   const [supplierId, setSupplierId] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [paid, setPaid] = useState(false);
+  const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 10));
   const [submissionKey, rotateSubmissionKey] = useSubmissionKey();
   const [lines, setLines] = useState<LineDraft[]>([emptyLine()]);
   const [isPending, setIsPending] = useState(false);
@@ -123,6 +125,7 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
       supplierId: supplierId || undefined,
       invoiceNumber: invoiceNumber || undefined,
       purchaseDate,
+      paidAt: paid ? paidAt : null,
       lines: filledLines.map((l) => ({
         ingredientId: l.ingredientId,
         quantityPurchased: Number(l.quantityPurchased),
@@ -147,6 +150,7 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
       setResult(null);
       setLines([emptyLine()]);
       setInvoiceNumber("");
+      setPaid(false);
     } else {
       setResult({ ok: false, text: res.error });
       showToast("error", res.error);
@@ -172,6 +176,22 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
         <Field label="Purchase date" htmlFor="purchaseDate">
           <DatePicker id="purchaseDate" value={purchaseDate} onChange={setPurchaseDate} />
         </Field>
+      </div>
+
+      <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] p-4">
+        <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+          <input type="checkbox" checked={paid} onChange={(e) => setPaid(e.target.checked)} />
+          Supplier has been paid
+        </label>
+        {paid ? (
+          <div className="mt-3 max-w-[240px]">
+            <Field label="Payment date" htmlFor="paidAt">
+              <DatePicker id="paidAt" value={paidAt} onChange={setPaidAt} />
+            </Field>
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-[var(--color-text-muted)]">You can mark this receipt paid later. Unpaid receipts do not count as cash outflow.</p>
+        )}
       </div>
 
       <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">

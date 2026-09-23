@@ -38,6 +38,7 @@ export async function listPurchases(
       id: purchases.id,
       invoiceNumber: purchases.invoiceNumber,
       purchaseDate: purchases.purchaseDate,
+      paidAt: purchases.paidAt,
       status: purchases.status,
       totalCost: purchases.totalCost,
       createdAt: purchases.createdAt,
@@ -58,6 +59,7 @@ export async function getPurchaseWithLines(db: Database, businessId: string, id:
       id: purchases.id,
       invoiceNumber: purchases.invoiceNumber,
       purchaseDate: purchases.purchaseDate,
+      paidAt: purchases.paidAt,
       status: purchases.status,
       totalCost: purchases.totalCost,
       createdAt: purchases.createdAt,
@@ -131,6 +133,7 @@ export async function createAndFinalizePurchase(
             supplierId: input.supplierId || null,
             invoiceNumber: input.invoiceNumber || null,
             purchaseDate: input.purchaseDate,
+            paidAt: input.paidAt ?? null,
             status: "DRAFT",
             createdBy: actor.userId,
           })
@@ -227,4 +230,57 @@ export async function createAndFinalizePurchase(
     );
     return result;
   });
+}
+
+/** Purchase cash outflow for the expense view. Inventory purchases are already
+ * represented in sales COGS and must not be deducted again from net profit. */
+export async function getPurchaseSpend(db: Database, businessId: string, range: BusinessDateRange) {
+  const [row] = await db.select({
+    total: sql<number>`coalesce(sum(${purchases.totalCost}), 0)::bigint`.mapWith(Number),
+    count: sql<number>`count(*)::int`,
+  }).from(purchases).where(and(purchaseFilter(businessId, range), eq(purchases.status, "FINALIZED")));
+  return { total: row.total, count: row.count };
+}
+
+/** Date buckets for the combined spending chart. */
+export async function getPurchaseSpendByDay(db: Database, businessId: string, range: BusinessDateRange) {
+  return db.select({
+    day: purchases.purchaseDate,
+    total: sql<number>`coalesce(sum(${purchases.totalCost}), 0)::bigint`.mapWith(Number),
+    entryCount: sql<number>`count(*)::int`,
+  }).from(purchases)
+    .where(and(purchaseFilter(businessId, range), eq(purchases.status, "FINALIZED")))
+    .groupBy(purchases.purchaseDate);
+}
+
+/** Record or correct the payment date without changing stock or the receipt. */
+export async function setPurchasePaidAt(db: Database, actor: ActorContext, id: string, paidAt: string | null) {
+  return db.transaction(async (tx) => {
+    const [before] = await tx.select().from(purchases)
+      .where(and(eq(purchases.id, id), eq(purchases.businessId, actor.businessId)))
+      .for("update");
+    if (!before) throw new NotFoundError("Purchase not found");
+    if (before.status !== "FINALIZED") throw new ServiceError("Only finalized receipts can have payment recorded.");
+    if (before.paidAt === paidAt) return before;
+    const [after] = await tx.update(purchases).set({ paidAt })
+      .where(and(eq(purchases.id, id), eq(purchases.businessId, actor.businessId))).returning();
+    await recordAuditLog(tx, {
+      businessId: actor.businessId, actorUserId: actor.userId,
+      action: "purchase.payment_updated", entityType: "purchase",
+      entityId: id, before, after,
+    });
+    return after;
+  });
+}
+
+/** Only confirmed payments count as cash outflow, dated when paid. */
+export async function getPaidPurchaseSpend(db: Database, businessId: string, range: BusinessDateRange) {
+  const [row] = await db.select({
+    total: sql<number>`coalesce(sum(${purchases.totalCost}), 0)::bigint`.mapWith(Number),
+    count: sql<number>`count(*)::int`,
+  }).from(purchases).where(and(
+    eq(purchases.businessId, businessId), eq(purchases.status, "FINALIZED"),
+    withinCalendarDates(purchases.paidAt, range),
+  ));
+  return { total: row.total, count: row.count };
 }

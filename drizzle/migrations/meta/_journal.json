@@ -148,6 +148,13 @@
       "when": 1790129991601,
       "tag": "0020_orders_number_trigram_index",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790150000000,
+      "tag": "0021_purchase_payment_date",
+      "breakpoints": true
     }
   ]
 }

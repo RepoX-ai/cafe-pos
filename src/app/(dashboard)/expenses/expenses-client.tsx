@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState, type ReactNode } from "react";
 import { useActionState } from "react";
@@ -8,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { DateRangeForm } from "@/components/ui/date-range-form";
 import { StatCard, computeTrend } from "@/components/ui/stat-card";
 import { TrendChart, type TrendPoint } from "@/components/ui/trend-chart";
-import type { ExpenseSummary } from "@/server/services/expense-service";
+import type { ExpenseSummary, SpendingLedgerRow } from "@/server/services/expense-service";
 import { Modal } from "@/components/ui/modal";
 import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
@@ -25,16 +26,7 @@ interface CategoryTotal {
   entryCount: number;
 }
 
-interface ExpenseRow {
-  id: string;
-  category: string;
-  amount: number;
-  expenseDate: string;
-  payee: string | null;
-  referenceNumber: string | null;
-  notes: string | null;
-  recurring: boolean;
-}
+type ExpenseRow = SpendingLedgerRow;
 
 const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
   EXPENSE_CATEGORIES.map((c) => [c, c.replace("_", " ").replace(/\b\w/g, (l) => l.toUpperCase())]),
@@ -44,6 +36,9 @@ export function ExpensesClient({
   records,
   pagination,
   summary,
+  purchaseSpend,
+  paidPurchaseSpend,
+  previousPurchaseSpend,
   previousSummary,
   byCategory,
   trendData,
@@ -56,6 +51,9 @@ export function ExpensesClient({
   records: ExpenseRow[];
   pagination?: ReactNode;
   summary: ExpenseSummary;
+  purchaseSpend: { total: number; count: number };
+  paidPurchaseSpend: { total: number; count: number };
+  previousPurchaseSpend: { total: number; count: number };
   previousSummary: ExpenseSummary;
   byCategory: CategoryTotal[];
   trendData: TrendPoint[];
@@ -68,8 +66,10 @@ export function ExpensesClient({
     null,
   );
 
-  const averagePerDay = rangeLengthDays > 0 ? Math.round(summary.total / rangeLengthDays) : 0;
-  const previousAveragePerDay = rangeLengthDays > 0 ? Math.round(previousSummary.total / rangeLengthDays) : 0;
+  const totalSpent = summary.total + purchaseSpend.total;
+  const totalEntries = summary.entryCount + purchaseSpend.count;
+  const averagePerDay = rangeLengthDays > 0 ? Math.round(totalSpent / rangeLengthDays) : 0;
+  const previousAveragePerDay = rangeLengthDays > 0 ? Math.round((previousSummary.total + previousPurchaseSpend.total) / rangeLengthDays) : 0;
   const largestCategoryTotal = byCategory[0]?.total ?? 0;
 
   return (
@@ -78,7 +78,7 @@ export function ExpensesClient({
         <div>
           <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Expenses</h1>
           <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-            Manual operating expenses. These affect estimated net profit but never order COGS.
+            Operating expenses and ingredient purchases. Record ingredient purchases through Purchases, not the manual expense form. Their costs enter profit through sold-item COGS.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -96,19 +96,19 @@ export function ExpensesClient({
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
             icon={Wallet}
-            label="Total expenses"
-            value={formatIDR(summary.total)}
-            trend={computeTrend(summary.total, previousSummary.total)}
-            previousLabel={`vs. ${formatIDR(previousSummary.total)} last period`}
+            label="Recorded spending"
+            value={formatIDR(summary.total + purchaseSpend.total)}
+            trend={computeTrend(summary.total + purchaseSpend.total, previousSummary.total + previousPurchaseSpend.total)}
+            previousLabel={`vs. ${formatIDR(previousSummary.total + previousPurchaseSpend.total)} last period`}
             trendMeansGood={false}
             emphasize
           />
           <StatCard
             icon={Receipt}
             label="Entries"
-            value={summary.entryCount.toLocaleString("id-ID")}
-            trend={computeTrend(summary.entryCount, previousSummary.entryCount)}
-            previousLabel={`vs. ${previousSummary.entryCount.toLocaleString("id-ID")} last period`}
+            value={(summary.entryCount + purchaseSpend.count).toLocaleString("id-ID")}
+            trend={computeTrend(summary.entryCount + purchaseSpend.count, previousSummary.entryCount + previousPurchaseSpend.count)}
+            previousLabel={`vs. ${(previousSummary.entryCount + previousPurchaseSpend.count).toLocaleString("id-ID")} last period`}
             trendMeansGood={false}
           />
           <StatCard
@@ -119,21 +119,21 @@ export function ExpensesClient({
             previousLabel={`over ${rangeLengthDays} ${rangeLengthDays === 1 ? "day" : "days"}`}
             trendMeansGood={false}
           />
-          <StatCard icon={Layers} label="Avg per entry" value={formatIDR(summary.averagePerEntry)} />
+          <StatCard icon={Layers} label="Supplier payments" value={formatIDR(paidPurchaseSpend.total)} />
         </div>
         <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-          Cards, the category split and the history table below all cover {from} → {to}.
+          Recorded spending includes {formatIDR(purchaseSpend.total)} of received ingredients, paid or unpaid, dated by receipt. Supplier payments use confirmed payment dates. Profit counts ingredients when sold through COGS. Figures cover {from} → {to}.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
         <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:col-span-3">
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Expense trend — last 14 days</h2>
+          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Spending trend — last 14 days</h2>
           <div className="mt-3">
             <TrendChart
               data={trendData}
-              ariaLabel="Daily expense total for the last 14 days"
-              emptyText="No expenses in the last 14 days."
+              ariaLabel="Daily spending total for the last 14 days"
+              emptyText="No spending in the last 14 days."
             />
           </div>
         </div>
@@ -153,7 +153,7 @@ export function ExpensesClient({
                     <span className="shrink-0 tabular-nums text-[var(--color-text-primary)]">
                       {formatIDR(c.total)}
                       <span className="ml-2 text-xs text-[var(--color-text-muted)]">
-                        {shareOfTotal(c.total, summary.total)}
+                        {shareOfTotal(c.total, totalSpent)}
                       </span>
                     </span>
                   </div>
@@ -188,8 +188,8 @@ export function ExpensesClient({
 
       <div>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">History</h2>
-          <span className="text-sm font-medium text-[var(--color-text-secondary)]">Total: {formatIDR(summary.total)}</span>
+          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Spending history</h2>
+          <span className="text-sm font-medium text-[var(--color-text-secondary)]">Total: {formatIDR(summary.total + purchaseSpend.total)}</span>
         </div>
         <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <div className="overflow-x-auto">
@@ -197,6 +197,7 @@ export function ExpensesClient({
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                 <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Source</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Payee</th>
                 <th className="px-4 py-3">Amount</th>
@@ -206,25 +207,30 @@ export function ExpensesClient({
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
-                    No expenses recorded between {from} and {to}.
+                  <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                    No spending recorded between {from} and {to}.
                   </td>
                 </tr>
               ) : (
                 records.map((r) => (
                   <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.expenseDate}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.source === "purchase" ? (
+                      <span>Purchase<span className="block text-xs">{r.paidAt ? `Paid ${r.paidAt}` : "Payment unconfirmed"}</span></span>
+                    ) : "Manual expense"}</td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{CATEGORY_LABEL[r.category] ?? r.category}</td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.payee ?? "—"}</td>
                     <td className="px-4 py-3 tabular-nums">{formatIDR(r.amount)}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end">
-                        <ActionMenu
-                          label={`Actions for the expense on ${r.expenseDate}`}
-                          items={[
-                            { label: "Edit details", onSelect: () => setDrawerState({ mode: "edit", row: r }) },
-                          ]}
-                        />
+                        {r.source === "purchase" ? (
+                          <Link href={`/purchases/${r.id}`} className="text-sm text-[var(--color-accent-primary)] underline">View receipt</Link>
+                        ) : (
+                          <ActionMenu
+                            label={`Actions for the expense on ${r.expenseDate}`}
+                            items={[{ label: "Edit details", onSelect: () => setDrawerState({ mode: "edit", row: r }) }]}
+                          />
+                        )}
                       </div>
                     </td>
                   </tr>

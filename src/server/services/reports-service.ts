@@ -41,7 +41,7 @@ export interface SalesSummary {
   estimatedNetProfit: number;
 }
 
-/** Every summary figure in one statement; accounting definitions unchanged (PRD §6.12). */
+/** Every summary figure in one statement. Estimated profit also deducts unsold waste. */
 export async function getSalesSummary(db: Database, businessId: string, range: DateRange): Promise<SalesSummary> {
   const active = inArray(orders.status, [...ACTIVE_ORDER_STATUSES]);
   const reversed = inArray(orders.status, [...REVERSED_ORDER_STATUSES]);
@@ -77,7 +77,7 @@ export async function getSalesSummary(db: Database, businessId: string, range: D
     cancelledRefundedAmount: row.cancelledRefundedAmount,
     wasteCost: row.wasteCost,
     expensesTotal: row.expensesTotal,
-    estimatedNetProfit: row.grossProfit - row.expensesTotal,
+    estimatedNetProfit: row.grossProfit - row.expensesTotal - row.wasteCost,
   };
 }
 

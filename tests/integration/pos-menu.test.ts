@@ -14,11 +14,25 @@ import {
   recipes,
 } from "@/lib/db/schema";
 import { getTestDb, seedTestFixture, type TestDb } from "./helpers";
-import { getPosMenu } from "@/server/services/menu-service";
+import { getMenuItemById, getPosMenu } from "@/server/services/menu-service";
 
 const db = getTestDb();
 
 describe.skipIf(!db)("POS menu stock availability (integration)", () => {
+  it("hides a new variant without a recipe and identifies the ingredient blocking an existing variant", async () => {
+    const { business, menuItem, variant } = await seedTestFixture(db!, { openingStock: "5" });
+    const [unfinished] = await db!.insert(menuItemVariants).values({
+      menuItemId: menuItem.id, name: "Large", price: 25000,
+    }).returning();
+
+    const { items } = await getPosMenu(db!, business.id, { allowNegativeStock: false });
+    expect(items.find((item) => item.id === menuItem.id)?.variants.map((v) => v.id)).toEqual([variant.id]);
+
+    const detail = await getMenuItemById(db!, business.id, menuItem.id);
+    expect(detail?.variants.find((v) => v.id === unfinished.id)?.recipeStatus.hasRecipe).toBe(false);
+    expect(detail?.variants.find((v) => v.id === variant.id)?.recipeStatus.missingIngredients).toHaveLength(1);
+  });
+
   it("marks a variant in stock when the recipe's ingredients are sufficient", async () => {
     const { business, variant } = await seedTestFixture(db!, { openingStock: "1000" }); // recipe needs 20g
 
@@ -253,7 +267,7 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
     // More items/variants/options never add statements, only the stages that apply.
     expect(smallCount).toBe(6);
     expect(bigCount).toBe(8);
-    // Negative stock allowed: no recipe or recipe-line reads.
-    expect(await countStatements(big.business.id, true, db!)).toBe(5);
+    // Negative stock skips modifier availability reads, but still checks variant recipes.
+    expect(await countStatements(big.business.id, true, db!)).toBe(7);
   });
 });

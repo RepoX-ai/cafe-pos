@@ -93,6 +93,22 @@ describe.skipIf(!db)("report dates and exports (PostgreSQL)", () => {
     expect(csv.rows.map((r) => r[0])).toEqual(["2026-01-01"]);
   });
 
+  it("deducts ingredient waste once from estimated profit", async () => {
+    const { business, ingredient } = await seedTestFixture(db!);
+    await insertOrder(business.id, "2026-03-10T03:00:00.000Z", 10_000);
+    await db!.insert(schema.wasteRecords).values({
+      businessId: business.id, ingredientId: ingredient.id,
+      quantityBaseUnits: "5", reason: "spilled", estimatedCost: 250,
+      createdAt: new Date("2026-03-10T04:00:00.000Z"),
+    });
+    await db!.insert(schema.expenses).values({
+      businessId: business.id, category: "electricity", amount: 1_000, expenseDate: "2026-03-10",
+    });
+    const summary = await getSalesSummary(db!, business.id, { from: "2026-03-10", to: "2026-03-10" });
+    expect(summary.wasteCost).toBe(250);
+    expect(summary.estimatedNetProfit).toBe(10_000 - 1_000 - 250);
+  });
+
   it("keeps totals above 2^31 exact in summaries, grouped reports, and CSV", async () => {
     const { business } = await seedTestFixture(db!);
     for (let i = 0; i < 3; i++) await insertOrder(business.id, "2026-03-10T03:00:00.000Z", 2_000_000_000);

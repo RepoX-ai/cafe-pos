@@ -115,7 +115,7 @@ export async function loadOrderCatalog(db: Database, businessId: string, lines: 
 
   // An item sold without a variant has no recipe row (recipes are keyed by
   // variant), so only tracked variants ever consume stock or carry COGS.
-  const trackedVariantIds = variantRows.filter((row) => row.tracksInventory).map((row) => row.variantId);
+  const trackedVariantIds = variantRows.map((row) => row.variantId);
   const recipeLinesByVariant = new Map<string, RecipeLineRow[]>();
   if (trackedVariantIds.length > 0) {
     const latest = db
