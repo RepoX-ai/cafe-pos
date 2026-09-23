@@ -155,6 +155,20 @@
       "when": 1790150000000,
       "tag": "0021_purchase_payment_date",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790160942896,
+      "tag": "0022_membership_user_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790160943939,
+      "tag": "0023_session_membership_same_user",
+      "breakpoints": true
     }
   ]
 }

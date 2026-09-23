@@ -99,7 +99,8 @@ export function TrendChart({
   const gridLines = [0, 0.5, 1];
   const hasAnyValue = data.some((d) => d.value > 0);
 
-  const linePath = data.map((d, i) => `${i === 0 ? "M" : "L"}${xAt(i)},${yAt(d.value)}`).join(" ");
+  const points = data.map((d, i) => ({ x: xAt(i), y: yAt(d.value) }));
+  const linePath = smoothLinePath(points);
   const areaPath = data.length > 0 ? `${linePath} L${xAt(data.length - 1)},${baseline} L${xAt(0)},${baseline} Z` : "";
 
   const hoveredPoint = hovered !== null ? data[hovered] : null;
@@ -239,6 +240,60 @@ export function TrendChart({
       </svg>
     </div>
   );
+}
+
+/**
+ * Monotone cubic (Fritsch–Carlson) spline through `points`, as an SVG path
+ * using cubic Bezier segments. Unlike a naive Catmull-Rom smoothing, this
+ * never overshoots past a point's neighbors — important here since the area
+ * fill sits under the line and an overshoot would dip it visibly below the
+ * Rp0 baseline on a sharp day-over-day drop.
+ */
+function smoothLinePath(points: { x: number; y: number }[]): string {
+  const n = points.length;
+  if (n === 0) return "";
+  if (n === 1) return `M${points[0].x},${points[0].y}`;
+
+  const dx: number[] = [];
+  const secant: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = points[i + 1].x - points[i].x;
+    secant[i] = dx[i] === 0 ? 0 : (points[i + 1].y - points[i].y) / dx[i];
+  }
+
+  const tangent = new Array<number>(n);
+  tangent[0] = secant[0];
+  tangent[n - 1] = secant[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    tangent[i] = secant[i - 1] * secant[i] <= 0 ? 0 : (secant[i - 1] + secant[i]) / 2;
+  }
+  for (let i = 0; i < n - 1; i++) {
+    if (secant[i] === 0) {
+      tangent[i] = 0;
+      tangent[i + 1] = 0;
+      continue;
+    }
+    const a = tangent[i] / secant[i];
+    const b = tangent[i + 1] / secant[i];
+    const s = a * a + b * b;
+    if (s > 9) {
+      const t = 3 / Math.sqrt(s);
+      tangent[i] = t * a * secant[i];
+      tangent[i + 1] = t * b * secant[i];
+    }
+  }
+
+  let path = `M${points[0].x},${points[0].y}`;
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    const cp1x = p0.x + dx[i] / 3;
+    const cp1y = p0.y + (tangent[i] * dx[i]) / 3;
+    const cp2x = p1.x - dx[i] / 3;
+    const cp2y = p1.y - (tangent[i + 1] * dx[i]) / 3;
+    path += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p1.x},${p1.y}`;
+  }
+  return path;
 }
 
 /** Round up to a clean gridline ceiling (1/2/5 × a power of 10). */

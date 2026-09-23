@@ -117,6 +117,11 @@ export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
     "inventory:adjust",
     "inventory:waste",
     "purchases:write",
+    // Deliberate deviation from the PRD's default role matrix, which marks
+    // expense management "No" for this role — the café asked for
+    // inventory_staff to manage expenses too (same pattern as the
+    // reprint-permission change above for cashier).
+    "expenses:write",
     // orders:create is optional/assignment-based; not granted by default.
   ]),
   viewer: new Set<Permission>([

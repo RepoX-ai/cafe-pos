@@ -5,6 +5,7 @@ import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState, type ReactNode } from "react";
 import { useActionState } from "react";
 import { CalendarDays, Layers, Plus, Receipt, Wallet } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DateRangeForm } from "@/components/ui/date-range-form";
 import { StatCard, computeTrend } from "@/components/ui/stat-card";
@@ -14,7 +15,6 @@ import { Modal } from "@/components/ui/modal";
 import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName, textareaClassName } from "@/components/ui/form-styles";
 import { DatePicker } from "@/components/ui/date-picker";
-import { ActionMenu } from "@/components/ui/action-menu";
 import { EXPENSE_CATEGORIES } from "@/lib/validation/expense";
 import { createExpenseAction, updateExpenseAction, type ExpenseActionState } from "./actions";
 import { useSubmissionKey } from "@/components/ui/use-submission-key";
@@ -198,6 +198,7 @@ export function ExpensesClient({
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Source</th>
+                <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Payee</th>
                 <th className="px-4 py-3">Amount</th>
@@ -207,7 +208,7 @@ export function ExpensesClient({
             <tbody>
               {records.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
+                  <td colSpan={7} className="px-4 py-10 text-center text-[var(--color-text-secondary)]">
                     No spending recorded between {from} and {to}.
                   </td>
                 </tr>
@@ -215,9 +216,18 @@ export function ExpensesClient({
                 records.map((r) => (
                   <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0">
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.expenseDate}</td>
-                    <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.source === "purchase" ? (
-                      <span>Purchase<span className="block text-xs">{r.paidAt ? `Paid ${r.paidAt}` : "Payment unconfirmed"}</span></span>
-                    ) : "Manual expense"}</td>
+                    <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.source === "purchase" ? "Purchase" : "Manual expense"}</td>
+                    <td className="px-4 py-3">
+                      {r.source === "purchase" ? (
+                        r.paidAt ? (
+                          <Badge tone="success">Paid {r.paidAt}</Badge>
+                        ) : (
+                          <Badge tone="warning">Payment unconfirmed</Badge>
+                        )
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-[var(--color-text-primary)]">{CATEGORY_LABEL[r.category] ?? r.category}</td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{r.payee ?? "—"}</td>
                     <td className="px-4 py-3 tabular-nums">{formatIDR(r.amount)}</td>
@@ -226,10 +236,14 @@ export function ExpensesClient({
                         {r.source === "purchase" ? (
                           <Link href={`/purchases/${r.id}`} className="text-sm text-[var(--color-accent-primary)] underline">View receipt</Link>
                         ) : (
-                          <ActionMenu
-                            label={`Actions for the expense on ${r.expenseDate}`}
-                            items={[{ label: "Edit details", onSelect: () => setDrawerState({ mode: "edit", row: r }) }]}
-                          />
+                          <button
+                            type="button"
+                            onClick={() => setDrawerState({ mode: "edit", row: r })}
+                            aria-label={`View details of the expense on ${r.expenseDate}`}
+                            className="text-sm text-[var(--color-accent-primary)] underline"
+                          >
+                            View details
+                          </button>
                         )}
                       </div>
                     </td>

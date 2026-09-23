@@ -38,10 +38,10 @@ export function PurchasePayment({ id, paidAt }: { id: string; paidAt: string | n
         </label>
         <DatePicker id="purchase-paid-at" value={date} onChange={setDate} />
       </div>
-      <Button size="sm" disabled={pending || !date} onClick={() => update(date)}>
+      <Button disabled={pending || !date} onClick={() => update(date)}>
         {pending ? "Saving…" : paidAt ? "Change date" : "Mark paid"}
       </Button>
-      {paidAt ? <Button size="sm" variant="secondary" disabled={pending} onClick={() => update(null)}>Clear payment</Button> : null}
+      {paidAt ? <Button variant="secondary" disabled={pending} onClick={() => update(null)}>Clear payment</Button> : null}
     </div>
   );
 }

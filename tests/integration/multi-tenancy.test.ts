@@ -175,6 +175,24 @@ describe.skipIf(!db)("multi-tenancy", () => {
     expect((await validateSessionToken(db!, token))?.businessId).toBe(cafeA.business.id);
   });
 
+  it("refuses at the database level a session pointed at another user's membership", async () => {
+    const { cafeA, cafeB } = await seedTwoBusinesses(db!);
+    const [theirs] = await db!
+      .select()
+      .from(memberships)
+      .where(and(eq(memberships.userId, cafeB.user.id), eq(memberships.businessId, cafeB.business.id)))
+      .limit(1);
+
+    await expect(
+      db!.insert(sessions).values({
+        userId: cafeA.user.id,
+        activeMembershipId: theirs.id,
+        tokenHash: randomUUID(),
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    ).rejects.toThrow();
+  });
+
   it("drops the session for a revoked membership without touching the other business", async () => {
     const { actorA, created } = await seedTwoBusinesses(db!);
 

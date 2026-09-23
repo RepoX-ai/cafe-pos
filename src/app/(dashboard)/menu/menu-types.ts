@@ -27,6 +27,10 @@ export interface MenuItemRow {
   tracksInventory: boolean;
   displayOrder: number;
   variants: VariantRow[];
+  /** Active variants with no recipe (or a recipe with no ingredients yet) — hidden from POS until fixed. */
+  missingRecipeCount: number;
+  /** Active, recipe-having variants short an ingredient at current stock. */
+  lowStockCount: number;
 }
 
 export interface ModifierOptionRow {

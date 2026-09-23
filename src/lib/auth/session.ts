@@ -205,7 +205,7 @@ export async function validateSessionToken(
     })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
-    .innerJoin(memberships, eq(sessions.activeMembershipId, memberships.id))
+    .innerJoin(memberships, and(eq(sessions.activeMembershipId, memberships.id), eq(memberships.userId, sessions.userId)))
     .innerJoin(businesses, eq(memberships.businessId, businesses.id))
     .where(eq(sessions.tokenHash, tokenHash))
     .limit(1);

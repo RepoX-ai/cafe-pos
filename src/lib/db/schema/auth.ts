@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   boolean,
+  foreignKey,
   integer,
   index,
   jsonb,
@@ -8,6 +9,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -68,6 +70,8 @@ export const memberships = pgTable(
   (table) => [
     uniqueIndex("memberships_user_business_idx").on(table.userId, table.businessId),
     index("memberships_business_id_idx").on(table.businessId),
+    // Target for sessions_membership_same_user_fk.
+    unique("memberships_id_user_id_key").on(table.id, table.userId),
   ],
 );
 
@@ -101,9 +105,9 @@ export const sessions = pgTable("sessions", {
   // Which business this browser is currently acting in. The cascade is the
   // point: revoke someone's membership and every session pinned to it goes
   // with it, on the next request, exactly like deactivating the account.
-  activeMembershipId: uuid("active_membership_id")
-    .notNull()
-    .references(() => memberships.id, { onDelete: "cascade" }),
+  // The FK is composite (see below) so it must also be the session's own
+  // user's membership, not merely some membership.
+  activeMembershipId: uuid("active_membership_id").notNull(),
   tokenHash: text("token_hash").notNull().unique(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   userAgent: text("user_agent"),
@@ -116,6 +120,11 @@ export const sessions = pgTable("sessions", {
   index("sessions_active_membership_id_idx").on(table.activeMembershipId),
   // Expired-session sweep (see deleteExpiredSessions).
   index("sessions_expires_at_idx").on(table.expiresAt),
+  foreignKey({
+    name: "sessions_membership_same_user_fk",
+    columns: [table.activeMembershipId, table.userId],
+    foreignColumns: [memberships.id, memberships.userId],
+  }).onDelete("cascade"),
 ]);
 
 export const auditLogs = pgTable("audit_logs", {

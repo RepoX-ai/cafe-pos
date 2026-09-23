@@ -348,7 +348,7 @@ function VariantForm({
 
       {canWriteRecipe ? (
         <div>
-          <p className="mb-2 text-sm font-medium text-[var(--color-text-primary)]">Recipe (optional)</p>
+          <p className="mb-2 text-sm font-medium text-[var(--color-text-primary)]">Recipe</p>
           <p className="mb-2 text-xs text-[var(--color-text-muted)]">
             Waste % inflates how much is actually drawn from stock beyond the stated quantity — for prep loss like
             spillage, trimming, or evaporation. Leave it at 0 if there&apos;s nothing worth accounting for.

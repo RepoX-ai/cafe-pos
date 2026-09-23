@@ -145,10 +145,59 @@ export async function listMenuItemsWithVariants(db: Database, businessId: string
     variantsByItem.set(row.menuItemId, list);
   }
 
-  return items.map((item) => ({
-    ...item,
-    variants: (variantsByItem.get(item.id) ?? []).sort((a, b) => a.displayOrder - b.displayOrder),
-  }));
+  // --- Recipe/stock warnings, batched the same way getPosMenu computes
+  // POS availability, but for every active variant regardless of the
+  // business's negative-stock setting — this list is what tells an admin
+  // "the POS will hide/gate this", not what the POS itself would show
+  // right now. Archived variants are excluded: nothing to fix on something
+  // that's already off the menu.
+  const activeVariantIds = variants.filter((v) => v.active).map((v) => v.id);
+  const activeRecipes = activeVariantIds.length > 0
+    ? await db
+        .select({ id: recipes.id, variantId: recipes.menuItemVariantId })
+        .from(recipes)
+        .where(and(eq(recipes.businessId, businessId), eq(recipes.active, true), inArray(recipes.menuItemVariantId, activeVariantIds)))
+    : [];
+  const recipeIdToVariantId = new Map(activeRecipes.map((r) => [r.id, r.variantId]));
+  const recipeIds = [...recipeIdToVariantId.keys()];
+
+  const lines = recipeIds.length > 0
+    ? await db
+        .select({
+          recipeId: recipeLines.recipeId,
+          quantityBaseUnits: recipeLines.quantityBaseUnits,
+          wastePercentage: recipeLines.wastePercentage,
+          currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
+        })
+        .from(recipeLines)
+        .innerJoin(ingredients, and(eq(recipeLines.ingredientId, ingredients.id), eq(ingredients.businessId, businessId)))
+        .where(inArray(recipeLines.recipeId, recipeIds))
+    : [];
+
+  // A recipe with zero lines never appears here, so its variant never joins
+  // `recipeReady` either — same "no ingredients yet" definition the POS and
+  // the item detail page use.
+  const recipeReady = new Set<string>();
+  const understocked = new Set<string>();
+  for (const line of lines) {
+    const variantId = recipeIdToVariantId.get(line.recipeId);
+    if (!variantId) continue;
+    recipeReady.add(variantId);
+    const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
+    if (needed > Number(line.currentQuantityBaseUnits)) understocked.add(variantId);
+  }
+
+  return items.map((item) => {
+    const itemVariants = (variantsByItem.get(item.id) ?? []).sort((a, b) => a.displayOrder - b.displayOrder);
+    const activeItemVariants = itemVariants.filter((v) => v.active);
+    const missingRecipeCount = activeItemVariants.filter((v) => !recipeReady.has(v.id)).length;
+    // Stock shortfall only matters for variants that already have a
+    // recipe — with no recipe, "missing recipe" is the actionable warning.
+    const lowStockCount = item.tracksInventory
+      ? activeItemVariants.filter((v) => recipeReady.has(v.id) && understocked.has(v.id)).length
+      : 0;
+    return { ...item, variants: itemVariants, missingRecipeCount, lowStockCount };
+  });
 }
 
 export async function getMenuItemById(db: Database, businessId: string, id: string) {

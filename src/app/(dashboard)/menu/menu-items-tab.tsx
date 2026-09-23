@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useActionState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
@@ -14,6 +14,7 @@ import { Field, Select } from "@/components/ui/form-field";
 import { inputClassName } from "@/components/ui/form-styles";
 import { ItemThumbnail } from "@/components/ui/item-thumbnail";
 import { Pagination } from "@/components/ui/pagination";
+import { Tooltip } from "@/components/ui/tooltip";
 import { usePagination } from "@/components/ui/use-pagination";
 import { createMenuItemAction, deleteMenuItemAction, setMenuItemActiveAction, type FormActionState } from "./actions";
 import { ImageField } from "./image-field";
@@ -151,13 +152,16 @@ export function ItemsTab({
                       <ItemThumbnail imageUrl={item.imageUrl} name={item.name} />
                     </td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/menu/${item.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="font-medium text-[var(--color-text-primary)] hover:text-[var(--color-accent-primary)]"
-                      >
-                        {item.name}
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Link
+                          href={`/menu/${item.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-medium text-[var(--color-text-primary)] hover:text-[var(--color-accent-primary)]"
+                        >
+                          {item.name}
+                        </Link>
+                        <ItemWarningIcon item={item} />
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">{item.categoryName ?? "—"}</td>
                     <td className="px-4 py-3 text-[var(--color-text-secondary)]">
@@ -192,6 +196,29 @@ export function ItemsTab({
         <NewItemForm categories={categories} onDone={() => setCreating(false)} />
       </Modal>
     </div>
+  );
+}
+
+/** Warning icon for an item with a variant missing a recipe or short on stock — mirrors the per-variant badges on the item detail page. */
+function ItemWarningIcon({ item }: { item: MenuItemRow }) {
+  if (item.missingRecipeCount === 0 && item.lowStockCount === 0) return null;
+
+  const messages: string[] = [];
+  if (item.missingRecipeCount > 0) {
+    messages.push(
+      `${item.missingRecipeCount} ${item.missingRecipeCount === 1 ? "variant needs" : "variants need"} a recipe — hidden from POS until added`,
+    );
+  }
+  if (item.lowStockCount > 0) {
+    messages.push(
+      `${item.lowStockCount} ${item.lowStockCount === 1 ? "variant is" : "variants are"} short an ingredient at current stock`,
+    );
+  }
+
+  return (
+    <Tooltip label={messages.join(" · ")}>
+      <TriangleAlert size={14} className="text-[var(--color-warning)]" aria-label={messages.join(". ")} />
+    </Tooltip>
   );
 }
 
