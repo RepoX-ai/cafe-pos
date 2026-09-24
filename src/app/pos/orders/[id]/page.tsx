@@ -15,7 +15,7 @@ import { TotalsPanel, TotalsRow } from "@/components/order-totals";
 import { ReprintReceipt } from "./reprint-receipt";
 
 export const metadata: Metadata = {
-  title: "Order — CaféOps",
+  title: "Order — Café POS",
 };
 
 /**

@@ -8,7 +8,7 @@ import { countWasteRecords, listWasteRecords } from "@/server/services/waste-ser
 import { WasteClient } from "./waste-client";
 
 export const metadata: Metadata = {
-  title: "Waste — CaféOps",
+  title: "Waste — Café POS",
 };
 
 export default async function WastePage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {

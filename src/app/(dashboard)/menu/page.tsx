@@ -11,7 +11,7 @@ import { listIngredients } from "@/server/services/ingredient-service";
 import { MenuClient } from "./menu-client";
 
 export const metadata: Metadata = {
-  title: "Menu — CaféOps",
+  title: "Menu — Café POS",
 };
 
 export default async function MenuPage() {

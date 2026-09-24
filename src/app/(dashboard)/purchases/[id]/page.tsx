@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { PurchasePayment } from "./purchase-payment";
 
 export const metadata: Metadata = {
-  title: "Purchase — CaféOps",
+  title: "Purchase — Café POS",
 };
 
 export default async function PurchaseDetailPage({ params }: { params: Promise<{ id: string }> }) {

@@ -9,7 +9,7 @@ import { countAuditLogs, listAuditLogs } from "@/server/services/audit";
 import { AuditLogTable } from "./audit-log-table";
 
 export const metadata: Metadata = {
-  title: "Audit log — CaféOps",
+  title: "Audit log — Café POS",
 };
 
 export default async function AuditLogPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {

@@ -6,7 +6,7 @@ import { getRecipeUsageByIngredient, listIngredients } from "@/server/services/i
 import { IngredientsClient } from "./ingredients-client";
 
 export const metadata: Metadata = {
-  title: "Ingredients — CaféOps",
+  title: "Ingredients — Café POS",
 };
 
 export default async function IngredientsPage() {

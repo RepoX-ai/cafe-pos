@@ -9,7 +9,7 @@ import { countMovements, describeMovementSources, listMovements } from "@/server
 import { InventoryClient } from "./inventory-client";
 
 export const metadata: Metadata = {
-  title: "Inventory — CaféOps",
+  title: "Inventory — Café POS",
 };
 
 export default async function InventoryPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {

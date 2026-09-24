@@ -5,7 +5,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import { PasswordForm } from "./password-form";
 
 export const metadata: Metadata = {
-  title: "Change password — CaféOps",
+  title: "Change password — Café POS",
 };
 
 /**
@@ -19,7 +19,7 @@ export default async function ChangePasswordPage() {
   return (
     <div className="force-light-theme flex min-h-screen flex-col items-center justify-center bg-[var(--color-page-bg)] px-6">
       <h1 className="mb-8 flex justify-center">
-        <BrandLogo className="h-20" name={user.businessName} />
+        <BrandLogo className="h-10" textClassName="text-2xl" gapClassName="gap-3" name={user.businessName} />
       </h1>
       <div className="w-full max-w-[380px] rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-sm">
         <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Change password</h2>

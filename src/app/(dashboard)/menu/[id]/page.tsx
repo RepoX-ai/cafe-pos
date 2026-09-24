@@ -8,7 +8,7 @@ import { listIngredients } from "@/server/services/ingredient-service";
 import { ItemDetailClient } from "./item-detail-client";
 
 export const metadata: Metadata = {
-  title: "Menu item — CaféOps",
+  title: "Menu item — Café POS",
 };
 
 export default async function MenuItemDetailPage({ params }: { params: Promise<{ id: string }> }) {

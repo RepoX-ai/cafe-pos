@@ -23,7 +23,7 @@ import { getPurchaseSpend, getPurchaseSpendByDay, getPaidPurchaseSpend } from "@
 import { ExpensesClient } from "./expenses-client";
 
 export const metadata: Metadata = {
-  title: "Expenses — CaféOps",
+  title: "Expenses — Café POS",
 };
 
 /** Days back for the default view. Expenses are recorded weekly/monthly (rent,

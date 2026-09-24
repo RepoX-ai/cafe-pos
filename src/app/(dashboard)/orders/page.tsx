@@ -13,7 +13,7 @@ import { OrdersTable } from "@/components/orders-table";
 import { OrderStatusFilter } from "./order-status-filter";
 
 export const metadata: Metadata = {
-  title: "Orders — CaféOps",
+  title: "Orders — Café POS",
 };
 
 export default async function OrdersPage({

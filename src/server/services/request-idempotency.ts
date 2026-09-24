@@ -4,7 +4,7 @@ import type { Database } from "@/lib/db/client";
 import { requestIdempotency } from "@/lib/db/schema";
 import { IdempotencyMismatchError } from "./errors";
 
-export type IdempotentOperation = "purchase.create" | "waste.create" | "inventory.adjust" | "stock_count.submit" | "expense.create";
+export type IdempotentOperation = "purchase.create" | "waste.create" | "inventory.adjust" | "stock_count.submit" | "expense.create" | "menu.bulk_import";
 
 /** Stable hash of a validated payload: object keys sorted, so field order never matters. */
 export function payloadHash(payload: unknown): string {

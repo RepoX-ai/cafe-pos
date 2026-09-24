@@ -3,7 +3,7 @@ import { requirePageAccess } from "@/lib/auth/guards";
 import { PrintTestClient } from "./print-test-client";
 
 export const metadata: Metadata = {
-  title: "Printer test — CaféOps",
+  title: "Printer test — Café POS",
 };
 
 /**

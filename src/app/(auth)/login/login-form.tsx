@@ -72,7 +72,7 @@ export function LoginForm({ rememberedEmail }: { rememberedEmail: string }) {
       <button
         type="submit"
         disabled={isPending}
-        className="h-11 rounded-[var(--radius-sm)] bg-[var(--color-accent-primary)] text-sm font-semibold text-[var(--color-accent-contrast)] transition-opacity hover:opacity-90 disabled:bg-[var(--color-border)] disabled:text-[var(--color-text-muted)]"
+        className="mt-2 h-11 rounded-[var(--radius-sm)] bg-[var(--color-accent-primary)] text-sm font-semibold text-[var(--color-accent-contrast)] transition-opacity hover:opacity-90 disabled:bg-[var(--color-border)] disabled:text-[var(--color-text-muted)]"
       >
         {isPending ? "Signing in…" : "Sign in"}
       </button>

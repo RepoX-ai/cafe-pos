@@ -5,7 +5,7 @@ import { listStaff } from "@/server/services/staff-service";
 import { StaffClient } from "./staff-client";
 
 export const metadata: Metadata = {
-  title: "Staff — CaféOps",
+  title: "Staff — Café POS",
 };
 
 export default async function StaffPage() {

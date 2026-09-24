@@ -28,7 +28,7 @@ import {
 import { ReportTable } from "./report-table";
 
 export const metadata: Metadata = {
-  title: "Reports — CaféOps",
+  title: "Reports — Café POS",
 };
 
 export default async function ReportsPage({

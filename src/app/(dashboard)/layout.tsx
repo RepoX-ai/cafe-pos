@@ -37,7 +37,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     <AdminShell
       userName={user.name}
       roleLabel={formatRoles(user.roles)}
-      businessName={business?.name ?? "CaféOps"}
+      businessName={business?.name ?? "Café POS"}
       logoUrl={business?.logoUrl ?? null}
       brandStyle={brandStyle(business?.brandColor)}
       visibleNavItems={visibleNavItems}

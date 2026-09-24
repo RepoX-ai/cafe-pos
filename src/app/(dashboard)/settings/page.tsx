@@ -12,7 +12,7 @@ import { BusinessesSection } from "./businesses-section";
 import { BrandingSection } from "./branding-section";
 
 export const metadata: Metadata = {
-  title: "Settings — CaféOps",
+  title: "Settings — Café POS",
 };
 
 export default async function SettingsPage() {

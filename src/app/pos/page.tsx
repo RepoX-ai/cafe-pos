@@ -11,7 +11,7 @@ import { parseTaxConfig } from "@/lib/settings/tax";
 import { PosClient } from "./pos-client";
 
 export const metadata: Metadata = {
-  title: "POS — CaféOps",
+  title: "POS — Café POS",
 };
 
 export default async function PosPage() {
@@ -36,7 +36,7 @@ export default async function PosPage() {
       draftScope={`${user.businessId}:${user.id}`}
       userName={user.name}
       roleLabel={formatRoles(user.roles)}
-      businessName={business?.name ?? "CaféOps"}
+      businessName={business?.name ?? "Café POS"}
       logoUrl={business?.logoUrl ?? null}
       brandStyle={brandStyle(business?.brandColor)}
       activeMembershipId={user.membershipId}

@@ -48,7 +48,7 @@ import { TrendChart, type TrendPoint } from "@/components/ui/trend-chart";
 import { PieChart } from "@/components/ui/pie-chart";
 
 export const metadata: Metadata = {
-  title: "Dashboard — CaféOps",
+  title: "Dashboard — Café POS",
 };
 
 /** Rows per ranking widget. */

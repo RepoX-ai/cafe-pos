@@ -13,7 +13,7 @@ const geistSans = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "CaféOps",
+  title: "Café POS",
   description: "Café point-of-sale, inventory, and profit management",
 };
 

@@ -116,13 +116,13 @@ async function requireMembership(db: Database, userId: string, businessId: strin
 
 export type CreateStaffResult = {
   user: typeof users.$inferSelect;
-  /** null when an existing CaféOps account was linked — they keep their own password. */
+  /** null when an existing Café POS account was linked — they keep their own password. */
   tempPassword: string | null;
   linkedExistingAccount: boolean;
 };
 
 /**
- * Adds someone to this business. If the email already has a CaféOps
+ * Adds someone to this business. If the email already has a Café POS
  * account — because they work at another café that runs on this install —
  * they are *linked* rather than duplicated: one person, one login, one
  * password they control, with a separate role per café.

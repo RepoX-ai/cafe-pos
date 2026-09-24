@@ -8,7 +8,7 @@ import { LoginForm } from "./login-form";
 import { QuickLoginPanel } from "./quick-login-panel";
 
 export const metadata: Metadata = {
-  title: "Sign in — CaféOps",
+  title: "Sign in — Café POS",
 };
 
 export default async function LoginPage() {
@@ -22,7 +22,7 @@ export default async function LoginPage() {
   return (
     <div className="force-light-theme flex min-h-screen flex-col items-center justify-center bg-[var(--color-page-bg)] px-6">
       <h1 className="mb-8 flex justify-center">
-        <BrandLogo className="h-20" />
+        <BrandLogo className="h-10" textClassName="text-2xl" gapClassName="gap-3" />
       </h1>
       <div className="w-full max-w-[380px] rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-sm">
         <p className="text-sm text-[var(--color-text-secondary)]">

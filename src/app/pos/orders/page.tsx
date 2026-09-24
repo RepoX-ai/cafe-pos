@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { OrdersTable } from "@/components/orders-table";
 
 export const metadata: Metadata = {
-  title: "Order history — CaféOps",
+  title: "Order history — Café POS",
 };
 
 /**

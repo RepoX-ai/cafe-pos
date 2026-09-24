@@ -20,7 +20,7 @@ import { OrderActionButton } from "./order-action-button";
 import { PrintJobsPanel } from "./print-jobs-panel";
 
 export const metadata: Metadata = {
-  title: "Order — CaféOps",
+  title: "Order — Café POS",
 };
 
 /** Base-unit quantity with its unit — "125 g", not a bare "125". */

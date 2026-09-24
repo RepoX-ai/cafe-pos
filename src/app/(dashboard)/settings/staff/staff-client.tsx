@@ -81,7 +81,7 @@ export function StaffClient({ staff, currentUserId }: { staff: StaffRow[]; curre
     }
     setCreating(false);
     if (result.linkedExistingAccount) {
-      // They already have a CaféOps login from another business, so there
+      // They already have a Café POS login from another business, so there
       // is no temporary password to hand over — they sign in as they do now.
       showToast("success", "Existing account added to your staff. They sign in with their current password.");
       return { ok: true };

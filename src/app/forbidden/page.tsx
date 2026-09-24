@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Access denied — CaféOps",
+  title: "Access denied — Café POS",
 };
 
 export default function ForbiddenPage() {
@@ -21,7 +21,7 @@ export default function ForbiddenPage() {
         href="/"
         className="mt-2 text-sm font-medium text-[var(--color-accent-primary)] hover:underline"
       >
-        Back to CaféOps
+        Back to Café POS
       </Link>
     </div>
   );

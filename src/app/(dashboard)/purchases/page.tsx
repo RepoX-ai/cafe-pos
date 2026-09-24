@@ -9,7 +9,7 @@ import { countPurchases, listPurchases } from "@/server/services/purchase-servic
 import { PurchasesClient } from "./purchases-client";
 
 export const metadata: Metadata = {
-  title: "Purchases — CaféOps",
+  title: "Purchases — Café POS",
 };
 
 export default async function PurchasesPage({

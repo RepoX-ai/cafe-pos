@@ -8,7 +8,7 @@
  *  1. `src` — the business's own uploaded logo.
  *  2. `name` with no `src` — a generated placeholder: the business's
  *     initials on its own accent colour, next to its name.
- *  3. neither — the CaféOps mark, for the login page, where no session
+ *  3. neither — the Café POS mark, for the login page, where no session
  *     exists yet so the tenant is unknown.
  *
  * The placeholder is drawn rather than shipped as a file on purpose.
@@ -61,32 +61,45 @@ function Monogram({ name }: { name: string }) {
 }
 
 /**
- * The product mark, used only where no business is known. Deliberately
- * abstract — a cup would be wrong for the restaurant, a plate wrong for
- * the coffee shop.
+ * The product mark, used only where no business is known (the login
+ * screen, mainly). A cup here is fine — unlike the per-business
+ * Monogram above, this one stands for Café POS itself, not any one
+ * tenant's business.
  */
 function AppMark() {
   return (
     <svg viewBox="0 0 40 40" className="h-full w-auto shrink-0" aria-hidden="true" focusable="false">
       <rect width="40" height="40" rx="11" fill="var(--color-accent-primary)" />
-      <path
-        d="M13 14.5h14M13 20h14M13 25.5h9"
+      <g
+        transform="translate(7.5, 10.5) scale(1.1)"
+        fill="none"
         stroke="var(--color-accent-contrast)"
-        strokeWidth="2.6"
+        strokeWidth="1.8"
         strokeLinecap="round"
-      />
+        strokeLinejoin="round"
+      >
+        <path d="M17 8h1a4 4 0 1 1 0 8h-1" />
+        <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" />
+        <path d="M6 2v2M10 2v2M14 2v2" />
+      </g>
     </svg>
   );
 }
 
 export function BrandLogo({
   className = "h-8",
+  textClassName = "text-[0.95rem]",
+  gapClassName = "gap-2",
   alt,
   src,
   name,
   markOnly = false,
 }: {
   className?: string;
+  /** Font size for the business/product name; independent of the icon's height. */
+  textClassName?: string;
+  /** Gap between the icon and the name. */
+  gapClassName?: string;
   alt?: string;
   /** The business's own logo URL. */
   src?: string | null;
@@ -105,14 +118,14 @@ export function BrandLogo({
     );
   }
 
-  const label = alt ?? name ?? "CaféOps";
+  const label = alt ?? name ?? "Café POS";
 
   return (
-    <span role="img" aria-label={label} className={`flex items-center gap-2 ${className}`}>
+    <span role="img" aria-label={label} className={`flex items-center ${gapClassName} ${className}`}>
       {name ? <Monogram name={name} /> : <AppMark />}
       {markOnly ? null : (
-        <span className="truncate text-[0.95rem] font-semibold tracking-tight text-[var(--color-text-primary)]">
-          {name ?? "CaféOps"}
+        <span className={`truncate font-semibold tracking-tight text-[var(--color-text-primary)] ${textClassName}`}>
+          {name ?? "Café POS"}
         </span>
       )}
     </span>

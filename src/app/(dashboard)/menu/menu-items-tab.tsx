@@ -18,6 +18,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { usePagination } from "@/components/ui/use-pagination";
 import { createMenuItemAction, deleteMenuItemAction, setMenuItemActiveAction, type FormActionState } from "./actions";
 import { ImageField } from "./image-field";
+import { MenuBulkCsv } from "./menu-bulk-csv";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import { ConfirmDeleteDialog } from "@/components/ui/confirm-delete-dialog";
 import { formDataOf, useToastAction } from "@/components/ui/use-toast-action";
@@ -104,12 +105,15 @@ export function ItemsTab({
             <option value="archived">Archived</option>
           </Select>
         </div>
-        {canWrite ? (
-          <Button onClick={() => setCreating(true)} className="ml-auto">
-            <Plus size={16} />
-            New item
-          </Button>
-        ) : null}
+        <div className="ml-auto flex items-center gap-2">
+          <MenuBulkCsv canWrite={canWrite} />
+          {canWrite ? (
+            <Button onClick={() => setCreating(true)}>
+              <Plus size={16} />
+              New item
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">

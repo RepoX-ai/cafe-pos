@@ -11,7 +11,7 @@ import { getActiveRecipe } from "@/server/services/recipe-service";
 import { RecipeEditor } from "./recipe-editor";
 
 export const metadata: Metadata = {
-  title: "Recipe — CaféOps",
+  title: "Recipe — Café POS",
 };
 
 export default async function RecipePage({
