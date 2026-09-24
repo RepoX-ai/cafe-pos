@@ -50,3 +50,19 @@ export function calculateServiceCharge(netSales: number, percent: number | null)
   if (!percent || percent <= 0) return 0;
   return applyPercentage(netSales, percent);
 }
+
+/** Shared by the POS preview and checkout. Service charge uses discounted
+ * menu prices, as before; included tax is disclosed, never added twice. */
+export function calculateOrderTotals(subtotal: number, discount: number, tax: TaxConfig | null, servicePercent: number | null) {
+  const discountTotal = Math.min(discount, subtotal);
+  const discountedSubtotal = subtotal - discountTotal;
+  const taxTotal = calculateTax(discountedSubtotal, tax);
+  const netSales = discountedSubtotal - (tax?.inclusive ? taxTotal : 0);
+  const serviceChargeTotal = calculateServiceCharge(discountedSubtotal, servicePercent);
+  return { discountTotal, netSales, taxTotal, serviceChargeTotal, total: netSales + taxTotal + serviceChargeTotal };
+}
+
+/** Derive the historical mode from saved amounts, never today's settings. */
+export function orderTaxIsIncluded(order: { subtotal: number; discountTotal: number; taxTotal: number; serviceChargeTotal: number; total: number }): boolean {
+  return order.taxTotal > 0 && order.total === order.subtotal - order.discountTotal + order.serviceChargeTotal;
+}

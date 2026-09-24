@@ -32,15 +32,25 @@ export function OrderActionButton({
     }
     setIsPending(true);
     setError(null);
-    const result = await action({ orderId, reason });
-    setIsPending(false);
-    if (!result.ok) {
-      setError(result.error);
-      showToast("error", result.error);
-      return;
+    try {
+      const result = await action({ orderId, reason });
+      if (!result.ok) {
+        setError(result.error);
+        showToast("error", result.error);
+        return;
+      }
+      showToast("success", kind === "cancel" ? "Order cancelled." : "Order refunded.");
+      setOpen(false);
+    } catch {
+      // The server may have committed before the connection dropped. Both
+      // actions are idempotent, so retry the same order instead of trapping
+      // the operator behind a permanently disabled confirmation button.
+      const text = `Couldn't confirm the ${kind === "cancel" ? "cancellation" : "refund"}. Check the connection and try again; stock won't be reversed twice.`;
+      setError(text);
+      showToast("error", text);
+    } finally {
+      setIsPending(false);
     }
-    showToast("success", kind === "cancel" ? "Order cancelled." : "Order refunded.");
-    setOpen(false);
   }
 
   if (!open) {

@@ -22,6 +22,9 @@ export default defineConfig({
     testTimeout: 20_000,
     env: {
       AUTH_SECRET: "test-only-auth-secret-min-32-characters!",
+      // General print tests use the mock provider. Device-specific suites
+      // explicitly override this; a local app's printer setting must not leak in.
+      PRINT_PROVIDER: "mock",
     },
   },
   resolve: {

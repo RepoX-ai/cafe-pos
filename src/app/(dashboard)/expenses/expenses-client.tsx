@@ -75,19 +75,19 @@ export function ExpensesClient({
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Expenses</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-            Operating expenses and ingredient purchases. Record ingredient purchases through Purchases, not the manual expense form. Their costs enter profit through sold-item COGS.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Expenses</h1>
+            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+              Operating expenses and ingredient purchases. Record ingredient purchases through Purchases, not the manual expense form. Their costs enter profit through sold-item COGS.
+            </p>
+          </div>
           <DateRangeForm from={from} to={to} today={today} basePath="/expenses" />
-          <Button onClick={() => setDrawerState({ mode: "create" })}>
-            <Plus size={16} />
-            Record expense
-          </Button>
         </div>
+        <Button onClick={() => setDrawerState({ mode: "create" })}>
+          <Plus size={16} />
+          Record expense
+        </Button>
       </div>
 
       <div>

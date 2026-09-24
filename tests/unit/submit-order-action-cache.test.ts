@@ -76,4 +76,10 @@ describe("submitOrderAction POS menu cache", () => {
     expect(result).toEqual({ ok: false, error: "Insufficient stock." });
     expect(invalidatePosMenuCache).not.toHaveBeenCalled();
   });
+
+  it("refreshes stale prices or availability after a catalog rejection", async () => {
+    vi.mocked(submitOrderForUser).mockResolvedValue({ ok: false, error: "Prices changed.", refreshMenu: true });
+    await submitOrderAction({});
+    expect(invalidatePosMenuCache).toHaveBeenCalledWith("biz-1");
+  });
 });

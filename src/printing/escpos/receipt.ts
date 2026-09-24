@@ -124,7 +124,8 @@ function buildBlocks(payload: PrintJobPayload, options: ReceiptOptions = {}): Bl
     const totals: Array<[string, number | undefined]> = [
       ["Subtotal", payload.subtotal],
       ["Discount", payload.discount === undefined ? undefined : -payload.discount],
-      ["Tax", payload.tax],
+      [payload.taxIncluded ? "Tax (included)" : "Tax", payload.tax],
+      ["Service charge", payload.serviceCharge],
     ];
     for (const [label, value] of totals) {
       if (value === undefined) continue;

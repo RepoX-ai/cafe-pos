@@ -19,6 +19,21 @@ import { getMenuItemById, getPosMenu } from "@/server/services/menu-service";
 const db = getTestDb();
 
 describe.skipIf(!db)("POS menu stock availability (integration)", () => {
+  it("hides items whose only variants are inactive instead of offering a rejected base-price sale", async () => {
+    const fx = await seedTestFixture(db!);
+    await db!.update(menuItemVariants).set({ active: false }).where(eq(menuItemVariants.id, fx.variant.id));
+    const { items } = await getPosMenu(db!, fx.business.id, { allowNegativeStock: false });
+    expect(items.some((item) => item.id === fx.menuItem.id)).toBe(false);
+  });
+
+  it("marks an item unavailable when a required modifier group has no selectable option", async () => {
+    const fx = await seedTestFixture(db!);
+    const [group] = await db!.insert(modifierGroups).values({ businessId: fx.business.id, name: "Required milk", required: true, minSelections: 1, maxSelections: 1 }).returning();
+    await db!.insert(menuItemModifierGroups).values({ businessId: fx.business.id, menuItemId: fx.menuItem.id, modifierGroupId: group.id });
+    const { items } = await getPosMenu(db!, fx.business.id, { allowNegativeStock: false });
+    expect(items.find((item) => item.id === fx.menuItem.id)?.outOfStock).toBe(true);
+  });
+
   it("hides a new variant without a recipe and identifies the ingredient blocking an existing variant", async () => {
     const { business, menuItem, variant } = await seedTestFixture(db!, { openingStock: "5" });
     const [unfinished] = await db!.insert(menuItemVariants).values({

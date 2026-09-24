@@ -26,7 +26,7 @@ export type SubmitOrderResult =
       /** The attempt this response authorizes; sent back with the outcome. */
       devicePrintToken?: string;
     }
-  | { ok: false; error: string };
+  | { ok: false; error: string; refreshMenu?: boolean };
 
 /**
  * The POS checkout entry point, in a fixed order: permission, input shape,
@@ -118,7 +118,7 @@ export async function submitOrderForUser(
     };
   } catch (error) {
     if (error instanceof InsufficientStockError || error instanceof OrderValidationError) {
-      return { ok: false, error: error.message };
+      return { ok: false, error: error.message, refreshMenu: true };
     }
     throw error;
   }

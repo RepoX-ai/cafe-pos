@@ -31,6 +31,8 @@ export type PrintJobPayload = {
   subtotal?: number;
   discount?: number;
   tax?: number;
+  taxIncluded?: boolean;
+  serviceCharge?: number;
   total?: number;
   cashReceived?: number;
   changeDue?: number;

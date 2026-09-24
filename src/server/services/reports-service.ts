@@ -52,7 +52,7 @@ export async function getSalesSummary(db: Database, businessId: string, range: D
       orderCount: sql`count(*) filter (where ${active})`.mapWith(Number),
       cogsTotal: sumAsSafeInteger(orders.cogsTotal, active),
       grossProfit: sumAsSafeInteger(orders.grossProfit, active),
-      netSales: sumAsSafeInteger(sql`${orders.subtotal} - ${orders.discountTotal}`, active),
+      netSales: sumAsSafeInteger(sql`${orders.total} - ${orders.taxTotal} - ${orders.serviceChargeTotal}`, active),
       cancelledRefundedAmount: sumAsSafeInteger(orders.total, reversed),
       wasteCost: sql`coalesce((select sum(${wasteRecords.estimatedCost}) from ${wasteRecords} where ${and(
         eq(wasteRecords.businessId, businessId),

@@ -14,7 +14,7 @@ import {
 import { apportionMicrosToRupiah, microsToRupiah, multiplyQuantityByRate, sumMicros, sumRupiah, type Micros } from "@/lib/money/money";
 import { configuredPrintProvider } from "@/printing";
 import { pageWindow, toPage, type Page } from "@/lib/pagination";
-import { calculateServiceCharge, calculateTax, parseTaxConfig } from "@/lib/settings/tax";
+import { calculateOrderTotals, calculateTax, orderTaxIsIncluded, parseTaxConfig } from "@/lib/settings/tax";
 import { formatQuantityUnits, toQuantityUnits } from "@/lib/units/units";
 import { ORDER_LIMITS, type SubmitOrderInput } from "@/lib/validation/order";
 import { recordAuditLog } from "./audit";
@@ -267,6 +267,7 @@ async function attemptSubmitOrder(
 
     const [business] = await tx.select().from(businesses).where(eq(businesses.id, actor.businessId)).limit(1);
     if (!business) throw new OrderValidationError("Business not found");
+    const taxConfig = parseTaxConfig(business.taxConfig);
 
     // --- Validate and price every line from one batched catalog read ---------
     const catalog = await loadOrderCatalog(tx, actor.businessId, input.lines);
@@ -327,7 +328,7 @@ async function attemptSubmitOrder(
           cogsAdjustment: v.consumesStock ? microsToRupiah(demandCostMicros(optionDemandPerUnit(catalog, m.id), locked)) : 0,
         })),
         cogsSnapshot,
-        grossProfitSnapshot: v.lineTotal - cogsSnapshot,
+        grossProfitSnapshot: v.lineTotal - (taxConfig?.inclusive ? calculateTax(v.lineTotal, taxConfig) : 0) - cogsSnapshot,
         consumption,
       };
     });
@@ -345,15 +346,12 @@ async function attemptSubmitOrder(
 
     // --- Money totals ---------------------------------------------------------
     const subtotal = sumRupiah(prepared.map((l) => l.lineTotal));
-    const discountTotal = Math.min(input.discountTotal, subtotal);
-    const netSales = subtotal - discountTotal;
-    const taxConfig = parseTaxConfig(business.taxConfig);
-    const taxTotal = calculateTax(netSales, taxConfig);
-    const serviceChargeTotal = calculateServiceCharge(
-      netSales,
+    const { discountTotal, netSales, taxTotal, serviceChargeTotal, total } = calculateOrderTotals(
+      subtotal,
+      input.discountTotal,
+      taxConfig,
       business.serviceChargePercent ? Number(business.serviceChargePercent) : null,
     );
-    const total = netSales + taxTotal + serviceChargeTotal;
     const cogsTotal = sumRupiah(prepared.map((l) => l.cogsSnapshot));
     const grossProfit = netSales - cogsTotal;
     const grossMarginPercentage =
@@ -369,6 +367,9 @@ async function attemptSubmitOrder(
     // — never from a client-supplied figure. Under-tender is rejected
     // rather than clamped, so a mistyped amount can't be recorded as a
     // paid order with an understated change.
+    if (input.expectedTotal !== undefined && input.expectedTotal !== total) {
+      throw new OrderValidationError("Prices or charges have changed. Remove and re-add the items, then review the total before submitting.");
+    }
     const cashReceived = input.cashReceived ?? null;
     if (cashReceived !== null && cashReceived < total) {
       throw new OrderValidationError("Cash received is less than the order total.");
@@ -514,6 +515,8 @@ function buildPrintPayload(
     subtotal: order.subtotal,
     discount: order.discountTotal,
     tax: order.taxTotal,
+    taxIncluded: orderTaxIsIncluded(order),
+    serviceCharge: order.serviceChargeTotal,
     total: order.total,
     cashReceived: order.cashReceived ?? undefined,
     changeDue: order.changeDue ?? undefined,

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, getTableColumns, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import type { Database } from "@/lib/db/client";
 import {
   ingredients,
@@ -998,6 +998,9 @@ export async function getPosMenu(
         categoryId: menuItems.categoryId,
         basePrice: menuItems.basePrice,
         tracksInventory: menuItems.tracksInventory,
+        // Qualify the outer column explicitly: Drizzle's single-table select
+        // otherwise emits bare "id", which would bind to the subquery's v.id.
+        hasVariants: sql<boolean>`exists (select 1 from menu_item_variants v where v.menu_item_id = "menu_items"."id")`,
       })
       .from(menuItems)
       .where(and(eq(menuItems.businessId, businessId), eq(menuItems.active, true)))
@@ -1108,7 +1111,7 @@ export async function getPosMenu(
     const variantId = recipeIdToVariantId.get(line.recipeId);
     if (!variantId) continue;
     const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
-    if (needed > Number(line.currentQuantityBaseUnits)) {
+    if (checkStock && needed > Number(line.currentQuantityBaseUnits)) {
       variantAvailability.set(variantId, false);
     }
   }
@@ -1149,9 +1152,12 @@ export async function getPosMenu(
     groupsByItem.set(a.menuItemId, list);
   }
 
-  // Items with no active variant are still orderable — sold directly off
-  // their basePrice (see order-service.submitOrder).
-  const posItems: PosMenuItem[] = items.filter((item) => { const itemVariants = variantsByItem.get(item.id) ?? []; return itemVariants.length === 0 || itemVariants.some((variant) => recipeReady.has(variant.id)); }).map((item) => {
+  // Only items with no variants at all can be sold at basePrice. An item
+  // whose variants are all inactive cannot pass checkout's variant check.
+  const posItems: PosMenuItem[] = items.filter((item) => {
+    const itemVariants = variantsByItem.get(item.id) ?? [];
+    return !item.hasVariants || itemVariants.some((variant) => recipeReady.has(variant.id));
+  }).map((item) => {
     const itemVariants = (variantsByItem.get(item.id) ?? []).filter((v) => recipeReady.has(v.id)).map((v) => ({
       ...v,
       inStock: item.tracksInventory ? (variantAvailability.get(v.id) ?? true) : true,
@@ -1173,7 +1179,8 @@ export async function getPosMenu(
       basePrice: item.basePrice,
       variants: itemVariants,
       modifierGroups: itemModifierGroups,
-      outOfStock: itemVariants.length > 0 && itemVariants.every((v) => !v.inStock),
+      outOfStock: (itemVariants.length > 0 && itemVariants.every((v) => !v.inStock)) ||
+        itemModifierGroups.some((group) => group.options.filter((option) => option.inStock).length < Math.max(group.minSelections, group.required ? 1 : 0)),
     };
   });
 

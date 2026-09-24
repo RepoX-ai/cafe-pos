@@ -46,6 +46,7 @@ export function PosCartPanel({
   setDiscountTotal,
   subtotal,
   taxTotal,
+  taxIncluded,
   serviceChargeTotal,
   total,
   updateQuantity,
@@ -75,6 +76,7 @@ export function PosCartPanel({
   setDiscountTotal: (value: number) => void;
   subtotal: number;
   taxTotal: number;
+  taxIncluded: boolean;
   serviceChargeTotal: number;
   total: number;
   updateQuantity: (key: string, delta: number) => void;
@@ -301,7 +303,7 @@ export function PosCartPanel({
         <div className="flex flex-col gap-1 text-sm">
           <Row label="Subtotal" value={formatIDR(subtotal)} />
           {discountTotal > 0 ? <Row label="Discount" value={`-${formatIDR(discountTotal)}`} /> : null}
-          {taxTotal > 0 ? <Row label="Tax" value={formatIDR(taxTotal)} /> : null}
+          {taxTotal > 0 ? <Row label={taxIncluded ? "Tax (included)" : "Tax"} value={formatIDR(taxTotal)} /> : null}
           {serviceChargeTotal > 0 ? <Row label="Service charge" value={formatIDR(serviceChargeTotal)} /> : null}
           <div className="mt-1.5 flex items-center justify-between border-t border-[var(--color-border)] pt-1.5">
             <span className="text-base font-semibold text-[var(--color-text-primary)]">Total</span>

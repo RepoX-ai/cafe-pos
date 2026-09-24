@@ -27,6 +27,13 @@ const payload: PrintJobPayload = {
 const lines = (text: string) => text.split("\n");
 
 describe("ESC/POS receipt layout", () => {
+  it("discloses included tax and the service charge", () => {
+    const text = renderReceiptText({ ...payload, taxIncluded: true, serviceCharge: 5_300 });
+    expect(text).toContain("Tax (included)");
+    expect(text).toMatch(/Service charge\s+Rp5\.300/);
+    for (const line of lines(text)) expect(line.length).toBeLessThanOrEqual(32);
+  });
+
   it("never exceeds the 32-column paper width", () => {
     for (const line of lines(renderReceiptText(payload))) expect(line.length).toBeLessThanOrEqual(32);
   });

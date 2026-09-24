@@ -1,4 +1,5 @@
 import { formatIDR } from "@/lib/money/money";
+import { orderTaxIsIncluded } from "@/lib/settings/tax";
 import { BASE_UNIT_LABEL, type BaseUnit } from "@/lib/units/units";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -125,7 +126,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         <TotalsPanel caption="Payment">
           <TotalsRow label="Subtotal" value={formatIDR(order.subtotal)} />
           <TotalsRow label="Discount" value={formatIDR(order.discountTotal)} muted />
-          <TotalsRow label="Tax" value={formatIDR(order.taxTotal)} />
+          <TotalsRow label={orderTaxIsIncluded(order) ? "Tax (included)" : "Tax"} value={formatIDR(order.taxTotal)} />
           <TotalsRow label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
           <TotalsRow label="Total" value={formatIDR(order.total)} emphasis />
           <TotalsRow label="Payment method" value={formatPaymentMethod(order.paymentMethodLabel)} />
@@ -133,7 +134,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           {order.changeDue !== null ? <TotalsRow label="Change" value={formatIDR(order.changeDue)} /> : null}
         </TotalsPanel>
         <TotalsPanel caption="Profitability">
-          <TotalsRow label="Revenue (subtotal)" value={formatIDR(order.subtotal)} />
+          <TotalsRow label="Net sales" value={formatIDR(order.total - order.taxTotal - order.serviceChargeTotal)} />
           <TotalsRow label="COGS" value={formatIDR(order.cogsTotal)} />
           <TotalsRow label="Gross profit" value={formatIDR(order.grossProfit)} emphasis />
           <TotalsRow

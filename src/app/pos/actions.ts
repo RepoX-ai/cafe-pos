@@ -47,7 +47,7 @@ export async function submitOrderAction(input: unknown): Promise<SubmitOrderResu
     const result = await submitOrderForUser(db, user, input);
     // Orders deduct stock — drop the POS menu cache so availability badges refresh
     // (same pattern as cancel/refund on the dashboard).
-    if (result.ok) invalidatePosMenuCache(user.businessId);
+    if (result.ok || result.refreshMenu) invalidatePosMenuCache(user.businessId);
     if (claimRateLimitCleanupSlot()) {
       after(() => Promise.all([deleteExpiredRateLimitBuckets(db), deleteExpiredIdempotencyKeys(db)]).catch(() => undefined));
     }

@@ -8,20 +8,21 @@ import { test, expect } from "@playwright/test";
 test.describe("dev role switcher", () => {
   test("switches from owner to cashier and back without typing credentials", async ({ page }) => {
     const toggle = page.getByRole("button", { name: "Switch dev account" });
+    const switcher = page.getByText("Dev: switch account", { exact: true }).locator("..");
 
     await page.goto("/login");
     await toggle.click();
-    await page.getByRole("button", { name: "Owner" }).click();
+    await switcher.getByRole("button", { name: "Owner", exact: true }).click();
 
     await expect(page).toHaveURL(/\/dashboard$/);
 
-    await toggle.click();
-    await page.getByRole("button", { name: "Cashier" }).click();
+    if (!(await page.getByText("Dev: switch account", { exact: true }).isVisible())) await toggle.click();
+    await switcher.getByRole("button", { name: "Cashier", exact: true }).click();
 
     await expect(page).toHaveURL(/\/pos$/);
 
-    await toggle.click();
-    await page.getByRole("button", { name: "Owner" }).click();
+    if (!(await page.getByText("Dev: switch account", { exact: true }).isVisible())) await toggle.click();
+    await switcher.getByRole("button", { name: "Owner", exact: true }).click();
 
     await expect(page).toHaveURL(/\/dashboard$/);
   });

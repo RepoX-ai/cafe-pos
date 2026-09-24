@@ -22,6 +22,7 @@ import { createManualAdjustmentAction, submitStockCountAction, type InventoryAct
 import { useSubmissionKey } from "@/components/ui/use-submission-key";
 import { useToast } from "@/components/ui/toast";
 import { useActionResultToast } from "@/components/ui/use-action-toast";
+import { stockCountLineInputSchema } from "@/lib/validation/stock-count";
 
 type BaseUnit = "gram" | "millilitre" | "piece";
 
@@ -440,7 +441,11 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
   // Counts are typed in each ingredient's display unit; everything compared
   // or submitted is in base units.
   const countedBase = (i: IngredientRow) =>
-    toBaseOrBlank(counts[i.id] ?? "", resolveDisplayUnit(i.baseUnit, i.displayUnit)) || "0";
+    toBaseOrBlank(counts[i.id] ?? "", resolveDisplayUnit(i.baseUnit, i.displayUnit));
+  const countsComplete = selectedIngredients.length > 0 && selectedIngredients.every((i) => {
+    const quantity = countedBase(i);
+    return quantity !== "" && stockCountLineInputSchema.safeParse({ ingredientId: i.id, countedQuantity: quantity }).success;
+  });
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -454,10 +459,10 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
   const [countSubmissionKey, rotateCountSubmissionKey] = useSubmissionKey();
 
   async function submit() {
+    if (!countsComplete || isPending) return;
     setIsPending(true);
     setResult(null);
     const lines = selectedIngredients
-      .filter((i) => counts[i.id] !== undefined && counts[i.id] !== "")
       .map((i) => ({ ingredientId: i.id, countedQuantity: Number(countedBase(i)) }));
 
     let res: Awaited<ReturnType<typeof submitStockCountAction>>;
@@ -538,7 +543,7 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
           <Button variant="secondary" onClick={() => setReviewing(false)}>
             Back
           </Button>
-          <Button onClick={submit} disabled={isPending}>
+          <Button onClick={submit} disabled={isPending || !countsComplete}>
             {isPending ? "Submitting…" : "Confirm & submit count"}
           </Button>
         </div>
@@ -554,13 +559,14 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
       <div className="flex max-h-[50vh] flex-col divide-y divide-[var(--color-border)] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
         {ingredients.map((i) => (
           <div key={i.id} className="flex items-center gap-3 px-4 py-2.5">
-            <Checkbox checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
+            <Checkbox aria-label={`Select ${i.name}`} checked={selected.has(i.id)} onChange={() => toggle(i.id)} />
             <span className="flex-1 text-sm text-[var(--color-text-primary)]">{i.name}</span>
             <span className="text-xs tabular-nums text-[var(--color-text-muted)]">
               system: {formatQty(i.currentQuantityBaseUnits, i)}
             </span>
             <input
               type="number"
+              aria-label={`Counted quantity for ${i.name}`}
               min={0}
               step="any"
               disabled={!selected.has(i.id)}
@@ -576,7 +582,7 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
         <Button variant="secondary" onClick={onDone}>
           Cancel
         </Button>
-        <Button disabled={selected.size === 0} onClick={() => setReviewing(true)}>
+        <Button disabled={!countsComplete} onClick={() => setReviewing(true)}>
           Review count
         </Button>
       </div>

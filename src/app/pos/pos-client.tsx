@@ -10,7 +10,7 @@ import { ChevronDown, History, KeyRound, LogOut, Printer, ShoppingBag, WifiOff }
 import { Button } from "@/components/ui/button";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
 import type { TaxConfig } from "@/lib/settings/tax";
-import { calculateServiceCharge, calculateTax } from "@/lib/settings/tax";
+import { calculateOrderTotals } from "@/lib/settings/tax";
 import { formatIDR, sumRupiah } from "@/lib/money/money";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { BrandLogo } from "@/components/brand-logo";
@@ -269,10 +269,7 @@ export function PosClient({
   }, [items, activeCategory, search]);
 
   const subtotal = sumRupiah(cart.map(cartLineTotal));
-  const netSales = Math.max(0, subtotal - discountTotal);
-  const taxTotal = calculateTax(netSales, tax);
-  const serviceChargeTotal = calculateServiceCharge(netSales, serviceChargePercent);
-  const total = netSales + taxTotal + serviceChargeTotal;
+  const { taxTotal, serviceChargeTotal, total } = calculateOrderTotals(subtotal, discountTotal, tax, serviceChargePercent);
   const cashReceived = paymentMethod === "cash" ? resolveCashReceived(cashMode, customCash, total) : null;
 
   function addToCart(line: ConfiguredLine) {
@@ -367,6 +364,7 @@ export function PosClient({
       tableLabel: tableLabel || undefined,
       paymentMethodLabel,
       discountTotal,
+      expectedTotal: total,
       cashReceived: paymentMethod === "cash" && cashReceived !== null ? cashReceived : undefined,
       lines: cart.map((l) => ({
         menuItemId: l.menuItemId,
@@ -410,6 +408,7 @@ export function PosClient({
       } else {
         setSubmitError(result.error);
         showToast("error", result.error);
+        router.refresh();
       }
     } catch {
       const text = "Could not confirm the order. Retry the saved submission before starting another order. Browser storage must be available.";
@@ -600,6 +599,7 @@ export function PosClient({
           setDiscountTotal={setDiscountTotal}
           subtotal={subtotal}
           taxTotal={taxTotal}
+          taxIncluded={tax?.inclusive ?? false}
           serviceChargeTotal={serviceChargeTotal}
           total={total}
           updateQuantity={updateQuantity}

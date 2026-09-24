@@ -28,7 +28,7 @@ async function signIn(page: Page, email: string) {
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill("ChangeMe123!");
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).not.toHaveURL(/\/login$/);
+  await expect(page).toHaveURL(email === "cashier@dev.local" ? /\/pos$/ : /\/dashboard$/);
 }
 
 /** Lets the next server-action POST to `path` reach the server, then drops its response. */

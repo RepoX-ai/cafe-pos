@@ -16,6 +16,11 @@ export function calculateWeightedAverageCost(params: {
   incomingCostPerUnit: number;
 }): number {
   const { existingQuantity, existingAverageCost, incomingQuantity, incomingCostPerUnit } = params;
+  // A deficit is not stock available to blend. Using it as a negative
+  // weight can produce negative costs (or costs above both input rates)
+  // when a receipt brings inventory back above zero. Start the replenished
+  // stock at the incoming rate; historical sale snapshots stay unchanged.
+  if (existingQuantity <= 0) return incomingCostPerUnit;
   const totalQuantity = existingQuantity + incomingQuantity;
   if (totalQuantity <= 0) return incomingCostPerUnit;
 

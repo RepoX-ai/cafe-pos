@@ -23,7 +23,7 @@ test.describe("POS checkout prints to the tablet printer", () => {
     await page.goto("/pos?printer=sim");
 
     await page.getByRole("button", { name: "Connect printer" }).click();
-    await expect(page.getByRole("button", { name: /Simulated printer/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Printer connected" })).toContainText("Simulated printer");
 
     await page.getByRole("button", { name: /Coffee A/ }).click();
     // Cash sales need the tendered amount before Submit enables.

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { ingredients, menuItems, recipeLines, recipes } from "@/lib/db/schema";
+import { businesses, ingredients, menuItems, menuItemVariants, recipeLines, recipes } from "@/lib/db/schema";
 import { getTestDb, seedTestFixture } from "./helpers";
 import { submitOrder, cancelOrder, getOrderById } from "@/server/services/order-service";
 import { InsufficientStockError } from "@/server/services/inventory-service";
@@ -9,6 +9,39 @@ import { createAndFinalizePurchase } from "@/server/services/purchase-service";
 const db = getTestDb();
 
 describe.skipIf(!db)("order submission (integration)", () => {
+  it("refuses a stale reviewed total without deducting stock", async () => {
+    const fx = await seedTestFixture(db!);
+    const actor = { businessId: fx.business.id, userId: fx.user.id };
+    const input = {
+      idempotencyKey: "reviewed-total-order", orderType: "dine_in" as const, discountTotal: 0,
+      expectedTotal: 19_000,
+      lines: [{ menuItemId: fx.menuItem.id, menuItemVariantId: fx.variant.id, quantity: 1, modifierOptionIds: [] }],
+    };
+    await expect(submitOrder(db!, actor, input)).rejects.toThrow(/Prices or charges have changed/);
+    const [unchanged] = await db!.select().from(ingredients).where(eq(ingredients.id, fx.ingredient.id));
+    expect(Number(unchanged.currentQuantityBaseUnits)).toBe(1000);
+    const saved = await submitOrder(db!, actor, { ...input, expectedTotal: 20_000 });
+    // A lost-response retry returns the saved sale even if catalog prices change.
+    await db!.update(menuItemVariants).set({ price: 21_000 }).where(eq(menuItemVariants.id, fx.variant.id));
+    const retried = await submitOrder(db!, actor, { ...input, expectedTotal: 20_000 });
+    expect(retried.idempotent).toBe(true);
+    expect(retried.order.id).toBe(saved.order.id);
+  });
+
+  it("charges an inclusive-tax menu price once and snapshots net profit and receipt charges", async () => {
+    const fx = await seedTestFixture(db!, { costPerBaseUnit: "10" });
+    await db!.update(businesses).set({ taxConfig: JSON.stringify({ percent: 11, inclusive: true }), serviceChargePercent: "10" }).where(eq(businesses.id, fx.business.id));
+    await db!.update(menuItemVariants).set({ price: 111_000 }).where(eq(menuItemVariants.id, fx.variant.id));
+    const { order } = await submitOrder(db!, { businessId: fx.business.id, userId: fx.user.id }, {
+      idempotencyKey: "inclusive-tax-order", orderType: "dine_in", discountTotal: 0, cashReceived: 130_000,
+      lines: [{ menuItemId: fx.menuItem.id, menuItemVariantId: fx.variant.id, quantity: 1, modifierOptionIds: [] }],
+    });
+    expect(order).toMatchObject({ subtotal: 111_000, taxTotal: 11_000, serviceChargeTotal: 11_100, total: 122_100, changeDue: 7_900, grossProfit: 99_800 });
+    const detail = await getOrderById(db!, fx.business.id, order.id);
+    expect(detail!.lines[0].grossProfitSnapshot).toBe(99_800);
+    expect(detail!.printJobs[0].payloadSnapshot).toMatchObject({ taxIncluded: true, tax: 11_000, serviceCharge: 11_100, total: 122_100 });
+  });
+
   it("rejects a stale POS order after a variant loses its ingredient recipe", async () => {
     const { business, user, variant, menuItem } = await seedTestFixture(db!);
     const [recipe] = await db!.select({ id: recipes.id }).from(recipes).where(eq(recipes.menuItemVariantId, variant.id));

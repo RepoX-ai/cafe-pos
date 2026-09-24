@@ -1,4 +1,5 @@
 import { formatIDR } from "@/lib/money/money";
+import { orderTaxIsIncluded } from "@/lib/settings/tax";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -110,7 +111,7 @@ export default async function PosOrderDetailPage({ params }: { params: Promise<{
           <TotalsPanel caption="Payment">
             <TotalsRow label="Subtotal" value={formatIDR(order.subtotal)} />
             <TotalsRow label="Discount" value={formatIDR(order.discountTotal)} muted />
-            <TotalsRow label="Tax" value={formatIDR(order.taxTotal)} />
+            <TotalsRow label={orderTaxIsIncluded(order) ? "Tax (included)" : "Tax"} value={formatIDR(order.taxTotal)} />
             <TotalsRow label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
             <TotalsRow label="Total" value={formatIDR(order.total)} emphasis />
             <TotalsRow label="Payment method" value={formatPaymentMethod(order.paymentMethodLabel)} />

@@ -32,6 +32,7 @@ export default async function PosPage() {
 
   return (
     <PosClient
+      key={`${user.businessId}:${user.id}`}
       draftScope={`${user.businessId}:${user.id}`}
       userName={user.name}
       roleLabel={formatRoles(user.roles)}
