@@ -1,16 +1,28 @@
 # Security incident: database backup committed to git
 
 A PostgreSQL dump under `backups/` was tracked in this repository. The file
-was removed from the tree in commit `bd3b5f2`, but **git history still
-contains the dump** until a separate history purge is completed. Treat the
-leak as real.
+was removed from the tree in commit `7ad8c1a` (`bd3b5f2` before the history
+rewrite) and purged from history on 24 Sep 2026. Treat the leak as real:
+anyone who cloned before the purge still has it.
 
 ## Status
 
-Nothing in this repository can show whether the operator steps below have
-been done. As of 23 Sep 2026 none of them has been verified. Do not describe
-the incident as remediated until each has been done *and* independently
-checked by someone other than the person who did it.
+As of 24 Sep 2026:
+
+- **Step 1: done except for GitHub-held PR refs.** History was rewritten with
+  `git filter-repo --invert-paths --path backups/`, and `main` was
+  force-pushed. The other remote branches were already merged or
+  squash-merged into `main` and were deleted. A fresh clone has no
+  `backups/` history, and blob `e57bb8c` is unreachable. The local working
+  clone was reset and garbage-collected. **Still open:** `refs/pull/2` to
+  `refs/pull/5` on GitHub point at pre-rewrite commits until GitHub Support
+  purges them. Any other existing clone must be re-cloned, not pulled.
+- **Steps 2–4: not done yet.** Planned for the move to the production VPS
+  (new database credentials, new `AUTH_SECRET`, no carried-over sessions).
+  The 5 user accounts in the dump must change their passwords before then.
+
+Do not describe the incident as remediated until each step has been done
+*and* independently checked by someone other than the person who did it.
 
 ## Operator checklist (each needs independent verification)
 
