@@ -1,12 +1,15 @@
 /**
  * AUTH_SECRET is the pepper for session-token HMAC. Without it (or with a
  * known placeholder) production must refuse to boot — a missing pepper
- * would store plain SHA-256 hashes that are trivial to replay if the DB
- * leaks.
+ * would remove the additional protection provided by a separate secret.
+ * Session tokens are random; stored digests are never accepted as tokens.
  */
 
 const WEAK_AUTH_SECRET_PLACEHOLDERS = new Set([
   "dev-only-not-for-production",
+  "local-dev-only-auth-secret-min-32-chars-xx",
+  "test-only-auth-secret-min-32-characters!",
+  "unit-test-auth-secret-min-32-chars!!",
   "change-me-to-a-random-32-byte-secret",
   "change-me",
   "secret",
@@ -68,4 +71,5 @@ export function assertAuthSecretConfigured(env: EnvLike = process.env): string {
 export function getAuthSecret(env: EnvLike = process.env): string {
   return assertAuthSecretConfigured(env);
 }
+
 

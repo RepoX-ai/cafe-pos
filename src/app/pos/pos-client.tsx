@@ -380,7 +380,14 @@ export function PosClient({
       // Persist the exact request before sending. A lost response must retry this key and payload.
       localStorage.setItem(pendingKey, JSON.stringify(request));
       setPending(request);
-      const result = await submitOrderAction(request);
+      const result = await submitOrderAction(request, draftScope);
+      // Keep the original idempotency key and payload when another tab
+      // changed the session. The first request may already have succeeded.
+      if (!result.ok && result.scopeChanged) {
+        setSubmitError(result.error);
+        showToast("error", result.error);
+        return;
+      }
       localStorage.removeItem(pendingKey);
       setPending(null);
       if (result.ok) {
@@ -628,3 +635,4 @@ export function PosClient({
     </div>
   );
 }
+

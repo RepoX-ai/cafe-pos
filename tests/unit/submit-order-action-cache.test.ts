@@ -63,7 +63,7 @@ describe("submitOrderAction POS menu cache", () => {
       printStatus: "QUEUED",
     });
 
-    const result = await submitOrderAction({ anything: true });
+    const result = await submitOrderAction({ anything: true }, "biz-1:user-1");
     expect(result).toMatchObject({ ok: true, orderId: "ord-1" });
     expect(invalidatePosMenuCache).toHaveBeenCalledOnce();
     expect(invalidatePosMenuCache).toHaveBeenCalledWith("biz-1");
@@ -72,14 +72,33 @@ describe("submitOrderAction POS menu cache", () => {
   it("does not invalidate the cache when submit fails", async () => {
     vi.mocked(submitOrderForUser).mockResolvedValue({ ok: false, error: "Insufficient stock." });
 
-    const result = await submitOrderAction({ anything: true });
+    const result = await submitOrderAction({ anything: true }, "biz-1:user-1");
     expect(result).toEqual({ ok: false, error: "Insufficient stock." });
     expect(invalidatePosMenuCache).not.toHaveBeenCalled();
   });
 
   it("refreshes stale prices or availability after a catalog rejection", async () => {
     vi.mocked(submitOrderForUser).mockResolvedValue({ ok: false, error: "Prices changed.", refreshMenu: true });
-    await submitOrderAction({});
+    await submitOrderAction({}, "biz-1:user-1");
     expect(invalidatePosMenuCache).toHaveBeenCalledWith("biz-1");
   });
+});
+
+
+
+describe("checkout rejects stale browser context before touching orders", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(requireCurrentUser).mockResolvedValue(user as never);
+  });
+
+  it.each(["biz-2:user-1", "biz-1:user-2", "", undefined, null, {}])(
+    "rejects changed or missing context: %s",
+    async (scope) => {
+      const result = await submitOrderAction({}, scope as string);
+      expect(result).toMatchObject({ ok: false, scopeChanged: true });
+      expect(submitOrderForUser).not.toHaveBeenCalled();
+      expect(invalidatePosMenuCache).not.toHaveBeenCalled();
+    },
+  );
 });
