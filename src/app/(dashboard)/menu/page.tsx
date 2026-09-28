@@ -9,6 +9,8 @@ import {
 } from "@/server/services/menu-service";
 import { listIngredients } from "@/server/services/ingredient-service";
 import { MenuClient } from "./menu-client";
+import { ActionScopeProvider } from "@/components/action-scope";
+import { actionScopeFor } from "@/lib/auth/action-scope";
 
 export const metadata: Metadata = {
   title: "Menu — Café POS",
@@ -27,27 +29,29 @@ export default async function MenuPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-[1440px]">
-      <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Menu</h1>
-      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-        Categories, items, variants, and modifiers.
-      </p>
+    <ActionScopeProvider scope={actionScopeFor(user)}>
+      <div className="mx-auto max-w-[1440px]">
+        <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Menu</h1>
+        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+          Categories, items, variants, and modifiers.
+        </p>
 
-      <div className="mt-8">
-        <MenuClient
-          categories={categories}
-          items={items}
-          modifierGroups={modifierGroups}
-          ingredients={ingredients.map((ing) => ({
-            id: ing.id,
-            name: ing.name,
-            baseUnit: ing.baseUnit,
-            costPerBaseUnit: ing.averageCostPerBaseUnit,
-          }))}
-          canWrite={canWrite}
-          canWriteRecipes={canWriteRecipes}
-        />
+        <div className="mt-8">
+          <MenuClient
+            categories={categories}
+            items={items}
+            modifierGroups={modifierGroups}
+            ingredients={ingredients.map((ing) => ({
+              id: ing.id,
+              name: ing.name,
+              baseUnit: ing.baseUnit,
+              costPerBaseUnit: ing.averageCostPerBaseUnit,
+            }))}
+            canWrite={canWrite}
+            canWriteRecipes={canWriteRecipes}
+          />
+        </div>
       </div>
-    </div>
+    </ActionScopeProvider>
   );
 }

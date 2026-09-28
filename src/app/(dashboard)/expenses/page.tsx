@@ -21,6 +21,8 @@ import { ServerPagination } from "@/components/ui/server-pagination";
 import type { TrendPoint } from "@/components/ui/trend-chart";
 import { getPurchaseSpend, getPurchaseSpendByDay, getPaidPurchaseSpend } from "@/server/services/purchase-service";
 import { ExpensesClient } from "./expenses-client";
+import { ActionScopeProvider } from "@/components/action-scope";
+import { actionScopeFor } from "@/lib/auth/action-scope";
 
 export const metadata: Metadata = {
   title: "Expenses — Café POS",
@@ -86,29 +88,31 @@ export default async function ExpensesPage({
   });
 
   return (
-    <div className="mx-auto max-w-[1440px]">
-      <ExpensesClient
-        records={records.rows}
-        pagination={
-          <ServerPagination
-            page={{ ...records, rowCount: records.rows.length }}
-            totalItems={totalItems}
-            basePath="/expenses"
-            params={{ from: fromDate, to: toDate }}
-          />
-        }
-        summary={summary}
-        purchaseSpend={purchaseSpend}
-        paidPurchaseSpend={paidPurchaseSpend}
-        previousPurchaseSpend={previousPurchaseSpend}
-        previousSummary={previousSummary}
-        byCategory={[...byCategory, ...(purchaseSpend.count ? [{ category: "Ingredient purchase", total: purchaseSpend.total, entryCount: purchaseSpend.count }] : [])].sort((a, b) => b.total - a.total)}
-        trendData={trendData}
-        rangeLengthDays={rangeLengthDays}
-        from={fromDate}
-        to={toDate}
-        today={today}
-      />
-    </div>
+    <ActionScopeProvider scope={actionScopeFor(user)}>
+      <div className="mx-auto max-w-[1440px]">
+        <ExpensesClient
+          records={records.rows}
+          pagination={
+            <ServerPagination
+              page={{ ...records, rowCount: records.rows.length }}
+              totalItems={totalItems}
+              basePath="/expenses"
+              params={{ from: fromDate, to: toDate }}
+            />
+          }
+          summary={summary}
+          purchaseSpend={purchaseSpend}
+          paidPurchaseSpend={paidPurchaseSpend}
+          previousPurchaseSpend={previousPurchaseSpend}
+          previousSummary={previousSummary}
+          byCategory={[...byCategory, ...(purchaseSpend.count ? [{ category: "Ingredient purchase", total: purchaseSpend.total, entryCount: purchaseSpend.count }] : [])].sort((a, b) => b.total - a.total)}
+          trendData={trendData}
+          rangeLengthDays={rangeLengthDays}
+          from={fromDate}
+          to={toDate}
+          today={today}
+        />
+      </div>
+    </ActionScopeProvider>
   );
 }

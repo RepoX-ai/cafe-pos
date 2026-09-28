@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 import { toUserMessage } from "@/server/services/errors";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { assertActionScope } from "@/lib/auth/action-scope";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { recipeInputSchema } from "@/lib/validation/recipe";
@@ -14,12 +15,14 @@ import { invalidatePosMenuCache } from "@/server/services/pos-menu-cache";
 export type SaveRecipeResult = { ok: true } | { ok: false; error: string };
 
 export async function saveRecipeAction(
+  expectedScope: unknown,
   menuItemId: string,
   input: unknown,
 ): Promise<SaveRecipeResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "recipes:write");
+    assertActionScope(user, expectedScope);
 
     const parsed = recipeInputSchema.safeParse(input);
     if (!parsed.success) {

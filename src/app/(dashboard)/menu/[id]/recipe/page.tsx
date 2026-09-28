@@ -9,6 +9,8 @@ import { getMenuItemById } from "@/server/services/menu-service";
 import { listIngredients } from "@/server/services/ingredient-service";
 import { getActiveRecipe } from "@/server/services/recipe-service";
 import { RecipeEditor } from "./recipe-editor";
+import { ActionScopeProvider } from "@/components/action-scope";
+import { actionScopeFor } from "@/lib/auth/action-scope";
 
 export const metadata: Metadata = {
   title: "Recipe — Café POS",
@@ -50,60 +52,62 @@ export default async function RecipePage({
   ]);
 
   return (
-    <div className="mx-auto max-w-[800px]">
-      <BackLink itemId={id} />
-      <h1 className="mt-2 text-2xl font-semibold text-[var(--color-text-primary)]">
-        {detail.item.name} — Recipe
-      </h1>
+    <ActionScopeProvider scope={actionScopeFor(user)}>
+      <div className="mx-auto max-w-[800px]">
+        <BackLink itemId={id} />
+        <h1 className="mt-2 text-2xl font-semibold text-[var(--color-text-primary)]">
+          {detail.item.name} — Recipe
+        </h1>
 
-      {detail.variants.length > 1 ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {detail.variants.map((v) => (
-            <Link
-              key={v.id}
-              href={`/menu/${id}/recipe?variant=${v.id}`}
-              className={`rounded-full border px-3 py-1.5 text-sm ${
-                v.id === selectedVariant.id
-                  ? "border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"
-                  : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
-              }`}
-            >
-              {v.name}
-            </Link>
-          ))}
+        {detail.variants.length > 1 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {detail.variants.map((v) => (
+              <Link
+                key={v.id}
+                href={`/menu/${id}/recipe?variant=${v.id}`}
+                className={`rounded-full border px-3 py-1.5 text-sm ${
+                  v.id === selectedVariant.id
+                    ? "border-[var(--color-accent-primary)] bg-[var(--color-selected-surface)] text-[var(--color-accent-primary)]"
+                    : "border-[var(--color-border)] text-[var(--color-text-secondary)]"
+                }`}
+              >
+                {v.name}
+              </Link>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mt-6">
+          {/* Keyed by variant: the tabs above only change `?variant=`, so without
+              a key React keeps this editor mounted across variants — and its
+              lines live in state seeded once from `initialLines`. It would keep
+              showing the previous variant's ingredients while `variantId` had
+              already moved on, so Save would write them onto the wrong variant. */}
+          <RecipeEditor
+            key={selectedVariant.id}
+            menuItemId={id}
+            variantId={selectedVariant.id}
+            variantName={selectedVariant.name}
+            variantPrice={selectedVariant.price}
+            ingredients={ingredients.map((ing) => ({
+              id: ing.id,
+              name: ing.name,
+              baseUnit: ing.baseUnit,
+              costPerBaseUnit: ing.averageCostPerBaseUnit,
+            }))}
+            initialLines={
+              recipe?.lines.map((l) => ({
+                ingredientId: l.ingredientId,
+                quantityBaseUnits: Number(l.quantityBaseUnits),
+                wastePercentage: Number(l.wastePercentage ?? 0),
+                notes: l.notes ?? "",
+              })) ?? []
+            }
+            canWrite={canWrite}
+          />
         </div>
-      ) : null}
-
-      <div className="mt-6">
-        {/* Keyed by variant: the tabs above only change `?variant=`, so without
-            a key React keeps this editor mounted across variants — and its
-            lines live in state seeded once from `initialLines`. It would keep
-            showing the previous variant's ingredients while `variantId` had
-            already moved on, so Save would write them onto the wrong variant. */}
-        <RecipeEditor
-          key={selectedVariant.id}
-          menuItemId={id}
-          variantId={selectedVariant.id}
-          variantName={selectedVariant.name}
-          variantPrice={selectedVariant.price}
-          ingredients={ingredients.map((ing) => ({
-            id: ing.id,
-            name: ing.name,
-            baseUnit: ing.baseUnit,
-            costPerBaseUnit: ing.averageCostPerBaseUnit,
-          }))}
-          initialLines={
-            recipe?.lines.map((l) => ({
-              ingredientId: l.ingredientId,
-              quantityBaseUnits: Number(l.quantityBaseUnits),
-              wastePercentage: Number(l.wastePercentage ?? 0),
-              notes: l.notes ?? "",
-            })) ?? []
-          }
-          canWrite={canWrite}
-        />
       </div>
-    </div>
+    </ActionScopeProvider>
   );
 }
 

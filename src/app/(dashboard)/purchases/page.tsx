@@ -7,6 +7,8 @@ import { listIngredients } from "@/server/services/ingredient-service";
 import { listSuppliers } from "@/server/services/supplier-service";
 import { countPurchases, listPurchases } from "@/server/services/purchase-service";
 import { PurchasesClient } from "./purchases-client";
+import { ActionScopeProvider } from "@/components/action-scope";
+import { actionScopeFor } from "@/lib/auth/action-scope";
 
 export const metadata: Metadata = {
   title: "Purchases — Café POS",
@@ -30,28 +32,30 @@ export default async function PurchasesPage({
   const purchases = toPage(purchaseRows, window.page, window.pageSize);
 
   return (
-    <div className="mx-auto max-w-[1440px]">
-      <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Purchases</h1>
-      <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-        Suppliers and purchase receipts. Finalizing a receipt increases stock and updates average cost.
-      </p>
+    <ActionScopeProvider scope={actionScopeFor(user)}>
+      <div className="mx-auto max-w-[1440px]">
+        <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">Purchases</h1>
+        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+          Suppliers and purchase receipts. Finalizing a receipt increases stock and updates average cost.
+        </p>
 
-      <div className="mt-8">
-        <PurchasesClient
-          ingredients={ingredients}
-          suppliers={suppliers}
-          purchases={purchases.rows}
-          initialTab={tab === "history" || tab === "suppliers" ? tab : "new"}
-          historyPagination={
-            <ServerPagination
-              page={{ ...purchases, rowCount: purchases.rows.length }}
-              totalItems={totalItems}
-              basePath="/purchases"
-              params={{ tab: "history" }}
-            />
-          }
-        />
+        <div className="mt-8">
+          <PurchasesClient
+            ingredients={ingredients}
+            suppliers={suppliers}
+            purchases={purchases.rows}
+            initialTab={tab === "history" || tab === "suppliers" ? tab : "new"}
+            historyPagination={
+              <ServerPagination
+                page={{ ...purchases, rowCount: purchases.rows.length }}
+                totalItems={totalItems}
+                basePath="/purchases"
+                params={{ tab: "history" }}
+              />
+            }
+          />
+        </div>
       </div>
-    </div>
+    </ActionScopeProvider>
   );
 }

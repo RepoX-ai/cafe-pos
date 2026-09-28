@@ -4,6 +4,8 @@ import { hasAnyRolePermission } from "@/lib/permissions/permissions";
 import { db } from "@/lib/db/client";
 import { getRecipeUsageByIngredient, listIngredients } from "@/server/services/ingredient-service";
 import { IngredientsClient } from "./ingredients-client";
+import { ActionScopeProvider } from "@/components/action-scope";
+import { actionScopeFor } from "@/lib/auth/action-scope";
 
 export const metadata: Metadata = {
   title: "Ingredients — Café POS",
@@ -18,8 +20,10 @@ export default async function IngredientsPage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-[1440px]">
-      <IngredientsClient ingredients={ingredients} recipeUsage={recipeUsage} canWrite={canWrite} />
-    </div>
+    <ActionScopeProvider scope={actionScopeFor(user)}>
+      <div className="mx-auto max-w-[1440px]">
+        <IngredientsClient ingredients={ingredients} recipeUsage={recipeUsage} canWrite={canWrite} />
+      </div>
+    </ActionScopeProvider>
   );
 }

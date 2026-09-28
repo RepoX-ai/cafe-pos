@@ -11,6 +11,7 @@ import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { createSupplierAction, setSupplierActiveAction, updateSupplierAction } from "./actions";
 import type { SupplierRow } from "./purchase-types";
+import { useScopedAction } from "@/components/action-scope";
 
 export function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
   const [name, setName] = useState("");
@@ -18,11 +19,13 @@ export function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
   const [isPending, setIsPending] = useState(false);
   const [editing, setEditing] = useState<SupplierRow | null>(null);
   const showToast = useToast();
+  const createSupplier = useScopedAction(createSupplierAction);
+  const setSupplierActive = useScopedAction(setSupplierActiveAction);
 
   async function add() {
     if (!name.trim()) return;
     setIsPending(true);
-    const result = await createSupplierAction({ name, phone });
+    const result = await createSupplier({ name, phone });
     setIsPending(false);
     if (result.ok) {
       showToast("success", "Supplier added.");
@@ -35,7 +38,11 @@ export function SuppliersTab({ suppliers }: { suppliers: SupplierRow[] }) {
 
   async function toggleActive(supplier: SupplierRow) {
     try {
-      await setSupplierActiveAction(supplier.id, !supplier.active);
+      const result = await setSupplierActive(supplier.id, !supplier.active);
+      if (result && result.ok === false) {
+        showToast("error", result.error);
+        return;
+      }
       showToast("success", supplier.active ? "Supplier archived." : "Supplier restored.");
     } catch (error) {
       unstable_rethrow(error);
@@ -117,12 +124,13 @@ function EditSupplierForm({ supplier, onDone }: { supplier: SupplierRow; onDone:
   const [error, setError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const showToast = useToast();
+  const updateSupplier = useScopedAction(updateSupplierAction);
 
   async function save() {
     if (!name.trim()) return;
     setIsPending(true);
     setError(null);
-    const result = await updateSupplierAction(supplier.id, { name, phone });
+    const result = await updateSupplier(supplier.id, { name, phone });
     setIsPending(false);
     if (result.ok) {
       showToast("success", "Supplier saved.");

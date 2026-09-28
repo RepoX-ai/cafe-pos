@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { createBusinessAction } from "./actions";
+import { useScopedAction } from "@/components/action-scope";
 
 export interface OwnedBusiness {
   businessId: string;
@@ -37,6 +38,7 @@ export function BusinessesSection({
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const showToast = useToast();
+  const createBusiness = useScopedAction(createBusinessAction);
 
   function open() {
     setError(null);
@@ -50,7 +52,7 @@ export function BusinessesSection({
     setIsPending(true);
     setError(null);
     setFieldErrors({});
-    const result = await createBusinessAction({
+    const result = await createBusiness({
       name: form.get("name"),
       orderNumberPrefix: form.get("orderNumberPrefix"),
     });

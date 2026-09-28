@@ -5,6 +5,7 @@ import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { reprintReceiptAction, reportDevicePrintResultAction } from "@/app/pos/actions";
 import { useBluetoothPrinter } from "@/app/pos/use-bluetooth-printer";
+import { useScopedAction } from "@/components/action-scope";
 
 /** `unknown`: bytes went out, the outcome never got recorded. Not a success, not a failure. */
 type State = "idle" | "working" | "printed" | "failed" | "unknown";
@@ -20,13 +21,14 @@ export function ReprintReceipt({ orderId }: { orderId: string }) {
   const [message, setMessage] = useState<string | null>(null);
   /** One key per tap: a retry of the same tap must not queue a second receipt. */
   const requestKey = useRef<string | null>(null);
+  const reprintReceipt = useScopedAction(reprintReceiptAction);
 
   async function reprint() {
     setState("working");
     setMessage(null);
     requestKey.current ??= crypto.randomUUID();
 
-    const queued = await reprintReceiptAction(orderId, requestKey.current);
+    const queued = await reprintReceipt(orderId, requestKey.current);
     if (!queued.ok) {
       requestKey.current = null;
       setState("failed");

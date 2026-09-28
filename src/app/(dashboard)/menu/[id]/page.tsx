@@ -6,6 +6,8 @@ import { db } from "@/lib/db/client";
 import { getMenuItemById, listCategories, listModifierGroupsWithOptions } from "@/server/services/menu-service";
 import { listIngredients } from "@/server/services/ingredient-service";
 import { ItemDetailClient } from "./item-detail-client";
+import { ActionScopeProvider } from "@/components/action-scope";
+import { actionScopeFor } from "@/lib/auth/action-scope";
 
 export const metadata: Metadata = {
   title: "Menu item — Café POS",
@@ -27,22 +29,24 @@ export default async function MenuItemDetailPage({ params }: { params: Promise<{
   if (!detail) notFound();
 
   return (
-    <div className="mx-auto max-w-[900px]">
-      <ItemDetailClient
-        item={detail.item}
-        variants={detail.variants}
-        assignedModifierGroupIds={detail.assignedModifierGroupIds}
-        categories={categories}
-        modifierGroups={modifierGroups}
-        ingredients={ingredients.map((ing) => ({
-          id: ing.id,
-          name: ing.name,
-          baseUnit: ing.baseUnit,
-          costPerBaseUnit: ing.averageCostPerBaseUnit,
-        }))}
-        canWrite={canWrite}
-        canWriteRecipe={canWriteRecipe}
-      />
-    </div>
+    <ActionScopeProvider scope={actionScopeFor(user)}>
+      <div className="mx-auto max-w-[900px]">
+        <ItemDetailClient
+          item={detail.item}
+          variants={detail.variants}
+          assignedModifierGroupIds={detail.assignedModifierGroupIds}
+          categories={categories}
+          modifierGroups={modifierGroups}
+          ingredients={ingredients.map((ing) => ({
+            id: ing.id,
+            name: ing.name,
+            baseUnit: ing.baseUnit,
+            costPerBaseUnit: ing.averageCostPerBaseUnit,
+          }))}
+          canWrite={canWrite}
+          canWriteRecipe={canWriteRecipe}
+        />
+      </div>
+    </ActionScopeProvider>
   );
 }

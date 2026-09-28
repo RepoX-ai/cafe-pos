@@ -2,7 +2,7 @@
 
 import { formatDisplayDateTime } from "@/lib/dates/dates";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useActionState } from "react";
+import { useScopedAction, useScopedFormAction } from "@/components/action-scope";
 import Link from "next/link";
 import { ClipboardList, Minus, Plus, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -301,10 +301,7 @@ function LedgerTab({
 }
 
 function AdjustStockForm({ ingredients, onDone }: { ingredients: IngredientRow[]; onDone: () => void }) {
-  const [state, formAction, isPending] = useActionState<InventoryActionState, FormData>(
-    createManualAdjustmentAction,
-    undefined,
-  );
+  const [state, onSubmit, isPending] = useScopedFormAction<InventoryActionState>(createManualAdjustmentAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Adjustment recorded.");
   // A new key once a response arrives; kept across a retry that got none.
@@ -324,7 +321,7 @@ function AdjustStockForm({ ingredients, onDone }: { ingredients: IngredientRow[]
   }, [state]);
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <input type="hidden" name="idempotencyKey" value={submissionKey} />
       <input type="hidden" name="direction" value={direction} />
       <div
@@ -457,6 +454,7 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
   }
 
   const [countSubmissionKey, rotateCountSubmissionKey] = useSubmissionKey();
+  const submitStockCount = useScopedAction(submitStockCountAction);
 
   async function submit() {
     if (!countsComplete || isPending) return;
@@ -467,7 +465,7 @@ function StockCountFlow({ ingredients, onDone }: { ingredients: IngredientRow[];
 
     let res: Awaited<ReturnType<typeof submitStockCountAction>>;
     try {
-      res = await submitStockCountAction({ lines, idempotencyKey: countSubmissionKey });
+      res = await submitStockCount({ lines, idempotencyKey: countSubmissionKey });
     } catch {
       // No response: the count may or may not have been saved; the retry reuses the key.
       setIsPending(false);

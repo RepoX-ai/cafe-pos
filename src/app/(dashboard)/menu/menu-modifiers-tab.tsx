@@ -2,7 +2,7 @@
 
 import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState, useTransition } from "react";
-import { useActionState } from "react";
+import { useScopedAction, useScopedFormAction } from "@/components/action-scope";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -149,7 +149,7 @@ export function ModifiersTab({
 }
 
 function ModifierGroupForm({ onDone }: { onDone: () => void }) {
-  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createModifierGroupAction, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<FormActionState>(createModifierGroupAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Modifier group created.");
 
@@ -159,7 +159,7 @@ function ModifierGroupForm({ onDone }: { onDone: () => void }) {
   }, [state]);
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <Field label="Name" htmlFor="name" error={errorState?.fieldErrors?.name}>
         <input id="name" name="name" required placeholder="e.g. Sweetness" className={inputClassName} />
       </Field>
@@ -193,7 +193,7 @@ function ModifierGroupForm({ onDone }: { onDone: () => void }) {
 }
 
 function ModifierOptionForm({ groupId, onDone }: { groupId: string; onDone: () => void }) {
-  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createModifierOptionAction, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<FormActionState>(createModifierOptionAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Option added.");
 
@@ -203,7 +203,7 @@ function ModifierOptionForm({ groupId, onDone }: { groupId: string; onDone: () =
   }, [state]);
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <input type="hidden" name="groupId" value={groupId} />
       <Field label="Name" htmlFor="name" error={errorState?.fieldErrors?.name}>
         <input id="name" name="name" required placeholder="e.g. Extra sweet" className={inputClassName} />
@@ -237,6 +237,8 @@ function ModifierGroupActions({
 }) {
   const [deleting, setDeleting] = useState(false);
   const { run, isPending } = useToastAction();
+  const setModifierGroupActive = useScopedAction(setModifierGroupActiveAction);
+  const deleteModifierGroup = useScopedAction(deleteModifierGroupAction);
 
   return (
     <>
@@ -248,7 +250,7 @@ function ModifierGroupActions({
             label: group.active ? "Archive" : "Restore",
             onSelect: () =>
               run(
-                () => setModifierGroupActiveAction(formDataOf({ id: group.id, active: (!group.active).toString() })),
+                () => setModifierGroupActive(formDataOf({ id: group.id, active: (!group.active).toString() })),
                 { success: group.active ? "Modifier group archived." : "Modifier group restored." },
               ),
             disabled: isPending,
@@ -259,7 +261,7 @@ function ModifierGroupActions({
       <ConfirmDeleteDialog
         open={deleting}
         onClose={() => setDeleting(false)}
-        action={deleteModifierGroupAction}
+        action={deleteModifierGroup}
         fields={{ id: group.id }}
         title={`Delete "${group.name}"?`}
         successMessage={`"${group.name}" deleted.`}
@@ -295,6 +297,7 @@ function ModifierRecipeForm({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const showToast = useToast();
+  const saveModifierOptionRecipe = useScopedAction(saveModifierOptionRecipeAction);
 
   const costById = new Map(ingredients.map((i) => [i.id, i.costPerBaseUnit]));
   const totalCost = calculateRecipeCost(
@@ -306,7 +309,7 @@ function ModifierRecipeForm({
   function save() {
     setError(null);
     startTransition(async () => {
-      const result = await saveModifierOptionRecipeAction({
+      const result = await saveModifierOptionRecipe({
         groupId,
         optionId: option.id,
         lines: lines
@@ -374,6 +377,8 @@ function ModifierOptionActions({
 }) {
   const [deleting, setDeleting] = useState(false);
   const { run, isPending } = useToastAction();
+  const setModifierOptionActive = useScopedAction(setModifierOptionActiveAction);
+  const deleteModifierOption = useScopedAction(deleteModifierOptionAction);
 
   return (
     <>
@@ -388,7 +393,7 @@ function ModifierOptionActions({
             onSelect: () =>
               run(
                 () =>
-                  setModifierOptionActiveAction(
+                  setModifierOptionActive(
                     formDataOf({ groupId, optionId: option.id, active: (!option.active).toString() }),
                   ),
                 { success: option.active ? "Option archived." : "Option restored." },
@@ -402,7 +407,7 @@ function ModifierOptionActions({
       <ConfirmDeleteDialog
         open={deleting}
         onClose={() => setDeleting(false)}
-        action={deleteModifierOptionAction}
+        action={deleteModifierOption}
         fields={{ groupId, optionId: option.id }}
         title={`Delete "${option.name}"?`}
         successMessage={`"${option.name}" deleted.`}

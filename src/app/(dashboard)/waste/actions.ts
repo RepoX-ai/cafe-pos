@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { assertActionScope } from "@/lib/auth/action-scope";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { wasteInputSchema } from "@/lib/validation/waste";
@@ -18,12 +19,14 @@ export type WasteActionState =
   | undefined;
 
 export async function createWasteRecordAction(
+  expectedScope: unknown,
   _prev: WasteActionState,
   formData: FormData,
 ): Promise<WasteActionState> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "inventory:waste");
+    assertActionScope(user, expectedScope);
 
     const parsed = wasteInputSchema.safeParse({
       ingredientId: formData.get("ingredientId"),

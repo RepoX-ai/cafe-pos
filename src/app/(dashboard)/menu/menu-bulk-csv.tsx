@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useState } from "react";
+import { useScopedFormAction } from "@/components/action-scope";
 import { Download, Upload } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -37,13 +38,13 @@ export function MenuBulkCsv({ canWrite }: { canWrite: boolean }) {
 }
 
 function ImportForm({ onDone }: { onDone: () => void }) {
-  const [state, formAction, isPending] = useActionState<ImportMenuCsvResult | undefined, FormData>(importMenuCsvAction, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<ImportMenuCsvResult | undefined>(importMenuCsvAction, undefined);
   const [key] = useState(() => (typeof crypto !== "undefined" ? crypto.randomUUID() : String(Date.now())));
   const [fileName, setFileName] = useState<string | null>(null);
   useActionResultToast(state, state && state.ok ? state.summary : "Imported.");
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <p className="text-sm text-[var(--color-text-secondary)]">
         Upload a CSV exported from this page, edited in a spreadsheet. Leave{" "}
         <code className="rounded bg-[var(--color-page-bg)] px-1 py-0.5 text-xs">item_id</code> and{" "}

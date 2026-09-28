@@ -21,6 +21,8 @@ import type {
 } from "@/lib/validation/menu";
 import type { ModifierRecipeInput, RecipeLineInput } from "@/lib/validation/recipe";
 import { calculateRecipeCost, effectiveQuantity } from "@/lib/recipes/cost";
+import type { IngredientDemand, StockLevels } from "@/lib/pos/stock-demand";
+import type { BaseUnit } from "@/lib/units/units";
 import { recordAuditLog } from "./audit";
 import { NotFoundError, ServiceError } from "./errors";
 import type { ActorContext } from "./ingredient-service";
@@ -910,6 +912,8 @@ export interface PosModifierOption {
   name: string;
   priceAdjustment: number;
   inStock: boolean;
+  /** Per-unit ingredient draw; empty when stock isn't gated for this item. */
+  demand: IngredientDemand[];
 }
 
 export interface PosModifierGroup {
@@ -926,6 +930,8 @@ export interface PosVariant {
   name: string;
   price: number;
   inStock: boolean;
+  /** Per-unit ingredient draw; empty when stock isn't gated for this item. */
+  demand: IngredientDemand[];
 }
 
 export interface PosMenuItem {
@@ -972,7 +978,7 @@ export async function getPosMenu(
   db: Database,
   businessId: string,
   opts: { allowNegativeStock: boolean },
-): Promise<{ categories: PosCategory[]; items: PosMenuItem[] }> {
+): Promise<{ categories: PosCategory[]; items: PosMenuItem[]; stock: StockLevels }> {
   // Stock availability (PRD §6.5/§7.8) mirrors the submit-time gate in
   // order-service.ts: skipped entirely when the business allows negative
   // stock (nothing to warn the cashier about ahead of time), and — per
@@ -1082,6 +1088,9 @@ export async function getPosMenu(
       ? db
           .select({
             recipeId: recipeLines.recipeId,
+            ingredientId: ingredients.id,
+            ingredientName: ingredients.name,
+            baseUnit: ingredients.baseUnit,
             quantityBaseUnits: recipeLines.quantityBaseUnits,
             wastePercentage: recipeLines.wastePercentage,
             currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
@@ -1095,6 +1104,9 @@ export async function getPosMenu(
       ? db
           .select({
             modifierOptionId: modifierRecipeLines.modifierOptionId,
+            ingredientId: ingredients.id,
+            ingredientName: ingredients.name,
+            baseUnit: ingredients.baseUnit,
             quantityBaseUnits: modifierRecipeLines.quantityBaseUnits,
             wastePercentage: modifierRecipeLines.wastePercentage,
             currentQuantityBaseUnits: ingredients.currentQuantityBaseUnits,
@@ -1106,19 +1118,39 @@ export async function getPosMenu(
   ]);
 
   const recipeReady = new Set(lines.map((line) => recipeIdToVariantId.get(line.recipeId)).filter((id): id is string => !!id));
+  // Stock levels and per-unit demand let the POS add up a whole selection
+  // (variant + modifiers × quantity, plus the rest of the cart) the way
+  // checkout does, instead of judging each choice on its own.
+  const stock: StockLevels = {};
+  const recordStock = (line: { ingredientId: string; ingredientName: string; baseUnit: BaseUnit; currentQuantityBaseUnits: string }) => {
+    stock[line.ingredientId] ??= { name: line.ingredientName, unit: line.baseUnit, available: line.currentQuantityBaseUnits };
+  };
+  const pushDemand = (map: Map<string, IngredientDemand[]>, key: string, ingredientId: string, quantity: number) => {
+    const list = map.get(key) ?? [];
+    list.push({ ingredientId, quantity });
+    map.set(key, list);
+  };
+
   const variantAvailability = new Map<string, boolean>();
+  const variantDemand = new Map<string, IngredientDemand[]>();
   for (const line of lines) {
     const variantId = recipeIdToVariantId.get(line.recipeId);
     if (!variantId) continue;
     const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
-    if (checkStock && needed > Number(line.currentQuantityBaseUnits)) {
+    if (!checkStock) continue;
+    recordStock(line);
+    pushDemand(variantDemand, variantId, line.ingredientId, needed);
+    if (needed > Number(line.currentQuantityBaseUnits)) {
       variantAvailability.set(variantId, false);
     }
   }
 
   const optionAvailability = new Map<string, boolean>();
+  const optionDemand = new Map<string, IngredientDemand[]>();
   for (const line of modLines) {
     const needed = effectiveQuantity(Number(line.quantityBaseUnits), Number(line.wastePercentage ?? 0));
+    recordStock(line);
+    pushDemand(optionDemand, line.modifierOptionId, line.ingredientId, needed);
     if (needed > Number(line.currentQuantityBaseUnits)) {
       optionAvailability.set(line.modifierOptionId, false);
     }
@@ -1127,14 +1159,14 @@ export async function getPosMenu(
   const variantsByItem = new Map<string, PosVariant[]>();
   for (const v of variants) {
     const list = variantsByItem.get(v.menuItemId) ?? [];
-    list.push({ id: v.id, name: v.name, price: v.price, inStock: true });
+    list.push({ id: v.id, name: v.name, price: v.price, inStock: true, demand: [] });
     variantsByItem.set(v.menuItemId, list);
   }
 
   const optionsByGroup = new Map<string, PosModifierOption[]>();
   for (const o of options) {
     const list = optionsByGroup.get(o.modifierGroupId) ?? [];
-    list.push({ id: o.id, name: o.name, priceAdjustment: o.priceAdjustment, inStock: true });
+    list.push({ id: o.id, name: o.name, priceAdjustment: o.priceAdjustment, inStock: true, demand: [] });
     optionsByGroup.set(o.modifierGroupId, list);
   }
 
@@ -1161,12 +1193,16 @@ export async function getPosMenu(
     const itemVariants = (variantsByItem.get(item.id) ?? []).filter((v) => recipeReady.has(v.id)).map((v) => ({
       ...v,
       inStock: item.tracksInventory ? (variantAvailability.get(v.id) ?? true) : true,
+      demand: item.tracksInventory ? (variantDemand.get(v.id) ?? []) : [],
     }));
+    // Checkout only draws modifier stock for a line that has a variant.
+    const modifiersConsumeStock = item.tracksInventory && itemVariants.length > 0;
     const itemModifierGroups = (groupsByItem.get(item.id) ?? []).map((g) => ({
       ...g,
       options: g.options.map((o) => ({
         ...o,
         inStock: item.tracksInventory ? (optionAvailability.get(o.id) ?? true) : true,
+        demand: modifiersConsumeStock ? (optionDemand.get(o.id) ?? []) : [],
       })),
     }));
 
@@ -1184,7 +1220,7 @@ export async function getPosMenu(
     };
   });
 
-  return { categories, items: posItems };
+  return { categories, items: posItems, stock };
 }
 
 /**

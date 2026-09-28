@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { assertActionScope } from "@/lib/auth/action-scope";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { cancelOrderInputSchema } from "@/lib/validation/order";
@@ -20,10 +21,11 @@ const THROTTLED_MUTATION: CancelOrderResult = {
   error: "Too many requests. Wait a moment and try again.",
 };
 
-export async function cancelOrderAction(input: unknown): Promise<CancelOrderResult> {
+export async function cancelOrderAction(expectedScope: unknown, input: unknown): Promise<CancelOrderResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "orders:cancel");
+    assertActionScope(user, expectedScope);
 
     const parsed = cancelOrderInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -63,10 +65,11 @@ const printRequestSchema = z.object({
 
 const THROTTLED: PrintActionResult = { ok: false, error: "Too many print requests. Wait a moment and try again." };
 
-export async function retryPrintJobAction(printJobId: string, orderId: string): Promise<PrintActionResult> {
+export async function retryPrintJobAction(expectedScope: unknown, printJobId: string, orderId: string): Promise<PrintActionResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "printer:manage");
+    assertActionScope(user, expectedScope);
 
     const parsed = printRequestSchema.safeParse({ printJobId, orderId });
     if (!parsed.success || !parsed.data.printJobId) return { ok: false, error: "Invalid request." };
@@ -88,10 +91,11 @@ export async function retryPrintJobAction(printJobId: string, orderId: string): 
  * request returns the job it created (and isn't throttled); a new click
  * sends a new key and a new receipt.
  */
-export async function reprintOrderAction(orderId: string, requestKey?: string): Promise<PrintActionResult> {
+export async function reprintOrderAction(expectedScope: unknown, orderId: string, requestKey?: string): Promise<PrintActionResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "orders:reprint");
+    assertActionScope(user, expectedScope);
 
     const parsed = printRequestSchema.safeParse({ orderId, requestKey });
     if (!parsed.success) return { ok: false, error: "Invalid request." };
@@ -114,10 +118,11 @@ export async function reprintOrderAction(orderId: string, requestKey?: string): 
   });
 }
 
-export async function refundOrderAction(input: unknown): Promise<CancelOrderResult> {
+export async function refundOrderAction(expectedScope: unknown, input: unknown): Promise<CancelOrderResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "orders:refund");
+    assertActionScope(user, expectedScope);
 
     const parsed = cancelOrderInputSchema.safeParse(input);
     if (!parsed.success) {

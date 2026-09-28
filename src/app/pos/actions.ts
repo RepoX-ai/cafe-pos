@@ -1,9 +1,11 @@
 "use server";
 
+import { matchesCheckoutScope } from "@/lib/auth/checkout-scope";
 import { after } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { assertActionScope } from "@/lib/auth/action-scope";
 import { submitOrderForUser, type SubmitOrderResult } from "@/server/services/checkout";
 import {
   createReprintJob,
@@ -41,9 +43,19 @@ const deviceOutcomeSchema = z.object({
   outcome: z.object({ ok: z.boolean(), error: z.string().max(500).optional() }),
 });
 
-export async function submitOrderAction(input: unknown): Promise<SubmitOrderResult> {
+export async function submitOrderAction(input: unknown, expectedScope: string): Promise<SubmitOrderResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
+    // This is only a stale-page check. The database session remains the
+    // authority for both tenant and permissions. Never use expectedScope
+    // to select a business or to switch the session.
+    if (!matchesCheckoutScope(user, expectedScope)) {
+      return {
+        ok: false,
+        scopeChanged: true,
+        error: "Your signed-in account or café changed in another tab. Switch back to the original café and account, then retry this saved order.",
+      };
+    }
     const result = await submitOrderForUser(db, user, input);
     // Orders deduct stock — drop the POS menu cache so availability badges refresh
     // (same pattern as cancel/refund on the dashboard).
@@ -64,10 +76,11 @@ export async function submitOrderAction(input: unknown): Promise<SubmitOrderResu
  * job that tap already created, so a flaky connection can't quietly queue
  * two receipts, while a second deliberate tap (new key) queues another.
  */
-export async function reprintReceiptAction(orderId: string, requestKey: string): Promise<ReprintResult> {
+export async function reprintReceiptAction(expectedScope: unknown, orderId: string, requestKey: string): Promise<ReprintResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "orders:reprint");
+    assertActionScope(user, expectedScope);
     if (!/^[0-9a-f-]{16,100}$/i.test(requestKey)) return { ok: false, error: "Invalid request." };
 
     const isRetry = (await findReprintJob(db, user.businessId, orderId, requestKey)) !== null;
@@ -165,3 +178,4 @@ export async function reportDevicePrintResultAction(
     throw error;
   }
 }
+

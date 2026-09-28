@@ -112,6 +112,12 @@ export const ROLE_PERMISSIONS: Record<RoleName, ReadonlySet<Permission>> = {
     // ingredients directly, but "Menu management" is explicitly "No" in
     // the PRD's role matrix, so no menu:read either.
     "ingredients:write",
+    // Deliberate deviation from the PRD's default role matrix, which marks
+    // "View all orders" as No for this role — café asked for inventory
+    // staff to be able to look up orders. Granted as the _basic variant
+    // (same view cashiers get via the POS), never orders:read_all, so
+    // COGS/margin/profit stays hidden per PRD §4.
+    "orders:read_all_basic",
     "inventory:read",
     "inventory:receive",
     "inventory:adjust",

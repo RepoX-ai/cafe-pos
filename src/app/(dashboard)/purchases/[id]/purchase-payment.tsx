@@ -6,17 +6,20 @@ import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/components/ui/toast";
 import { updatePurchasePaymentAction } from "../actions";
+import { useScopedAction } from "@/components/action-scope";
+import { todayInBusinessTimezone } from "@/lib/dates/dates";
 
 export function PurchasePayment({ id, paidAt }: { id: string; paidAt: string | null }) {
   const router = useRouter();
   const toast = useToast();
-  const [date, setDate] = useState(paidAt ?? new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => paidAt ?? todayInBusinessTimezone());
   const [pending, setPending] = useState(false);
+  const updatePurchasePayment = useScopedAction(updatePurchasePaymentAction);
 
   async function update(next: string | null) {
     setPending(true);
     try {
-      const result = await updatePurchasePaymentAction(id, next);
+      const result = await updatePurchasePayment(id, next);
       if (!result.ok) {
         toast("error", result.error);
         return;

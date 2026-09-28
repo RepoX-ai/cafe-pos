@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { assertActionScope } from "@/lib/auth/action-scope";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { expenseInputSchema } from "@/lib/validation/expense";
@@ -28,12 +29,14 @@ function parseExpenseForm(formData: FormData) {
 }
 
 export async function createExpenseAction(
+  expectedScope: unknown,
   _prev: ExpenseActionState,
   formData: FormData,
 ): Promise<ExpenseActionState> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "expenses:write");
+    assertActionScope(user, expectedScope);
 
     const parsed = parseExpenseForm(formData);
     if (!parsed.success) {
@@ -49,12 +52,14 @@ export async function createExpenseAction(
 
 
 export async function updateExpenseAction(
+  expectedScope: unknown,
   _prev: ExpenseActionState,
   formData: FormData,
 ): Promise<ExpenseActionState> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "expenses:write");
+    assertActionScope(user, expectedScope);
 
     const id = String(formData.get("id") ?? "");
     if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "Missing expense id." };

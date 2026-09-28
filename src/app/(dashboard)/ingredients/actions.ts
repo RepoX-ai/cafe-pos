@@ -5,7 +5,8 @@ import { db } from "@/lib/db/client";
 import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 import { ServiceError } from "@/server/services/errors";
 import { requireCurrentUser } from "@/lib/auth/current-user";
-import { asActionResult } from "@/lib/permissions/action-result";
+import { assertActionScope } from "@/lib/auth/action-scope";
+import { asActionResult, type ActionOutcome } from "@/lib/permissions/action-result";
 import { invalidatePosMenuCache } from "@/server/services/pos-menu-cache";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { getRequestMeta } from "@/lib/http/request-meta";
@@ -39,12 +40,14 @@ function readIngredientForm(formData: FormData) {
 }
 
 export async function createIngredientAction(
+  expectedScope: unknown,
   _prevState: IngredientFormState,
   formData: FormData,
 ): Promise<IngredientFormState> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "ingredients:write");
+    assertActionScope(user, expectedScope);
     if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");
 
     const parsed = ingredientInputSchema.safeParse(readIngredientForm(formData));
@@ -66,12 +69,14 @@ export async function createIngredientAction(
 
 
 export async function updateIngredientAction(
+  expectedScope: unknown,
   _prevState: IngredientFormState,
   formData: FormData,
 ): Promise<IngredientFormState> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "ingredients:write");
+    assertActionScope(user, expectedScope);
     if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");
 
     const id = String(formData.get("id") ?? "");
@@ -97,10 +102,11 @@ export async function updateIngredientAction(
 }
 
 
-export async function setIngredientActiveAction(formData: FormData): Promise<void> {
-  const result = await asActionResult(async () => {
+export async function setIngredientActiveAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "ingredients:write");
+    assertActionScope(user, expectedScope);
     if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");
 
     const id = String(formData.get("id") ?? "");
@@ -111,9 +117,6 @@ export async function setIngredientActiveAction(formData: FormData): Promise<voi
     await setIngredientActive(db, { businessId: user.businessId, userId: user.id, ...meta }, id, active);
     revalidatePath("/ingredients");
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
@@ -123,10 +126,11 @@ export async function setIngredientActiveAction(formData: FormData): Promise<voi
  * ingredient does drop out of any recipe using it, which the confirm
  * dialog warns about first.
  */
-export async function deleteIngredientAction(formData: FormData): Promise<void> {
-  const result = await asActionResult(async () => {
+export async function deleteIngredientAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "ingredients:write");
+    assertActionScope(user, expectedScope);
     if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");
 
     const id = String(formData.get("id") ?? "");
@@ -138,8 +142,5 @@ export async function deleteIngredientAction(formData: FormData): Promise<void> 
     revalidatePath("/inventory");
     invalidatePosMenuCache(user.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 

@@ -1,0 +1,49 @@
+name: Security regression
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: cafe_pos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cafe_pos_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:disposable-ci-only@localhost:5432/cafe_pos_test
+      TEST_DATABASE_URL: postgres://postgres:disposable-ci-only@localhost:5432/cafe_pos_test
+      AUTH_SECRET: test-only-auth-secret-min-32-characters!
+      PRINT_PROVIDER: mock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: node --experimental-strip-types --test tests/security/auth.test.mjs
+      - run: python3 -m unittest discover -s tests/security -p '*_test.py' -v
+      - run: bash -n deploy/backup.sh
+      - run: npm run db:migrate
+      - name: Authentication, tenant isolation, and permission integration tests
+        run: >-
+          npm run test:integration --
+          tests/integration/multi-tenancy.test.ts
+          tests/integration/tenant-references.test.ts
+          tests/integration/identity-concurrency.test.ts
+          tests/integration/rate-limit.test.ts
+          tests/integration/staff-service.test.ts

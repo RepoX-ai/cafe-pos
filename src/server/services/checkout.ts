@@ -26,7 +26,7 @@ export type SubmitOrderResult =
       /** The attempt this response authorizes; sent back with the outcome. */
       devicePrintToken?: string;
     }
-  | { ok: false; error: string; refreshMenu?: boolean };
+  | { ok: false; error: string; refreshMenu?: boolean; scopeChanged?: boolean };
 
 /**
  * The POS checkout entry point, in a fixed order: permission, input shape,
@@ -123,3 +123,4 @@ export async function submitOrderForUser(
     throw error;
   }
 }
+

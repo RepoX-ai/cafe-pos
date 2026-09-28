@@ -61,3 +61,16 @@ describe("session token hashing contract", () => {
     expect(hmac).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+
+
+describe("repository example secrets", () => {
+  it.each([
+    "local-dev-only-auth-secret-min-32-chars-xx",
+    "test-only-auth-secret-min-32-characters!",
+    "unit-test-auth-secret-min-32-chars!!",
+  ])("rejects the published placeholder %s in production", (secret) => {
+    expect(() => assertAuthSecretConfigured({ NODE_ENV: "production", AUTH_SECRET: ` ${secret} ` })).toThrow(AuthSecretError);
+    expect(assertAuthSecretConfigured({ NODE_ENV: "development", AUTH_SECRET: secret })).toBe(secret);
+  });
+});

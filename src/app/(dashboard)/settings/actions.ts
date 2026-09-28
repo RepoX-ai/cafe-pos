@@ -5,6 +5,7 @@ import { db } from "@/lib/db/client";
 import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 import { toUserMessage } from "@/server/services/errors";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { assertActionScope } from "@/lib/auth/action-scope";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { businessSettingsInputSchema } from "@/lib/validation/settings";
@@ -21,12 +22,14 @@ export type SettingsActionState =
   | undefined;
 
 export async function updateSettingsAction(
+  expectedScope: unknown,
   _prev: SettingsActionState,
   formData: FormData,
 ): Promise<SettingsActionState> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "settings:write");
+    assertActionScope(user, expectedScope);
 
     const parsed = businessSettingsInputSchema.safeParse({
       name: formData.get("name"),
@@ -81,10 +84,11 @@ export type CreateBusinessResult =
  * new business's owner is always the person who clicked, never an id the
  * form supplied.
  */
-export async function createBusinessAction(input: unknown): Promise<CreateBusinessResult> {
+export async function createBusinessAction(expectedScope: unknown, input: unknown): Promise<CreateBusinessResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "business:create");
+    assertActionScope(user, expectedScope);
 
     const parsed = createBusinessInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -119,10 +123,11 @@ export type BrandingResult =
  * with it — see `src/lib/branding/raster-browser.ts` for why that happens
  * client-side.
  */
-export async function updateBrandingAction(formData: FormData): Promise<BrandingResult> {
+export async function updateBrandingAction(expectedScope: unknown, formData: FormData): Promise<BrandingResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "settings:write");
+    assertActionScope(user, expectedScope);
 
     const parsed = brandingInputSchema.safeParse({
       brandColor: formData.get("brandColor") || "",
