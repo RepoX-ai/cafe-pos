@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useActionState } from "react";
+import { useScopedAction, useScopedFormAction } from "@/components/action-scope";
 import { Plus } from "lucide-react";
 import { formatIDRRate, formatIDRRatePerPurchaseUnit } from "@/lib/money/money";
 import {
@@ -190,7 +190,7 @@ export function IngredientsClient({
 
 function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; onDone: () => void }) {
   const action = existing ? updateIngredientAction : createIngredientAction;
-  const [state, formAction, isPending] = useActionState<IngredientFormState, FormData>(action, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<IngredientFormState>(action, undefined);
   useActionResultToast(state, existing ? "Ingredient saved." : "Ingredient created.");
 
   useEffect(() => {
@@ -242,7 +242,7 @@ function IngredientForm({ existing, onDone }: { existing: IngredientRow | null; 
   const startingCostNumber = Number(startingCost);
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       {existing ? <input type="hidden" name="id" value={existing.id} /> : null}
 
       <Field label="Name" htmlFor="name" error={errorState?.fieldErrors?.name}>
@@ -416,6 +416,8 @@ function IngredientRowActions({
 }) {
   const [deleting, setDeleting] = useState(false);
   const { run, isPending } = useToastAction();
+  const setActive = useScopedAction(setIngredientActiveAction);
+  const deleteIngredient = useScopedAction(deleteIngredientAction);
 
   return (
     <>
@@ -428,7 +430,7 @@ function IngredientRowActions({
             onSelect: () =>
               run(
                 () =>
-                  setIngredientActiveAction(
+                  setActive(
                     formDataOf({ id: ingredient.id, active: (!ingredient.active).toString() }),
                   ),
                 { success: ingredient.active ? "Ingredient archived." : "Ingredient restored." },
@@ -447,7 +449,7 @@ function IngredientRowActions({
       <ConfirmDeleteDialog
         open={deleting}
         onClose={() => setDeleting(false)}
-        action={deleteIngredientAction}
+        action={deleteIngredient}
         fields={{ id: ingredient.id }}
         title={`Delete "${ingredient.name}"?`}
         successMessage={`"${ingredient.name}" deleted.`}

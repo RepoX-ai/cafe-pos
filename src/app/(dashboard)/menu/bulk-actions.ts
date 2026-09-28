@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { assertActionScope } from "@/lib/auth/action-scope";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
@@ -26,6 +27,7 @@ export type ImportMenuCsvResult =
  * model — see requirePermission's docstring).
  */
 export async function importMenuCsvAction(
+  expectedScope: unknown,
   _prev: ImportMenuCsvResult | undefined,
   formData: FormData,
 ): Promise<ImportMenuCsvResult> {
@@ -33,6 +35,7 @@ export async function importMenuCsvAction(
     const user = await requireCurrentUser();
     const ctx = { businessId: user.businessId, userId: user.id };
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
 
     if (!(await allowUserAction(db, RATE_LIMITS.catalogWrite(), user))) {
       throw new ServiceError("Too many changes in a short time. Wait a moment and try again.");

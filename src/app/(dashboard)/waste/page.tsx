@@ -6,6 +6,8 @@ import { ServerPagination } from "@/components/ui/server-pagination";
 import { listIngredients } from "@/server/services/ingredient-service";
 import { countWasteRecords, listWasteRecords } from "@/server/services/waste-service";
 import { WasteClient } from "./waste-client";
+import { ActionScopeProvider } from "@/components/action-scope";
+import { actionScopeFor } from "@/lib/auth/action-scope";
 
 export const metadata: Metadata = {
   title: "Waste — Café POS",
@@ -23,12 +25,14 @@ export default async function WastePage({ searchParams }: { searchParams: Promis
   const records = toPage(rows, window.page, window.pageSize);
 
   return (
-    <div className="mx-auto max-w-[1440px]">
-      <WasteClient
-        ingredients={ingredients}
-        records={records.rows}
-        pagination={<ServerPagination page={{ ...records, rowCount: records.rows.length }} totalItems={totalItems} basePath="/waste" />}
-      />
-    </div>
+    <ActionScopeProvider scope={actionScopeFor(user)}>
+      <div className="mx-auto max-w-[1440px]">
+        <WasteClient
+          ingredients={ingredients}
+          records={records.rows}
+          pagination={<ServerPagination page={{ ...records, rowCount: records.rows.length }} totalItems={totalItems} basePath="/waste" />}
+        />
+      </div>
+    </ActionScopeProvider>
   );
 }

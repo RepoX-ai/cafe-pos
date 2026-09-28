@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useScopedFormAction } from "@/components/action-scope";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, Select } from "@/components/ui/form-field";
@@ -22,15 +22,12 @@ export function SettingsForm({
   tax: { percent: number; inclusive: boolean } | null;
   serviceChargePercent: number | null;
 }) {
-  const [state, formAction, isPending] = useActionState<SettingsActionState, FormData>(
-    updateSettingsAction,
-    undefined,
-  );
+  const [state, onSubmit, isPending] = useScopedFormAction<SettingsActionState>(updateSettingsAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Settings saved.");
 
   return (
-    <form action={formAction} className="flex flex-col gap-6">
+    <form onSubmit={onSubmit} className="flex flex-col gap-6">
       <section className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
         <h2 className="mb-4 text-sm font-semibold text-[var(--color-text-primary)]">Business</h2>
         <div className="flex flex-col gap-4">

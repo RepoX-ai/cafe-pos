@@ -7,6 +7,7 @@ import { useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { retryPrintJobAction, reprintOrderAction } from "../actions";
+import { useScopedAction } from "@/components/action-scope";
 import { useToast } from "@/components/ui/toast";
 
 interface PrintJobRow {
@@ -54,11 +55,13 @@ export function PrintJobsPanel({
   // clicking again retries that same request instead of queueing a second receipt.
   const reprintKey = useRef<string | null>(null);
   const showToast = useToast();
+  const retryPrintJob = useScopedAction(retryPrintJobAction);
+  const reprintOrder = useScopedAction(reprintOrderAction);
 
   async function retry(jobId: string) {
     setPendingId(jobId);
     try {
-      const result = await retryPrintJobAction(jobId, orderId);
+      const result = await retryPrintJob(jobId, orderId);
       if (result.ok && result.payload) setReceipt(result.payload);
       const text = result.ok ? `Retry result: ${result.status}${result.error ? ` — ${result.error}` : ""}` : result.error;
       setMessage(text);
@@ -74,7 +77,7 @@ export function PrintJobsPanel({
     setIsReprinting(true);
     try {
       reprintKey.current ??= newRequestKey();
-      const result = await reprintOrderAction(orderId, reprintKey.current);
+      const result = await reprintOrder(orderId, reprintKey.current);
       reprintKey.current = null;
       if (result.ok && result.payload) setReceipt(result.payload);
       const text = result.ok ? `Reprint result: ${result.status}${result.error ? ` — ${result.error}` : ""}` : result.error;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useActionState } from "react";
+import { useScopedAction, useScopedFormAction } from "@/components/action-scope";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -84,7 +84,7 @@ export function CategoriesTab({
 }
 
 function CategoryForm({ onDone }: { onDone: () => void }) {
-  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createCategoryAction, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<FormActionState>(createCategoryAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Category created.");
 
@@ -94,7 +94,7 @@ function CategoryForm({ onDone }: { onDone: () => void }) {
   }, [state]);
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <Field label="Name" htmlFor="name" error={errorState?.fieldErrors?.name}>
         <input id="name" name="name" required className={inputClassName} />
       </Field>
@@ -121,6 +121,8 @@ function CategoryForm({ onDone }: { onDone: () => void }) {
 function CategoryRowActions({ category, itemCount }: { category: CategoryRow; itemCount: number }) {
   const [deleting, setDeleting] = useState(false);
   const { run, isPending } = useToastAction();
+  const setCategoryActive = useScopedAction(setCategoryActiveAction);
+  const deleteCategory = useScopedAction(deleteCategoryAction);
 
   return (
     <>
@@ -132,7 +134,7 @@ function CategoryRowActions({ category, itemCount }: { category: CategoryRow; it
             onSelect: () =>
               run(
                 () =>
-                  setCategoryActiveAction(
+                  setCategoryActive(
                     formDataOf({ id: category.id, active: (!category.active).toString() }),
                   ),
                 { success: category.active ? "Category archived." : "Category restored." },
@@ -145,7 +147,7 @@ function CategoryRowActions({ category, itemCount }: { category: CategoryRow; it
       <ConfirmDeleteDialog
         open={deleting}
         onClose={() => setDeleting(false)}
-        action={deleteCategoryAction}
+        action={deleteCategory}
         fields={{ id: category.id }}
         title={`Delete "${category.name}"?`}
         successMessage={`"${category.name}" deleted.`}

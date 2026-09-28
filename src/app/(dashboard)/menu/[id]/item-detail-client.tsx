@@ -2,7 +2,7 @@
 
 import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState, useTransition, type FormEvent } from "react";
-import { useActionState } from "react";
+import { useScopedAction, useScopedFormAction } from "@/components/action-scope";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Plus } from "lucide-react";
@@ -207,12 +207,12 @@ export function ItemDetailClient({
 }
 
 function ItemDetailsForm({ item, categories, canWrite }: { item: Item; categories: Category[]; canWrite: boolean }) {
-  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(updateMenuItemAction, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<FormActionState>(updateMenuItemAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Item saved.");
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <input type="hidden" name="id" value={item.id} />
       {/* Price now lives on the variant(s) below, not here — every item
           always has at least one variant (see menu-service.createMenuItem),
@@ -283,6 +283,7 @@ function VariantForm({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isPending, startTransition] = useTransition();
   const showToast = useToast();
+  const createVariantWithRecipe = useScopedAction(createVariantWithRecipeAction);
 
   function updateLine(key: string, patch: Partial<RecipeLineDraft>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -299,7 +300,7 @@ function VariantForm({
     setError(null);
     setFieldErrors({});
     startTransition(async () => {
-      const result = await createVariantWithRecipeAction(
+      const result = await createVariantWithRecipe(
         menuItemId,
         { name, price, active: true, displayOrder: 0 },
         lines
@@ -393,7 +394,7 @@ function EditVariantForm({
   variant: Variant;
   onDone: () => void;
 }) {
-  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(updateVariantAction, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<FormActionState>(updateVariantAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
   useActionResultToast(state, "Variant saved.");
 
@@ -403,7 +404,7 @@ function EditVariantForm({
   }, [state]);
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <input type="hidden" name="menuItemId" value={menuItemId} />
       <input type="hidden" name="variantId" value={variant.id} />
       {/* Archiving stays a separate action (the list's Archive/Restore
@@ -454,6 +455,7 @@ function ModifierGroupAssignment({
   const [selected, setSelected] = useState<Set<string>>(new Set(assignedIds));
   const [saving, setSaving] = useState(false);
   const showToast = useToast();
+  const setItemModifierGroups = useScopedAction(setItemModifierGroupsAction);
   const dirty =
     selected.size !== assignedIds.length || assignedIds.some((id) => !selected.has(id));
 
@@ -503,7 +505,11 @@ function ModifierGroupAssignment({
             onClick={async () => {
               setSaving(true);
               try {
-                await setItemModifierGroupsAction(menuItemId, Array.from(selected));
+                const result = await setItemModifierGroups(menuItemId, Array.from(selected));
+                if (result && result.ok === false) {
+                  showToast("error", result.error);
+                  return;
+                }
                 showToast("success", "Modifier groups saved.");
               } catch (error) {
                 unstable_rethrow(error);
@@ -542,6 +548,8 @@ function VariantRowActions({
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const { run, isPending } = useToastAction();
+  const setVariantActive = useScopedAction(setVariantActiveAction);
+  const deleteVariant = useScopedAction(deleteVariantAction);
 
   const items: ActionMenuItem[] = [
     {
@@ -557,7 +565,7 @@ function VariantRowActions({
         onSelect: () =>
           run(
             () =>
-              setVariantActiveAction(
+              setVariantActive(
                 formDataOf({
                   menuItemId,
                   variantId: variant.id,
@@ -578,7 +586,7 @@ function VariantRowActions({
       <ConfirmDeleteDialog
         open={deleting}
         onClose={() => setDeleting(false)}
-        action={deleteVariantAction}
+        action={deleteVariant}
         fields={{ menuItemId, variantId: variant.id }}
         title={`Delete "${variant.name}"?`}
         successMessage={`"${variant.name}" deleted.`}
@@ -611,6 +619,8 @@ function ItemHeaderActions({ item, variantCount }: { item: Item; variantCount: n
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const { run, isPending } = useToastAction();
+  const setMenuItemActive = useScopedAction(setMenuItemActiveAction);
+  const deleteMenuItem = useScopedAction(deleteMenuItemAction);
 
   return (
     <>
@@ -621,7 +631,7 @@ function ItemHeaderActions({ item, variantCount }: { item: Item; variantCount: n
             label: item.active ? "Archive" : "Restore",
             onSelect: () =>
               run(
-                () => setMenuItemActiveAction(formDataOf({ id: item.id, active: (!item.active).toString() })),
+                () => setMenuItemActive(formDataOf({ id: item.id, active: (!item.active).toString() })),
                 { success: item.active ? "Item archived." : "Item restored." },
               ),
             disabled: isPending,
@@ -632,7 +642,7 @@ function ItemHeaderActions({ item, variantCount }: { item: Item; variantCount: n
       <ConfirmDeleteDialog
         open={deleting}
         onClose={() => setDeleting(false)}
-        action={deleteMenuItemAction}
+        action={deleteMenuItem}
         fields={{ id: item.id }}
         title={`Delete "${item.name}"?`}
         successMessage={`"${item.name}" deleted.`}

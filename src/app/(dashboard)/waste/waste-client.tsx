@@ -9,7 +9,7 @@ import {
   type DisplayUnit,
 } from "@/lib/units/units";
 import { useEffect, useState, type ReactNode } from "react";
-import { useActionState } from "react";
+import { useScopedFormAction } from "@/components/action-scope";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -126,7 +126,7 @@ export function WasteClient({
 }
 
 function RecordWasteForm({ ingredients, onDone }: { ingredients: IngredientOption[]; onDone: () => void }) {
-  const [state, formAction, isPending] = useActionState<WasteActionState, FormData>(createWasteRecordAction, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<WasteActionState>(createWasteRecordAction, undefined);
   // A new key once a response arrives; kept across a retry that got none.
   const [submissionKey, rotateSubmissionKey] = useSubmissionKey();
   useEffect(() => {
@@ -154,7 +154,7 @@ function RecordWasteForm({ ingredients, onDone }: { ingredients: IngredientOptio
   }, [state]);
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
         <input type="hidden" name="idempotencyKey" value={submissionKey} />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-[repeat(2,minmax(0,1fr))]">
         <Field label="Ingredient" htmlFor="ingredientId" error={errorState?.fieldErrors?.ingredientId}>

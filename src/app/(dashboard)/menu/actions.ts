@@ -7,7 +7,8 @@ import { db } from "@/lib/db/client";
 import { allowUserAction, RATE_LIMITS } from "@/server/services/rate-limit";
 import { toUserMessage } from "@/server/services/errors";
 import { requireCurrentUser } from "@/lib/auth/current-user";
-import { asActionResult } from "@/lib/permissions/action-result";
+import { assertActionScope } from "@/lib/auth/action-scope";
+import { asActionResult, type ActionOutcome } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import {
   categoryInputSchema,
@@ -95,10 +96,11 @@ async function resolveImageUrl(
 
 // --- Categories --------------------------------------------------------------
 
-export async function createCategoryAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
+export async function createCategoryAction(expectedScope: unknown, _prev: FormActionState, formData: FormData): Promise<FormActionState> {
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const parsed = categoryInputSchema.safeParse({
       name: formData.get("name"),
@@ -113,18 +115,16 @@ export async function createCategoryAction(_prev: FormActionState, formData: For
 }
 
 
-export async function setCategoryActiveAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function setCategoryActiveAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     await setCategoryActive(db, ctx, String(formData.get("id")), formData.get("active") === "true");
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
@@ -134,27 +134,26 @@ export async function setCategoryActiveAction(formData: FormData): Promise<void>
  * still has menu items pointing at it, can go) and throws a message meant
  * to be read by the person who clicked — `ToastForm` shows it as-is.
  */
-export async function deleteCategoryAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function deleteCategoryAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     await deleteCategory(db, ctx, String(formData.get("id")));
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
 // --- Menu items ----------------------------------------------------------------
 
-export async function createMenuItemAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
+export async function createMenuItemAction(expectedScope: unknown, _prev: FormActionState, formData: FormData): Promise<FormActionState> {
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const image = await resolveImageUrl(formData, ctx.businessId, ctx.userId);
     if (!image.ok) return { ok: false, error: image.error, fieldErrors: { imageUrl: image.error } };
@@ -181,10 +180,11 @@ export async function createMenuItemAction(_prev: FormActionState, formData: For
 }
 
 
-export async function updateMenuItemAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
+export async function updateMenuItemAction(expectedScope: unknown, _prev: FormActionState, formData: FormData): Promise<FormActionState> {
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const id = String(formData.get("id") ?? "");
     const image = await resolveImageUrl(formData, ctx.businessId, ctx.userId);
@@ -210,10 +210,11 @@ export async function updateMenuItemAction(_prev: FormActionState, formData: For
 }
 
 
-export async function setMenuItemActiveAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function setMenuItemActiveAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const id = String(formData.get("id"));
     await setMenuItemActive(db, ctx, id, formData.get("active") === "true");
@@ -221,9 +222,6 @@ export async function setMenuItemActiveAction(formData: FormData): Promise<void>
     revalidatePath(`/menu/${id}`);
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
@@ -232,18 +230,16 @@ export async function setMenuItemActiveAction(formData: FormData): Promise<void>
  * the service once the item has been sold — archive is the path for
  * anything with order history.
  */
-export async function deleteMenuItemAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function deleteMenuItemAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     await deleteMenuItem(db, ctx, String(formData.get("id")));
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
@@ -258,6 +254,7 @@ export type CreateVariantWithRecipeResult =
  * recipe yet.
  */
 export async function createVariantWithRecipeAction(
+  expectedScope: unknown,
   menuItemId: string,
   variantInput: unknown,
   recipeLines: unknown,
@@ -265,6 +262,7 @@ export async function createVariantWithRecipeAction(
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
 
     const parsedVariant = variantInputSchema.safeParse(variantInput);
@@ -306,10 +304,11 @@ export async function createVariantWithRecipeAction(
 }
 
 
-export async function updateVariantAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
+export async function updateVariantAction(expectedScope: unknown, _prev: FormActionState, formData: FormData): Promise<FormActionState> {
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const menuItemId = String(formData.get("menuItemId") ?? "");
     const variantId = String(formData.get("variantId") ?? "");
@@ -328,26 +327,25 @@ export async function updateVariantAction(_prev: FormActionState, formData: Form
 }
 
 
-export async function setVariantActiveAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function setVariantActiveAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const menuItemId = String(formData.get("menuItemId"));
     await setVariantActive(db, ctx, menuItemId, String(formData.get("variantId")), formData.get("active") === "true");
     revalidatePath(`/menu/${menuItemId}`);
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
-export async function deleteVariantAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function deleteVariantAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const menuItemId = String(formData.get("menuItemId"));
     await deleteVariant(db, ctx, menuItemId, String(formData.get("variantId")));
@@ -355,18 +353,16 @@ export async function deleteVariantAction(formData: FormData): Promise<void> {
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
 // --- Modifier groups + options -----------------------------------------------------
 
-export async function createModifierGroupAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
+export async function createModifierGroupAction(expectedScope: unknown, _prev: FormActionState, formData: FormData): Promise<FormActionState> {
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const parsed = modifierGroupInputSchema.safeParse({
       name: formData.get("name"),
@@ -383,25 +379,24 @@ export async function createModifierGroupAction(_prev: FormActionState, formData
 }
 
 
-export async function setModifierGroupActiveAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function setModifierGroupActiveAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     await setModifierGroupActive(db, ctx, String(formData.get("id")), formData.get("active") === "true");
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
-export async function createModifierOptionAction(_prev: FormActionState, formData: FormData): Promise<FormActionState> {
+export async function createModifierOptionAction(expectedScope: unknown, _prev: FormActionState, formData: FormData): Promise<FormActionState> {
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const groupId = String(formData.get("groupId") ?? "");
     const parsed = modifierOptionInputSchema.safeParse({
@@ -419,10 +414,11 @@ export async function createModifierOptionAction(_prev: FormActionState, formDat
 }
 
 
-export async function setModifierOptionActiveAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function setModifierOptionActiveAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     await setModifierOptionActive(
       db,
@@ -434,18 +430,16 @@ export async function setModifierOptionActiveAction(formData: FormData): Promise
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
 export type SaveModifierRecipeResult = { ok: true } | { ok: false; error: string };
 
-export async function saveModifierOptionRecipeAction(input: unknown): Promise<SaveModifierRecipeResult> {
+export async function saveModifierOptionRecipeAction(expectedScope: unknown, input: unknown): Promise<SaveModifierRecipeResult> {
   return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "recipes:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     const parsed = modifierRecipeInputSchema.safeParse(input);
     if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Check the recipe ingredients." };
@@ -461,40 +455,37 @@ export async function saveModifierOptionRecipeAction(input: unknown): Promise<Sa
 }
 
 
-export async function deleteModifierGroupAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function deleteModifierGroupAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     await deleteModifierGroup(db, ctx, String(formData.get("id")));
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
-export async function deleteModifierOptionAction(formData: FormData): Promise<void> {
-  const result = await menuAction(async () => {
+export async function deleteModifierOptionAction(expectedScope: unknown, formData: FormData): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     await throttleCatalogWrite(user);
     await deleteModifierOption(db, ctx, String(formData.get("groupId")), String(formData.get("optionId")));
     revalidatePath("/menu");
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 
 
-export async function setItemModifierGroupsAction(menuItemId: string, groupIds: string[]): Promise<void> {
-  const result = await menuAction(async () => {
+export async function setItemModifierGroupsAction(expectedScope: unknown, menuItemId: string, groupIds: string[]): Promise<ActionOutcome> {
+  return menuAction(async () => {
     const { user, actor: ctx } = await actor();
     requirePermission(user.roles, "menu:write");
+    assertActionScope(user, expectedScope);
     const parsed = itemModifierGroupsSchema.safeParse({ menuItemId, groupIds });
     if (!parsed.success) throw new ServiceError(parsed.error.issues[0]?.message ?? "Invalid modifier groups.");
     await throttleCatalogWrite(user);
@@ -502,8 +493,5 @@ export async function setItemModifierGroupsAction(menuItemId: string, groupIds: 
     revalidatePath(`/menu/${menuItemId}`);
     touchPosMenu(ctx.businessId);
   });
-  if (result && typeof result === "object" && "ok" in result && result.ok === false) {
-    throw new Error(result.error);
-  }
 }
 

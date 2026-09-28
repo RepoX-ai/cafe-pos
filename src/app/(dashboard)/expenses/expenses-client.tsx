@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { formatIDR } from "@/lib/money/money";
 import { useEffect, useState, type ReactNode } from "react";
-import { useActionState } from "react";
+import { useScopedFormAction } from "@/components/action-scope";
+import { todayInBusinessTimezone } from "@/lib/dates/dates";
 import { CalendarDays, Layers, Plus, Receipt, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -268,7 +269,7 @@ function shareOfTotal(part: number, total: number): string {
 
 function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone: () => void }) {
   const action = existing ? updateExpenseAction : createExpenseAction;
-  const [state, formAction, isPending] = useActionState<ExpenseActionState, FormData>(action, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<ExpenseActionState>(action, undefined);
   // New expenses only (edits are naturally idempotent). A new key once a
   // response arrives; kept across a retry that got none.
   const [submissionKey, rotateSubmissionKey] = useSubmissionKey();
@@ -284,7 +285,7 @@ function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone
   }, [state]);
 
   return (
-    <form action={formAction} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <form onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       {existing ? null : <input type="hidden" name="idempotencyKey" value={submissionKey} />}
       {existing ? <input type="hidden" name="id" value={existing.id} /> : null}
 
@@ -309,7 +310,7 @@ function ExpenseForm({ existing, onDone }: { existing: ExpenseRow | null; onDone
         />
       </Field>
       <Field label="Date" htmlFor="expenseDate" error={errorState?.fieldErrors?.expenseDate}>
-        <DatePicker id="expenseDate" name="expenseDate" defaultValue={existing?.expenseDate ?? new Date().toISOString().slice(0, 10)} />
+        <DatePicker id="expenseDate" name="expenseDate" defaultValue={existing?.expenseDate ?? todayInBusinessTimezone()} />
       </Field>
       <Field label="Payee / supplier" htmlFor="payee">
         <input id="payee" name="payee" defaultValue={existing?.payee ?? ""} className={inputClassName} />

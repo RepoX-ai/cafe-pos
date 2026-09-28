@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import type { ActionOutcome } from "@/lib/permissions/action-result";
 import { Button } from "./button";
 import { Modal } from "./modal";
 import { ToastForm } from "./toast-form";
@@ -26,7 +27,7 @@ export function ConfirmDeleteDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  action: (formData: FormData) => Promise<void>;
+  action: (formData: FormData) => Promise<ActionOutcome>;
   /** Hidden inputs the action reads off the submitted FormData. */
   fields: Record<string, string>;
   title: string;

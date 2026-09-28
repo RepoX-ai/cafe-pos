@@ -7,6 +7,7 @@ import { formatIDR, grossMarginPercentage } from "@/lib/money/money";
 import { newRecipeLineKey as newKey, RecipeLinesTable, type IngredientOption, type RecipeLineDraft as Line } from "../../recipe-lines-table";
 import { saveRecipeAction } from "./actions";
 import { useToast } from "@/components/ui/toast";
+import { useScopedAction } from "@/components/action-scope";
 
 export function RecipeEditor({
   menuItemId,
@@ -33,6 +34,7 @@ export function RecipeEditor({
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [isPending, startTransition] = useTransition();
   const showToast = useToast();
+  const saveRecipe = useScopedAction(saveRecipeAction);
 
   const ingredientById = useMemo(() => new Map(ingredients.map((i) => [i.id, i])), [ingredients]);
 
@@ -67,7 +69,7 @@ export function RecipeEditor({
   function save() {
     setMessage(null);
     startTransition(async () => {
-      const result = await saveRecipeAction(menuItemId, {
+      const result = await saveRecipe(menuItemId, {
         menuItemVariantId: variantId,
         lines: lines
           .filter((l) => l.ingredientId)

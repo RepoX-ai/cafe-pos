@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cancelOrderAction, refundOrderAction, type CancelOrderResult } from "../actions";
 import { useToast } from "@/components/ui/toast";
+import { useScopedAction } from "@/components/action-scope";
 
 export function OrderActionButton({
   orderId,
@@ -18,7 +19,9 @@ export function OrderActionButton({
   const [error, setError] = useState<string | null>(null);
   const showToast = useToast();
 
-  const action: (input: unknown) => Promise<CancelOrderResult> = kind === "cancel" ? cancelOrderAction : refundOrderAction;
+  const action: (input: unknown) => Promise<CancelOrderResult> = useScopedAction(
+    kind === "cancel" ? cancelOrderAction : refundOrderAction,
+  );
   const label = kind === "cancel" ? "Cancel order" : "Refund order";
   const warning =
     kind === "cancel"

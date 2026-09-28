@@ -11,6 +11,8 @@ import { inputClassName } from "@/components/ui/form-styles";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useToast } from "@/components/ui/toast";
 import { createPurchaseAction } from "./actions";
+import { useScopedAction } from "@/components/action-scope";
+import { todayInBusinessTimezone } from "@/lib/dates/dates";
 import { useSubmissionKey } from "@/components/ui/use-submission-key";
 import type { IngredientOption, LineDraft, SupplierRow } from "./purchase-types";
 
@@ -58,9 +60,10 @@ const costInputClassName =
 export function NewReceiptTab({ ingredients, suppliers }: { ingredients: IngredientOption[]; suppliers: SupplierRow[] }) {
   const [supplierId, setSupplierId] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [purchaseDate, setPurchaseDate] = useState(todayInBusinessTimezone);
   const [paid, setPaid] = useState(false);
-  const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [paidAt, setPaidAt] = useState(todayInBusinessTimezone);
+  const createPurchase = useScopedAction(createPurchaseAction);
   const [submissionKey, rotateSubmissionKey] = useSubmissionKey();
   const [lines, setLines] = useState<LineDraft[]>([emptyLine()]);
   const [isPending, setIsPending] = useState(false);
@@ -120,7 +123,7 @@ export function NewReceiptTab({ ingredients, suppliers }: { ingredients: Ingredi
     setIsPending(true);
     let res: Awaited<ReturnType<typeof createPurchaseAction>>;
     try {
-      res = await createPurchaseAction({
+      res = await createPurchase({
       idempotencyKey: submissionKey,
       supplierId: supplierId || undefined,
       invoiceNumber: invoiceNumber || undefined,

@@ -18,6 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { TotalsPanel, TotalsRow } from "@/components/order-totals";
 import { OrderActionButton } from "./order-action-button";
 import { PrintJobsPanel } from "./print-jobs-panel";
+import { ActionScopeProvider } from "@/components/action-scope";
+import { actionScopeFor } from "@/lib/auth/action-scope";
 
 export const metadata: Metadata = {
   title: "Order — Café POS",
@@ -60,142 +62,144 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   }
 
   return (
-    <div className="mx-auto max-w-[900px]">
-      <Link href="/orders" className="inline-flex items-center gap-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
-        <ArrowLeft size={14} />
-        Back to orders
-      </Link>
+    <ActionScopeProvider scope={actionScopeFor(user)}>
+      <div className="mx-auto max-w-[900px]">
+        <Link href="/orders" className="inline-flex items-center gap-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
+          <ArrowLeft size={14} />
+          Back to orders
+        </Link>
 
-      <div className="mt-2 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{order.orderNumber}</h1>
-          <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-            {formatDisplayDateTime(order.createdAt)} · {order.orderType} {order.tableLabel ? `· ${order.tableLabel}` : ""}
-          </p>
+        <div className="mt-2 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{order.orderNumber}</h1>
+            <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
+              {formatDisplayDateTime(order.createdAt)} · {order.orderType} {order.tableLabel ? `· ${order.tableLabel}` : ""}
+            </p>
+          </div>
+          <Badge tone={order.status === "CANCELLED" ? "neutral" : order.status === "REFUNDED" ? "danger" : "success"}>
+            {order.status}
+          </Badge>
         </div>
-        <Badge tone={order.status === "CANCELLED" ? "neutral" : order.status === "REFUNDED" ? "danger" : "success"}>
-          {order.status}
-        </Badge>
-      </div>
 
-      {order.status === "CANCELLED" ? (
-        <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-page-bg)] p-3 text-sm text-[var(--color-text-secondary)]">
-          Cancelled {order.cancelledAt ? formatDisplayDateTime(order.cancelledAt) : ""} — {order.cancellationReason}
-        </div>
-      ) : null}
+        {order.status === "CANCELLED" ? (
+          <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-page-bg)] p-3 text-sm text-[var(--color-text-secondary)]">
+            Cancelled {order.cancelledAt ? formatDisplayDateTime(order.cancelledAt) : ""} — {order.cancellationReason}
+          </div>
+        ) : null}
 
-      <section className="mt-6 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-              <th className="px-4 py-3">Item</th>
-              <th className="px-4 py-3">Qty</th>
-              <th className="px-4 py-3">Unit price</th>
-              <th className="px-4 py-3">Line total</th>
-              <th className="px-4 py-3">COGS</th>
-              <th className="px-4 py-3">Gross profit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((line) => (
-              <tr key={line.id} className="border-b border-[var(--color-border)] last:border-0 align-top">
-                <td className="px-4 py-3">
-                  <p className="font-medium text-[var(--color-text-primary)]">
-                    {line.itemNameSnapshot}
-                    {line.variantNameSnapshot ? (
-                      <span className="text-[var(--color-text-secondary)]"> · {line.variantNameSnapshot}</span>
-                    ) : null}
-                  </p>
-                  {line.modifiers.length > 0 ? (
-                    <p className="text-xs text-[var(--color-text-muted)]">{line.modifiers.map((m) => m.modifierNameSnapshot).join(", ")}</p>
-                  ) : null}
-                  {line.notes ? <p className="text-xs italic text-[var(--color-text-muted)]">&quot;{line.notes}&quot;</p> : null}
-                </td>
-                <td className="px-4 py-3 tabular-nums">{line.quantity}</td>
-                <td className="px-4 py-3 tabular-nums">{formatIDR(line.unitPriceSnapshot)}</td>
-                <td className="px-4 py-3 tabular-nums">{formatIDR(line.lineTotal)}</td>
-                <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">{formatIDR(line.cogsSnapshot)}</td>
-                <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">{formatIDR(line.grossProfitSnapshot)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      <section className="mt-6 grid gap-4 md:grid-cols-2">
-        <TotalsPanel caption="Payment">
-          <TotalsRow label="Subtotal" value={formatIDR(order.subtotal)} />
-          <TotalsRow label="Discount" value={formatIDR(order.discountTotal)} muted />
-          <TotalsRow label={orderTaxIsIncluded(order) ? "Tax (included)" : "Tax"} value={formatIDR(order.taxTotal)} />
-          <TotalsRow label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
-          <TotalsRow label="Total" value={formatIDR(order.total)} emphasis />
-          <TotalsRow label="Payment method" value={formatPaymentMethod(order.paymentMethodLabel)} />
-          {order.cashReceived !== null ? <TotalsRow label="Cash received" value={formatIDR(order.cashReceived)} /> : null}
-          {order.changeDue !== null ? <TotalsRow label="Change" value={formatIDR(order.changeDue)} /> : null}
-        </TotalsPanel>
-        <TotalsPanel caption="Profitability">
-          <TotalsRow label="Net sales" value={formatIDR(order.total - order.taxTotal - order.serviceChargeTotal)} />
-          <TotalsRow label="COGS" value={formatIDR(order.cogsTotal)} />
-          <TotalsRow label="Gross profit" value={formatIDR(order.grossProfit)} emphasis />
-          <TotalsRow
-            label="Gross margin"
-            value={order.grossMarginPercentage !== null ? `${Number(order.grossMarginPercentage).toFixed(1)}%` : "—"}
-          />
-        </TotalsPanel>
-      </section>
-
-      <section className="mt-6">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Inventory consumption</h2>
-        <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <section className="mt-6 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
-                <th className="px-4 py-3">Ingredient</th>
-                <th className="px-4 py-3">Used in</th>
-                <th className="px-4 py-3 text-right">Quantity</th>
-                <th className="px-4 py-3 text-right">Cost</th>
+                <th className="px-4 py-3">Item</th>
+                <th className="px-4 py-3">Qty</th>
+                <th className="px-4 py-3">Unit price</th>
+                <th className="px-4 py-3">Line total</th>
+                <th className="px-4 py-3">COGS</th>
+                <th className="px-4 py-3">Gross profit</th>
               </tr>
             </thead>
             <tbody>
-              {consumptionRows.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-3 text-[var(--color-text-secondary)]">
-                    No ingredients were deducted for this order.
+              {lines.map((line) => (
+                <tr key={line.id} className="border-b border-[var(--color-border)] last:border-0 align-top">
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-[var(--color-text-primary)]">
+                      {line.itemNameSnapshot}
+                      {line.variantNameSnapshot ? (
+                        <span className="text-[var(--color-text-secondary)]"> · {line.variantNameSnapshot}</span>
+                      ) : null}
+                    </p>
+                    {line.modifiers.length > 0 ? (
+                      <p className="text-xs text-[var(--color-text-muted)]">{line.modifiers.map((m) => m.modifierNameSnapshot).join(", ")}</p>
+                    ) : null}
+                    {line.notes ? <p className="text-xs italic text-[var(--color-text-muted)]">&quot;{line.notes}&quot;</p> : null}
                   </td>
+                  <td className="px-4 py-3 tabular-nums">{line.quantity}</td>
+                  <td className="px-4 py-3 tabular-nums">{formatIDR(line.unitPriceSnapshot)}</td>
+                  <td className="px-4 py-3 tabular-nums">{formatIDR(line.lineTotal)}</td>
+                  <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">{formatIDR(line.cogsSnapshot)}</td>
+                  <td className="px-4 py-3 tabular-nums text-[var(--color-text-secondary)]">{formatIDR(line.grossProfitSnapshot)}</td>
                 </tr>
-              ) : (
-                consumptionRows.map((row) => (
-                  <tr key={row.id} className="border-b border-[var(--color-border)] last:border-0">
-                    <td className="px-4 py-3 font-medium text-[var(--color-text-primary)]">{row.ingredientName}</td>
-                    <td className="px-4 py-3 text-[var(--color-text-secondary)]">{row.usedIn}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{row.quantity}</td>
-                    <td className="px-4 py-3 text-right tabular-nums">{formatIDR(row.totalCost)}</td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
-        </div>
-      </section>
+        </section>
 
-      <section className="mt-6">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Print jobs</h2>
-        <PrintJobsPanel
-          orderId={order.id}
-          printJobs={printJobs}
-          canManagePrinter={canManagePrinter}
-          canReprint={canReprint}
-          orderCancelled={order.status === "CANCELLED"}
-          devicePrinting={configuredPrintProvider() === "device"}
-        />
-      </section>
+        <section className="mt-6 grid gap-4 md:grid-cols-2">
+          <TotalsPanel caption="Payment">
+            <TotalsRow label="Subtotal" value={formatIDR(order.subtotal)} />
+            <TotalsRow label="Discount" value={formatIDR(order.discountTotal)} muted />
+            <TotalsRow label={orderTaxIsIncluded(order) ? "Tax (included)" : "Tax"} value={formatIDR(order.taxTotal)} />
+            <TotalsRow label="Service charge" value={formatIDR(order.serviceChargeTotal)} />
+            <TotalsRow label="Total" value={formatIDR(order.total)} emphasis />
+            <TotalsRow label="Payment method" value={formatPaymentMethod(order.paymentMethodLabel)} />
+            {order.cashReceived !== null ? <TotalsRow label="Cash received" value={formatIDR(order.cashReceived)} /> : null}
+            {order.changeDue !== null ? <TotalsRow label="Change" value={formatIDR(order.changeDue)} /> : null}
+          </TotalsPanel>
+          <TotalsPanel caption="Profitability">
+            <TotalsRow label="Net sales" value={formatIDR(order.total - order.taxTotal - order.serviceChargeTotal)} />
+            <TotalsRow label="COGS" value={formatIDR(order.cogsTotal)} />
+            <TotalsRow label="Gross profit" value={formatIDR(order.grossProfit)} emphasis />
+            <TotalsRow
+              label="Gross margin"
+              value={order.grossMarginPercentage !== null ? `${Number(order.grossMarginPercentage).toFixed(1)}%` : "—"}
+            />
+          </TotalsPanel>
+        </section>
 
-      {order.status !== "CANCELLED" && order.status !== "REFUNDED" ? (
-        <div className="mt-8 flex gap-3">
-          {canCancel ? <OrderActionButton orderId={order.id} kind="cancel" /> : null}
-          {canRefund ? <OrderActionButton orderId={order.id} kind="refund" /> : null}
-        </div>
-      ) : null}
-    </div>
+        <section className="mt-6">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Inventory consumption</h2>
+          <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-[var(--color-border)] text-left text-xs font-medium uppercase tracking-wide text-[var(--color-text-muted)]">
+                  <th className="px-4 py-3">Ingredient</th>
+                  <th className="px-4 py-3">Used in</th>
+                  <th className="px-4 py-3 text-right">Quantity</th>
+                  <th className="px-4 py-3 text-right">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {consumptionRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-3 text-[var(--color-text-secondary)]">
+                      No ingredients were deducted for this order.
+                    </td>
+                  </tr>
+                ) : (
+                  consumptionRows.map((row) => (
+                    <tr key={row.id} className="border-b border-[var(--color-border)] last:border-0">
+                      <td className="px-4 py-3 font-medium text-[var(--color-text-primary)]">{row.ingredientName}</td>
+                      <td className="px-4 py-3 text-[var(--color-text-secondary)]">{row.usedIn}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{row.quantity}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatIDR(row.totalCost)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="mt-6">
+          <h2 className="mb-3 text-sm font-semibold text-[var(--color-text-primary)]">Print jobs</h2>
+          <PrintJobsPanel
+            orderId={order.id}
+            printJobs={printJobs}
+            canManagePrinter={canManagePrinter}
+            canReprint={canReprint}
+            orderCancelled={order.status === "CANCELLED"}
+            devicePrinting={configuredPrintProvider() === "device"}
+          />
+        </section>
+
+        {order.status !== "CANCELLED" && order.status !== "REFUNDED" ? (
+          <div className="mt-8 flex gap-3">
+            {canCancel ? <OrderActionButton orderId={order.id} kind="cancel" /> : null}
+            {canRefund ? <OrderActionButton orderId={order.id} kind="refund" /> : null}
+          </div>
+        ) : null}
+      </div>
+    </ActionScopeProvider>
   );
 }

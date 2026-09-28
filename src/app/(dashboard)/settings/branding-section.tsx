@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { accentTokens, meetsAaOnAccent, normalizeHexColor } from "@/lib/branding/branding";
 import { prepareLogoUpload } from "@/lib/branding/raster-browser";
 import { updateBrandingAction } from "./actions";
+import { useScopedAction } from "@/components/action-scope";
 
 export interface BrandingValues {
   logoUrl: string | null;
@@ -32,6 +33,7 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
   const [isPending, setIsPending] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const showToast = useToast();
+  const updateBranding = useScopedAction(updateBrandingAction);
 
   const [color, setColor] = useState(branding.brandColor ?? DEFAULT_ACCENT);
   const [logoPreview, setLogoPreview] = useState<string | null>(branding.logoUrl);
@@ -92,7 +94,7 @@ export function BrandingSection({ branding }: { branding: BrandingValues }) {
       form.set("logoRasterHeight", String(raster.height));
     }
 
-    const result = await updateBrandingAction(form);
+    const result = await updateBranding(form);
     if (!result.ok) {
       setIsPending(false);
       setFieldErrors(result.fieldErrors ?? {});

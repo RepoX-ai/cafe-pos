@@ -7,6 +7,8 @@ import { ServerPagination } from "@/components/ui/server-pagination";
 import { listIngredients } from "@/server/services/ingredient-service";
 import { countMovements, describeMovementSources, listMovements } from "@/server/services/inventory-service";
 import { InventoryClient } from "./inventory-client";
+import { ActionScopeProvider } from "@/components/action-scope";
+import { actionScopeFor } from "@/lib/auth/action-scope";
 
 export const metadata: Metadata = {
   title: "Inventory — Café POS",
@@ -26,15 +28,17 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const sources = await describeMovementSources(db, user.businessId, movements.rows);
 
   return (
-    <div className="mx-auto max-w-[1440px]">
-      <InventoryClient
-        ingredients={ingredients}
-        movements={movements.rows.map((m) => ({ ...m, source: sources.get(m.id) ?? null }))}
-        canViewOrders={hasAnyRolePermission(user.roles, "orders:read_all")}
-        canViewPurchases={hasAnyRolePermission(user.roles, "purchases:write")}
-        canAdjust={canAdjust}
-        ledgerPagination={<ServerPagination page={{ ...movements, rowCount: movements.rows.length }} totalItems={totalItems} basePath="/inventory" />}
-      />
-    </div>
+    <ActionScopeProvider scope={actionScopeFor(user)}>
+      <div className="mx-auto max-w-[1440px]">
+        <InventoryClient
+          ingredients={ingredients}
+          movements={movements.rows.map((m) => ({ ...m, source: sources.get(m.id) ?? null }))}
+          canViewOrders={hasAnyRolePermission(user.roles, "orders:read_all")}
+          canViewPurchases={hasAnyRolePermission(user.roles, "purchases:write")}
+          canAdjust={canAdjust}
+          ledgerPagination={<ServerPagination page={{ ...movements, rowCount: movements.rows.length }} totalItems={totalItems} basePath="/inventory" />}
+        />
+      </div>
+    </ActionScopeProvider>
   );
 }

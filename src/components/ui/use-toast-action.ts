@@ -2,6 +2,7 @@
 
 import { unstable_rethrow } from "next/navigation";
 import { useTransition } from "react";
+import type { ActionOutcome } from "@/lib/permissions/action-result";
 import { useToast } from "./toast";
 
 /**
@@ -19,12 +20,16 @@ export function useToastAction() {
   const [isPending, startTransition] = useTransition();
 
   function run(
-    action: () => Promise<void>,
+    action: () => Promise<ActionOutcome>,
     messages: { success: string; error?: string },
   ) {
     startTransition(async () => {
       try {
-        await action();
+        const result = await action();
+        if (result && result.ok === false) {
+          showToast("error", result.error);
+          return;
+        }
         showToast("success", messages.success);
       } catch (error) {
         unstable_rethrow(error);

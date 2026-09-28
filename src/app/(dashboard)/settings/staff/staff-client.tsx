@@ -21,6 +21,17 @@ import {
   updateStaffAction,
 } from "./actions";
 import { useToast } from "@/components/ui/toast";
+import { useScopedAction } from "@/components/action-scope";
+
+function useStaffActions() {
+  return {
+    createStaff: useScopedAction(createStaffAction),
+    resetStaffPassword: useScopedAction(resetStaffPasswordAction),
+    setStaffActive: useScopedAction(setStaffActiveAction),
+    updateStaff: useScopedAction(updateStaffAction),
+    deleteStaff: useScopedAction(deleteStaffAction),
+  };
+}
 
 interface StaffRow {
   id: string;
@@ -72,9 +83,10 @@ export function StaffClient({ staff, currentUserId }: { staff: StaffRow[]; curre
     }
   }
   const showToast = useToast();
+  const scoped = useStaffActions();
 
   async function create(values: StaffFormValues): Promise<FormResult> {
-    const result = await createStaffAction(values);
+    const result = await scoped.createStaff(values);
     if (!result.ok) {
       showToast("error", result.error);
       return result;
@@ -199,6 +211,7 @@ function StaffRowItem({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const showToast = useToast();
+  const scoped = useStaffActions();
 
   const role = staff.roles[0];
   const isSuperAdmin = staff.roles.includes("super_admin");
@@ -206,7 +219,7 @@ function StaffRowItem({
   async function resetPassword() {
     setIsPending(true);
     setError(null);
-    const result = await resetStaffPasswordAction(staff.id);
+    const result = await scoped.resetStaffPassword(staff.id);
     setIsPending(false);
     if (result.ok && result.tempPassword) {
       showToast("success", "Password reset.");
@@ -220,7 +233,7 @@ function StaffRowItem({
   async function toggleActive() {
     setIsPending(true);
     setError(null);
-    const result = await setStaffActiveAction(staff.id, !staff.active);
+    const result = await scoped.setStaffActive(staff.id, !staff.active);
     setIsPending(false);
     if (result.ok) showToast("success", staff.active ? "Staff deactivated." : "Staff reactivated.");
     else {
@@ -231,7 +244,7 @@ function StaffRowItem({
 
   async function save(values: StaffFormValues): Promise<FormResult> {
     setError(null);
-    const result = await updateStaffAction(staff.id, values);
+    const result = await scoped.updateStaff(staff.id, values);
     if (!result.ok) {
       showToast("error", result.error);
       return result;
@@ -418,6 +431,7 @@ function DeleteStaffDialog({ staff, onClose }: { staff: StaffRow; onClose: () =>
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const showToast = useToast();
+  const scoped = useStaffActions();
 
   useEffect(() => {
     let cancelled = false;
@@ -435,7 +449,7 @@ function DeleteStaffDialog({ staff, onClose }: { staff: StaffRow; onClose: () =>
   async function confirmDelete() {
     setIsPending(true);
     setError(null);
-    const result = await deleteStaffAction(staff.id);
+    const result = await scoped.deleteStaff(staff.id);
     setIsPending(false);
     if (result.ok) {
       showToast("success", result.accountDeleted ? `${staff.name} deleted.` : `${staff.name} removed from this business.`);

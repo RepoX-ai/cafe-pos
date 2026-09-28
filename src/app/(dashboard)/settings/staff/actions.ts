@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db/client";
 import { toUserMessage } from "@/server/services/errors";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { assertActionScope } from "@/lib/auth/action-scope";
 import { asActionResult } from "@/lib/permissions/action-result";
 import { requirePermission } from "@/lib/permissions/permissions";
 import { createStaffInputSchema, updateStaffInputSchema } from "@/lib/validation/staff";
@@ -25,10 +26,11 @@ export type CreateStaffResult =
 
 const THROTTLED = { ok: false as const, error: "Too many staff changes. Wait a moment and try again." };
 
-export async function createStaffAction(input: unknown): Promise<CreateStaffResult> {
+export async function createStaffAction(expectedScope: unknown, input: unknown): Promise<CreateStaffResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "staff:write");
+    assertActionScope(user, expectedScope);
 
     const parsed = createStaffInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -53,10 +55,15 @@ export async function createStaffAction(input: unknown): Promise<CreateStaffResu
   });
 }
 
-export async function setStaffActiveAction(userId: string, active: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function setStaffActiveAction(
+  expectedScope: unknown,
+  userId: string,
+  active: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "staff:write");
+    assertActionScope(user, expectedScope);
 
     if (userId === user.id && !active) {
       return { ok: false, error: "You can't deactivate your own account." };
@@ -75,10 +82,11 @@ export async function setStaffActiveAction(userId: string, active: boolean): Pro
   });
 }
 
-export async function resetStaffPasswordAction(userId: string): Promise<CreateStaffResult> {
+export async function resetStaffPasswordAction(expectedScope: unknown, userId: string): Promise<CreateStaffResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "staff:write");
+    assertActionScope(user, expectedScope);
 
     if (!(await consumeRateLimit(db, { rule: RATE_LIMITS.staffWrite(), key: [user.businessId, user.id] }))) {
       return THROTTLED;
@@ -97,10 +105,11 @@ export type UpdateStaffResult =
   | { ok: true }
   | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
-export async function updateStaffAction(userId: string, input: unknown): Promise<UpdateStaffResult> {
+export async function updateStaffAction(expectedScope: unknown, userId: string, input: unknown): Promise<UpdateStaffResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "staff:write");
+    assertActionScope(user, expectedScope);
 
     const parsed = updateStaffInputSchema.safeParse(input);
     if (!parsed.success) {
@@ -143,11 +152,13 @@ export async function staffDeletionImpactAction(
 }
 
 export async function deleteStaffAction(
+  expectedScope: unknown,
   userId: string,
 ): Promise<{ ok: true; accountDeleted: boolean } | { ok: false; error: string }> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "staff:write");
+    assertActionScope(user, expectedScope);
 
     if (!(await consumeRateLimit(db, { rule: RATE_LIMITS.staffWrite(), key: [user.businessId, user.id] }))) {
       return THROTTLED;

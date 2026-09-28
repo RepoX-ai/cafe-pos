@@ -2,7 +2,7 @@
 
 import { formatIDR } from "@/lib/money/money";
 import { useEffect, useMemo, useState } from "react";
-import { useActionState } from "react";
+import { useScopedAction, useScopedFormAction } from "@/components/action-scope";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Search, TriangleAlert } from "lucide-react";
@@ -227,14 +227,14 @@ function ItemWarningIcon({ item }: { item: MenuItemRow }) {
 }
 
 function NewItemForm({ categories, onDone }: { categories: CategoryRow[]; onDone: () => void }) {
-  const [state, formAction, isPending] = useActionState<FormActionState, FormData>(createMenuItemAction, undefined);
+  const [state, onSubmit, isPending] = useScopedFormAction<FormActionState>(createMenuItemAction, undefined);
   const errorState = state && !state.ok ? state : undefined;
   // Success isn't observed here — createMenuItemAction redirects to the new
   // item's page, which is itself the success signal. Failures still toast.
   useActionResultToast(state, "Item created.");
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <Field label="Name" htmlFor="name" error={errorState?.fieldErrors?.name}>
         <input id="name" name="name" required className={inputClassName} />
       </Field>
@@ -292,6 +292,8 @@ function MenuItemRowActions({ item, canWrite }: { item: MenuItemRow; canWrite: b
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const { run, isPending } = useToastAction();
+  const setMenuItemActive = useScopedAction(setMenuItemActiveAction);
+  const deleteMenuItem = useScopedAction(deleteMenuItemAction);
 
   const items: ActionMenuItem[] = [
     { label: canWrite ? "Edit item" : "View item", onSelect: () => router.push(`/menu/${item.id}`) },
@@ -302,7 +304,7 @@ function MenuItemRowActions({ item, canWrite }: { item: MenuItemRow; canWrite: b
         label: item.active ? "Archive" : "Restore",
         onSelect: () =>
           run(
-            () => setMenuItemActiveAction(formDataOf({ id: item.id, active: (!item.active).toString() })),
+            () => setMenuItemActive(formDataOf({ id: item.id, active: (!item.active).toString() })),
             { success: item.active ? "Item archived." : "Item restored." },
           ),
         disabled: isPending,
@@ -317,7 +319,7 @@ function MenuItemRowActions({ item, canWrite }: { item: MenuItemRow; canWrite: b
       <ConfirmDeleteDialog
         open={deleting}
         onClose={() => setDeleting(false)}
-        action={deleteMenuItemAction}
+        action={deleteMenuItem}
         fields={{ id: item.id }}
         title={`Delete "${item.name}"?`}
         successMessage={`"${item.name}" deleted.`}

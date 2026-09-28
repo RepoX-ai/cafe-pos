@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { requireCurrentUser } from "@/lib/auth/current-user";
+import { assertActionScope } from "@/lib/auth/action-scope";
 import { submitOrderForUser, type SubmitOrderResult } from "@/server/services/checkout";
 import {
   createReprintJob,
@@ -75,10 +76,11 @@ export async function submitOrderAction(input: unknown, expectedScope: string): 
  * job that tap already created, so a flaky connection can't quietly queue
  * two receipts, while a second deliberate tap (new key) queues another.
  */
-export async function reprintReceiptAction(orderId: string, requestKey: string): Promise<ReprintResult> {
+export async function reprintReceiptAction(expectedScope: unknown, orderId: string, requestKey: string): Promise<ReprintResult> {
   return asActionResult(async () => {
     const user = await requireCurrentUser();
     requirePermission(user.roles, "orders:reprint");
+    assertActionScope(user, expectedScope);
     if (!/^[0-9a-f-]{16,100}$/i.test(requestKey)) return { ok: false, error: "Invalid request." };
 
     const isRetry = (await findReprintJob(db, user.businessId, orderId, requestKey)) !== null;

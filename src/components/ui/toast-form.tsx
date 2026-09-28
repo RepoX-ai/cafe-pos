@@ -2,6 +2,7 @@
 
 import { unstable_rethrow } from "next/navigation";
 import { useTransition, type ReactNode } from "react";
+import type { ActionOutcome } from "@/lib/permissions/action-result";
 import { useToast } from "./toast";
 
 /**
@@ -23,7 +24,7 @@ export function ToastForm({
   children,
   onSettled,
 }: {
-  action: (formData: FormData) => Promise<void>;
+  action: (formData: FormData) => Promise<ActionOutcome>;
   successMessage?: string;
   errorMessage?: string;
   className?: string;
@@ -46,7 +47,12 @@ export function ToastForm({
         const formData = new FormData(event.currentTarget);
         startTransition(async () => {
           try {
-            await action(formData);
+            const result = await action(formData);
+            if (result && result.ok === false) {
+              showToast("error", result.error);
+              onSettled?.(false);
+              return;
+            }
             showToast("success", successMessage);
             onSettled?.(true);
           } catch (error) {
