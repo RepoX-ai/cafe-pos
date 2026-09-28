@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, History, KeyRound, LogOut, Printer, ShoppingBag, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { PosCategory, PosMenuItem } from "@/server/services/menu-service";
+import { addLineDemand, describeShortage, findShortages, type DemandTotals, type IngredientDemand, type StockLevels } from "@/lib/pos/stock-demand";
 import type { TaxConfig } from "@/lib/settings/tax";
 import { calculateOrderTotals } from "@/lib/settings/tax";
 import { formatIDR, sumRupiah } from "@/lib/money/money";
@@ -57,6 +58,7 @@ export function PosClient({
   activeMembershipId,
   categories,
   items,
+  stock,
   tax,
   serviceChargePercent,
   canViewOrderHistory,
@@ -71,6 +73,7 @@ export function PosClient({
   activeMembershipId: string;
   categories: PosCategory[];
   items: PosMenuItem[];
+  stock: StockLevels;
   tax: TaxConfig | null;
   serviceChargePercent: number | null;
   canViewOrderHistory: boolean;
@@ -268,6 +271,33 @@ export function PosClient({
     });
   }, [items, activeCategory, search]);
 
+  // Options are keyed per item: whether a modifier draws stock depends on
+  // the item it's added to.
+  const demandLookup = useMemo(() => {
+    const variants = new Map<string, IngredientDemand[]>();
+    const options = new Map<string, IngredientDemand[]>();
+    for (const item of items) {
+      for (const v of item.variants) variants.set(v.id, v.demand);
+      for (const group of item.modifierGroups) for (const o of group.options) options.set(`${item.id}:${o.id}`, o.demand);
+    }
+    return { variants, options };
+  }, [items]);
+
+  const cartDemand = useMemo(() => {
+    const totals: DemandTotals = new Map();
+    for (const line of cart) {
+      if (!line.variantId) continue;
+      addLineDemand(
+        totals,
+        [demandLookup.variants.get(line.variantId) ?? [], ...line.modifierOptionIds.map((id) => demandLookup.options.get(`${line.menuItemId}:${id}`) ?? [])],
+        line.quantity,
+      );
+    }
+    return totals;
+  }, [cart, demandLookup]);
+
+  const cartStockWarnings = useMemo(() => findShortages(cartDemand, stock).map(describeShortage), [cartDemand, stock]);
+
   const subtotal = sumRupiah(cart.map(cartLineTotal));
   const { taxTotal, serviceChargeTotal, total } = calculateOrderTotals(subtotal, discountTotal, tax, serviceChargePercent);
   const cashReceived = paymentMethod === "cash" ? resolveCashReceived(cashMode, customCash, total) : null;
@@ -302,6 +332,15 @@ export function PosClient({
     // the picker and go straight to the cart; more than one variant, or
     // any modifier groups, need the configure modal.
     if (item.variants.length <= 1 && item.modifierGroups.length === 0) {
+      if (variant) {
+        const shortages = findShortages(addLineDemand(new Map(cartDemand), [variant.demand], 1), stock).filter((s) =>
+          variant.demand.some((d) => d.ingredientId === s.ingredientId),
+        );
+        if (shortages.length > 0) {
+          showToast("error", shortages.map(describeShortage).join(" "));
+          return;
+        }
+      }
       addToCart({
         menuItemId: item.id,
         menuItemName: item.name,
@@ -612,6 +651,7 @@ export function PosClient({
           updateQuantity={updateQuantity}
           removeLine={removeLine}
           submitError={submitError}
+          stockWarnings={cartStockWarnings}
           isSubmitting={isSubmitting}
           isOnline={isOnline}
           handleSubmit={handleSubmit}
@@ -630,7 +670,7 @@ export function PosClient({
       </button>
 
       {configuring ? (
-        <ItemModal item={configuring} onClose={() => setConfiguring(null)} onAdd={addToCart} />
+        <ItemModal item={configuring} stock={stock} cartDemand={cartDemand} onClose={() => setConfiguring(null)} onAdd={addToCart} />
       ) : null}
     </div>
   );

@@ -7,6 +7,7 @@ import { ImageOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { QuantityStepper } from "@/components/ui/quantity-stepper";
 import type { PosMenuItem } from "@/server/services/menu-service";
+import { addLineDemand, describeShortage, findShortages, type DemandTotals, type StockLevels } from "@/lib/pos/stock-demand";
 
 export interface ConfiguredLine {
   menuItemId: string;
@@ -24,10 +25,15 @@ export interface ConfiguredLine {
 
 export function ItemModal({
   item,
+  stock,
+  cartDemand,
   onClose,
   onAdd,
 }: {
   item: PosMenuItem;
+  stock: StockLevels;
+  /** What the lines already in the order draw, so this selection is judged on top of them. */
+  cartDemand: DemandTotals;
   onClose: () => void;
   onAdd: (line: ConfiguredLine) => void;
 }) {
@@ -55,6 +61,15 @@ export function ItemModal({
     [selectedOptions, item.modifierGroups],
   );
 
+  const shortages = useMemo(() => {
+    if (!variant) return [];
+    const parts = [variant.demand, ...flatSelected.map((o) => o.demand)];
+    const selected = new Set(parts.flat().map((d) => d.ingredientId));
+    return findShortages(addLineDemand(new Map(cartDemand), parts, quantity), stock)
+      .filter((s) => selected.has(s.ingredientId))
+      .map((s) => ({ ...s, inCart: (cartDemand.get(s.ingredientId) ?? 0n) > 0n }));
+  }, [variant, flatSelected, quantity, cartDemand, stock]);
+
   const modifierAdjustmentTotal = flatSelected.reduce((sum, o) => sum + o.priceAdjustment, 0);
   const unitPrice = (variant?.price ?? item.basePrice) + modifierAdjustmentTotal;
   const total = unitPrice * quantity;
@@ -81,7 +96,7 @@ export function ItemModal({
 
   function handleAdd() {
     // A variant is only required when the item actually has one to pick.
-    if ((item.variants.length > 0 && !variant) || (variant && !variant.inStock) || missingRequired.length > 0) return;
+    if ((item.variants.length > 0 && !variant) || (variant && !variant.inStock) || missingRequired.length > 0 || shortages.length > 0) return;
     onAdd({
       menuItemId: item.id,
       menuItemName: item.name,
@@ -204,6 +219,17 @@ export function ItemModal({
           </div>
         </div>
 
+        {shortages.length > 0 ? (
+          <div role="alert" className="border-t border-[var(--color-border)] bg-[var(--color-danger-bg)] px-4 py-3 text-sm text-[var(--color-danger)] sm:px-6">
+            {shortages.map((s) => (
+              <p key={s.ingredientId}>
+                {describeShortage(s)}
+                {s.inCart ? " Includes what's already in this order." : ""}
+              </p>
+            ))}
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] px-4 py-3 sm:flex-nowrap sm:px-6 sm:py-4">
           <div className="flex items-center gap-3">
             <QuantityStepper
@@ -215,7 +241,7 @@ export function ItemModal({
           <Button
             size="lg"
             className="min-w-0 flex-1"
-            disabled={missingRequired.length > 0 || (item.variants.length > 0 && !variant?.inStock)}
+            disabled={missingRequired.length > 0 || (item.variants.length > 0 && !variant?.inStock) || shortages.length > 0}
             onClick={handleAdd}
           >
             Add · {formatIDR(total)}

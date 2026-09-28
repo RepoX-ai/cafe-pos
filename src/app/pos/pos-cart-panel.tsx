@@ -52,6 +52,7 @@ export function PosCartPanel({
   updateQuantity,
   removeLine,
   submitError,
+  stockWarnings,
   isSubmitting,
   isOnline,
   handleSubmit,
@@ -82,6 +83,8 @@ export function PosCartPanel({
   updateQuantity: (key: string, delta: number) => void;
   removeLine: (key: string) => void;
   submitError: string | null;
+  /** From the last-loaded stock levels; checkout re-checks against live stock. */
+  stockWarnings: string[];
   isSubmitting: boolean;
   isOnline: boolean;
   handleSubmit: () => void;
@@ -331,6 +334,14 @@ export function PosCartPanel({
           >
             {cashError}
           </p>
+        ) : null}
+
+        {stockWarnings.length > 0 && !submitError ? (
+          <div role="status" className="mt-3 rounded-[var(--radius-sm)] bg-[var(--color-warning-bg)] px-3 py-2 text-sm text-[var(--color-warning)]">
+            {stockWarnings.map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
+          </div>
         ) : null}
 
         {submitError ? (

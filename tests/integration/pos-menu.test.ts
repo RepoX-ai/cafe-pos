@@ -139,7 +139,7 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
   it("returns an empty catalog for a business with no menu, in both stock modes", async () => {
     const [business] = await db!.insert(businesses).values({ name: "Empty Café", orderNumberPrefix: "EMP" }).returning();
     for (const allowNegativeStock of [false, true]) {
-      expect(await getPosMenu(db!, business.id, { allowNegativeStock })).toEqual({ categories: [], items: [] });
+      expect(await getPosMenu(db!, business.id, { allowNegativeStock })).toEqual({ categories: [], items: [], stock: {} });
     }
   });
 
@@ -205,14 +205,15 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
     ]);
 
     await seedTestFixture(db!); // another tenant, which must never leak in
-    return { business, menuItem, plain, untracked, waterVariant, group, lessSugar, extraSugar, catA };
+    return { business, menuItem, plain, untracked, waterVariant, group, lessSugar, extraSugar, catA, short };
   }
 
   it("builds the full catalog shape with stock flags when negative stock is not allowed", async () => {
     const m = await richMenu();
-    const { categories, items } = await getPosMenu(db!, m.business.id, { allowNegativeStock: false });
+    const { categories, items, stock } = await getPosMenu(db!, m.business.id, { allowNegativeStock: false });
 
     expect(categories.map((c) => c.name)).toEqual(["Food", "Drinks"]);
+    expect(stock[m.short.id]).toEqual({ name: "Scarce", unit: "gram", available: "1.0000" });
     expect(items.map((i) => i.id)).toEqual([m.plain.id, m.menuItem.id, m.untracked.id]);
 
     const [plain, coffee, water] = items;
@@ -222,6 +223,7 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
       ["Large", 30_000, false],
       ["Regular", 20_000, true],
     ]);
+    expect(coffee.variants.find((v) => v.name === "Large")?.demand).toEqual([{ ingredientId: m.short.id, quantity: 5 }]);
     expect(coffee.outOfStock).toBe(false);
     expect(coffee.modifierGroups).toEqual([
       {
@@ -231,16 +233,16 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
         minSelections: 1,
         maxSelections: 2,
         options: expect.arrayContaining([
-          { id: m.lessSugar.id, name: "Less", priceAdjustment: 0, inStock: true },
-          { id: m.extraSugar.id, name: "Extra", priceAdjustment: 2_000, inStock: false },
+          { id: m.lessSugar.id, name: "Less", priceAdjustment: 0, inStock: true, demand: [] },
+          { id: m.extraSugar.id, name: "Extra", priceAdjustment: 2_000, inStock: false, demand: [{ ingredientId: m.short.id, quantity: 5 }] },
         ]),
       },
     ]);
     expect(coffee.modifierGroups[0].options).toHaveLength(2);
 
     // Untracked: the same short ingredient never blocks it.
-    expect(water.variants).toEqual([{ id: m.waterVariant.id, name: "Bottle", price: 5_000, inStock: true }]);
-    expect(water.modifierGroups[0].options.every((o) => o.inStock)).toBe(true);
+    expect(water.variants).toEqual([{ id: m.waterVariant.id, name: "Bottle", price: 5_000, inStock: true, demand: [] }]);
+    expect(water.modifierGroups[0].options.every((o) => o.inStock && o.demand.length === 0)).toBe(true);
     expect(water.outOfStock).toBe(false);
   });
 
@@ -250,8 +252,10 @@ describe.skipIf(!db)("getPosMenu does not touch business settings", () => {
     const lenient = await getPosMenu(db!, m.business.id, { allowNegativeStock: true });
 
     const withoutStock = (menu: typeof strict) =>
-      JSON.parse(JSON.stringify(menu, (key, value) => (key === "inStock" || key === "outOfStock" ? undefined : value)));
+      JSON.parse(JSON.stringify(menu, (key, value) => (["inStock", "outOfStock", "demand", "stock"].includes(key) ? undefined : value)));
     expect(withoutStock(lenient)).toEqual(withoutStock(strict));
+    expect(lenient.stock).toEqual({});
+    expect(lenient.items.every((i) => i.variants.every((v) => v.demand.length === 0))).toBe(true);
     const flags = lenient.items.flatMap((i) => [
       ...i.variants.map((v) => v.inStock),
       ...i.modifierGroups.flatMap((g) => g.options.map((o) => o.inStock)),

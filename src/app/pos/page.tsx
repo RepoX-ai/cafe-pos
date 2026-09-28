@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 export default async function PosPage() {
   const user = await requirePageAccess("orders:create");
   const business = await getBusinessById(db, user.businessId);
-  const { categories, items } = await getCachedPosMenu(user.businessId, {
+  const { categories, items, stock } = await getCachedPosMenu(user.businessId, {
     allowNegativeStock: business?.allowNegativeStock ?? false,
   });
 
@@ -47,6 +47,7 @@ export default async function PosPage() {
       }))}
       categories={categories}
       items={items}
+      stock={stock}
       tax={tax}
       serviceChargePercent={serviceChargePercent}
       canViewOrderHistory={canViewOrderHistory}

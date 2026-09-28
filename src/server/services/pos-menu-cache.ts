@@ -1,6 +1,7 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 import { db } from "@/lib/db/client";
 import { getPosMenu, type PosCategory, type PosMenuItem } from "./menu-service";
+import type { StockLevels } from "@/lib/pos/stock-demand";
 
 /** Short TTL so stock badges stay roughly fresh without rebuilding on every /pos load. */
 const POS_MENU_REVALIDATE_SECONDS = 20;
@@ -17,7 +18,7 @@ export function posMenuCacheTag(businessId: string): string {
 export function getCachedPosMenu(
   businessId: string,
   opts: { allowNegativeStock: boolean },
-): Promise<{ categories: PosCategory[]; items: PosMenuItem[] }> {
+): Promise<{ categories: PosCategory[]; items: PosMenuItem[]; stock: StockLevels }> {
   const stockKey = opts.allowNegativeStock ? "neg" : "stock";
   return unstable_cache(
     async () => getPosMenu(db, businessId, opts),
