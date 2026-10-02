@@ -32,6 +32,8 @@ export interface NavItem {
   label: string;
   icon: NavIconKey;
   permission: Permission;
+  /** Hide this item from anyone who also holds this permission — it already gets a fuller entry elsewhere in the sidebar. */
+  hiddenWith?: Permission;
   group: NavGroupKey;
 }
 
@@ -69,6 +71,17 @@ export const LANDING_ROUTES: Array<{ href: string; permission: Permission }> = [
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: "dashboard", permission: "reports:read", group: "overview" },
   { href: "/orders", label: "Orders", icon: "orders", permission: "orders:read_all", group: "overview" },
+  // The COGS-free order history for roles that may browse orders but not
+  // see financials (e.g. inventory_staff). It lives outside this shell under
+  // /pos, so roles without orders:create still reach it via this link.
+  {
+    href: "/pos/orders",
+    label: "Order history",
+    icon: "orders",
+    permission: "orders:read_all_basic",
+    hiddenWith: "orders:read_all",
+    group: "overview",
+  },
   { href: "/menu", label: "Menu", icon: "menu", permission: "menu:read", group: "catalog" },
   { href: "/ingredients", label: "Ingredients", icon: "ingredients", permission: "inventory:read", group: "catalog" },
   { href: "/inventory", label: "Inventory", icon: "inventory", permission: "inventory:read", group: "inventory" },

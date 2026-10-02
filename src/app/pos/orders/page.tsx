@@ -37,6 +37,9 @@ export default async function PosOrderHistoryPage({
   if (!hasAnyRolePermission(user.roles, "orders:read_all_basic") && !hasAnyRolePermission(user.roles, "orders:read_all")) {
     redirect("/forbidden");
   }
+  // Roles without orders:create (e.g. inventory_staff) arrive from the
+  // admin sidebar and would be bounced off /pos to /forbidden.
+  const canUsePos = hasAnyRolePermission(user.roles, "orders:create");
   const { status, search, page } = await searchParams;
 
   const result = await listOrders(db, user.businessId, {
@@ -50,8 +53,8 @@ export default async function PosOrderHistoryPage({
   return (
     <div className="force-light-theme min-h-screen bg-[var(--color-page-bg)] px-6 py-6">
       <div className="mx-auto max-w-[1200px]">
-        <Link href="/pos" className="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
-          &larr; Back to POS
+        <Link href={canUsePos ? "/pos" : "/"} className="text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]">
+          &larr; {canUsePos ? "Back to POS" : "Back to dashboard"}
         </Link>
         <h1 className="mt-2 text-2xl font-semibold text-[var(--color-text-primary)]">Order history</h1>
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">All submitted orders for this café.</p>

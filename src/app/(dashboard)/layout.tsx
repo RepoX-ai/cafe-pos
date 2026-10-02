@@ -29,8 +29,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     user.membershipCount > 1 ? listMemberships(db, user.id) : Promise.resolve([]),
   ]);
 
-  const visibleNavItems = NAV_ITEMS.filter((item) =>
-    hasAnyRolePermission(user.roles, item.permission),
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) =>
+      hasAnyRolePermission(user.roles, item.permission) &&
+      !(item.hiddenWith && hasAnyRolePermission(user.roles, item.hiddenWith)),
   );
 
   return (
