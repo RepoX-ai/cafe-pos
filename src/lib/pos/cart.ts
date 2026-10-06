@@ -10,8 +10,9 @@ export const cartLineSchema = z.object({
 export const cartDraftSchema = z.object({
   cart: z.array(cartLineSchema), orderType: z.enum(["dine_in", "takeaway", "other"]),
   tableLabel: z.string(), discountTotal: z.number().int().nonnegative(),
-  idempotencyKey: z.string().min(1), paymentMethod: z.enum(["cash", "card", "qris", "other"]),
+  idempotencyKey: z.string().min(1), paymentMethod: z.enum(["cash", "card", "qris", "online", "other"]),
   cardBank: z.enum(["bca", "mandiri", "bri"]).nullable(),
+  onlinePlatform: z.enum(["grab", "gojek", "shopee"]).nullable().default(null),
   cashMode: z.enum(["exact", "50000", "100000", "custom"]).nullable().default(null),
   customCash: z.number().int().nonnegative().nullable().default(null),
 });

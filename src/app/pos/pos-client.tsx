@@ -26,11 +26,13 @@ import { PosOrderConfirmation } from "./pos-order-confirmation";
 import {
   CARD_BANK_LABELS,
   cartLineTotal,
+  ONLINE_PLATFORM_LABELS,
   PAYMENT_METHODS,
   resolveCashReceived,
   type CardBank,
   type CartLine,
   type CashTenderMode,
+  type OnlinePlatform,
   type OrderType,
   type PaymentMethod,
 } from "./pos-order-options";
@@ -97,12 +99,17 @@ export function PosClient({
   const [tableLabel, setTableLabel] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [cardBank, setCardBank] = useState<CardBank | null>(null);
+  const [onlinePlatform, setOnlinePlatform] = useState<OnlinePlatform | null>(null);
   // How the cash was tendered, and the typed amount behind "Lainnya". The
   // tendered figure itself is derived from these plus the total, below.
   const [cashMode, setCashMode] = useState<CashTenderMode | null>(null);
   const [customCash, setCustomCash] = useState<number | null>(null);
   const paymentMethodLabel =
-    paymentMethod === "card" && cardBank ? `card (${CARD_BANK_LABELS[cardBank]})` : paymentMethod;
+    paymentMethod === "card" && cardBank
+      ? `card (${CARD_BANK_LABELS[cardBank]})`
+      : paymentMethod === "online" && onlinePlatform
+        ? `online (${ONLINE_PLATFORM_LABELS[onlinePlatform]})`
+        : paymentMethod;
   const [discountTotal, setDiscountTotal] = useState(0);
   const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -192,6 +199,7 @@ export function PosClient({
         if (typeof draft.idempotencyKey === "string") setIdempotencyKey(draft.idempotencyKey);
         if (PAYMENT_METHODS.includes(draft.paymentMethod)) setPaymentMethod(draft.paymentMethod);
         setCardBank(draft.cardBank);
+        setOnlinePlatform(draft.onlinePlatform);
         setCashMode(draft.cashMode);
         setCustomCash(draft.customCash);
         if (draft.orderType) setOrderType(draft.orderType);
@@ -207,11 +215,11 @@ export function PosClient({
   useEffect(() => {
     if (!draftLoaded) return;
     try {
-      localStorage.setItem(draftKey, JSON.stringify({ cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, cashMode, customCash }));
+      localStorage.setItem(draftKey, JSON.stringify({ cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, onlinePlatform, cashMode, customCash }));
     } catch {
       // storage unavailable (private mode, quota) — cart still works in-memory
     }
-  }, [cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, cashMode, customCash, draftLoaded, draftKey]);
+  }, [cart, orderType, tableLabel, discountTotal, idempotencyKey, paymentMethod, cardBank, onlinePlatform, cashMode, customCash, draftLoaded, draftKey]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -390,6 +398,7 @@ export function PosClient({
   async function handleSubmit() {
     if ((!pending && cart.length === 0) || submitting.current || !draftLoaded || !isOnline) return;
     if (!pending && paymentMethod === "card" && !cardBank) return;
+    if (!pending && paymentMethod === "online" && !onlinePlatform) return;
     // Cash sales must record what the customer handed over. The server
     // rejects an under-tender too; stopping here keeps the cashier from
     // burning the idempotency key on a doomed submission.
@@ -636,6 +645,8 @@ export function PosClient({
           setPaymentMethod={setPaymentMethod}
           cardBank={cardBank}
           setCardBank={setCardBank}
+          onlinePlatform={onlinePlatform}
+          setOnlinePlatform={setOnlinePlatform}
           cashReceived={cashReceived}
           cashMode={cashMode}
           setCashMode={setCashMode}

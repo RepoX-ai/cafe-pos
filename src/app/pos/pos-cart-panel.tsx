@@ -12,10 +12,14 @@ import {
   CASH_TENDER_MODES,
   cartLineTotal,
   cashTenderPreset,
+  ONLINE_PLATFORM_LABELS,
+  ONLINE_PLATFORMS,
+  PAYMENT_METHOD_LABELS,
   PAYMENT_METHODS,
   type CardBank,
   type CartLine,
   type CashTenderMode,
+  type OnlinePlatform,
   type OrderType,
   type PaymentMethod,
 } from "./pos-order-options";
@@ -37,6 +41,8 @@ export function PosCartPanel({
   setPaymentMethod,
   cardBank,
   setCardBank,
+  onlinePlatform,
+  setOnlinePlatform,
   cashReceived,
   cashMode,
   setCashMode,
@@ -68,6 +74,8 @@ export function PosCartPanel({
   setPaymentMethod: (value: PaymentMethod) => void;
   cardBank: CardBank | null;
   setCardBank: (value: CardBank | null) => void;
+  onlinePlatform: OnlinePlatform | null;
+  setOnlinePlatform: (value: OnlinePlatform | null) => void;
   cashReceived: number | null;
   cashMode: CashTenderMode | null;
   setCashMode: (value: CashTenderMode | null) => void;
@@ -188,6 +196,7 @@ export function PosCartPanel({
               const next = v as (typeof PAYMENT_METHODS)[number];
               setPaymentMethod(next);
               if (next !== "card") setCardBank(null);
+              if (next !== "online") setOnlinePlatform(null);
               if (next !== "cash") {
                 setCashMode(null);
                 setCustomCash(null);
@@ -196,7 +205,7 @@ export function PosCartPanel({
           >
             {PAYMENT_METHODS.map((m) => (
               <option key={m} value={m}>
-                {m[0].toUpperCase() + m.slice(1)}
+                {PAYMENT_METHOD_LABELS[m]}
               </option>
             ))}
           </Select>
@@ -218,6 +227,28 @@ export function PosCartPanel({
                   }`}
                 >
                   {CARD_BANK_LABELS[bank]}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {paymentMethod === "online" ? (
+          <div className="mb-3">
+            <span className="mb-1.5 block text-xs font-medium text-[var(--color-text-secondary)]">Which platform?</span>
+            <div className="flex gap-1 rounded-[var(--radius-sm)] bg-[var(--color-page-bg)] p-0.5">
+              {ONLINE_PLATFORMS.map((platform) => (
+                <button
+                  key={platform}
+                  type="button"
+                  onClick={() => setOnlinePlatform(platform)}
+                  className={`flex-1 rounded-[calc(var(--radius-sm)-2px)] px-2.5 py-1.5 text-xs font-medium ${
+                    onlinePlatform === platform
+                      ? "bg-[var(--color-surface)] text-[var(--color-text-primary)] shadow-sm"
+                      : "text-[var(--color-text-muted)]"
+                  }`}
+                >
+                  {ONLINE_PLATFORM_LABELS[platform]}
                 </button>
               ))}
             </div>
@@ -353,7 +384,7 @@ export function PosCartPanel({
         <Button
           size="lg"
           className="mt-3 w-full"
-          disabled={cart.length === 0 || isSubmitting || !isOnline || (paymentMethod === "card" && !cardBank) || isUnderTendered || isCashMissing}
+          disabled={cart.length === 0 || isSubmitting || !isOnline || (paymentMethod === "card" && !cardBank) || (paymentMethod === "online" && !onlinePlatform) || isUnderTendered || isCashMissing}
           onClick={handleSubmit}
         >
           {isSubmitting ? "Submitting…" : `Submit order · ${formatIDR(total)}`}

@@ -6,15 +6,29 @@ export interface CartLine extends ConfiguredLine {
 }
 
 export type OrderType = "dine_in" | "takeaway" | "other";
-export const PAYMENT_METHODS = ["cash", "card", "qris", "other"] as const;
+export const PAYMENT_METHODS = ["cash", "card", "qris", "online", "other"] as const;
+export const PAYMENT_METHOD_LABELS: Record<(typeof PAYMENT_METHODS)[number], string> = {
+  cash: "Cash",
+  card: "Card",
+  qris: "QRIS",
+  online: "Online",
+  other: "Other",
+};
 export const CARD_BANKS = ["bca", "mandiri", "bri"] as const;
 export const CARD_BANK_LABELS: Record<(typeof CARD_BANKS)[number], string> = {
   bca: "BCA",
   mandiri: "Mandiri",
   bri: "BRI",
 };
+export const ONLINE_PLATFORMS = ["grab", "gojek", "shopee"] as const;
+export const ONLINE_PLATFORM_LABELS: Record<(typeof ONLINE_PLATFORMS)[number], string> = {
+  grab: "Grab",
+  gojek: "Gojek",
+  shopee: "Shopee",
+};
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 export type CardBank = (typeof CARD_BANKS)[number];
+export type OnlinePlatform = (typeof ONLINE_PLATFORMS)[number];
 
 /**
  * Quick-tender shortcuts on a cash sale. "exact" tracks the running total
